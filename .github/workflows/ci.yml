@@ -21,9 +21,6 @@ on:
       - "!.github/ISSUE_TEMPLATE/**"
       - "!tools/console-log.py"
       - "!tools/plaits-bench/**"
-      # ...except this document, which IS source code: gen_engines.py builds the
-      # engine table from it, and the host suites read it too.
-      - "docs/PLAITS-ENGINES.md"
   push:
     branches: [main]
     paths: *build-inputs
