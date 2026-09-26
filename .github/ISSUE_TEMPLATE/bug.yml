@@ -1,0 +1,60 @@
+name: Bug
+description: Something the firmware does that it should not, or does not do that it should.
+title: "BUG: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What goes wrong, in a sentence or two.
+      placeholder: >-
+        When a T button is held long enough to issue Unpatch, an additional button press
+        is registered on release.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps To Reproduce
+      description: Every button, fader and page involved, in order, including what you let go of and when.
+      placeholder: |
+        1. Hold down shift
+        2. Hold down T button long enough to activate Unpatch
+        3. Unpatch animation activates and the patch is cleared
+        4. Let go of T button
+        5. Let go of shift
+    validations:
+      required: true
+
+  - type: textarea
+    id: result
+    attributes:
+      label: Resulting Issue
+      description: What actually happens.
+      placeholder: |
+        * An extra button press is sent on release, resulting in behaviours like a new patch
+          destination being set if any of Marbles shift-layer T1-T4 buttons were held down to
+          activate Unpatch.
+    validations:
+      required: true
+
+  - type: textarea
+    id: intended
+    attributes:
+      label: Intended Behaviour
+      description: What should happen instead.
+      placeholder: |
+        * Unpatch activates, clearing the patch. Letting go of the button does nothing else.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release you flashed (e.g. from its file name), or the commit if you built it yourself.
+      placeholder: v0.4.5
+    validations:
+      required: true
