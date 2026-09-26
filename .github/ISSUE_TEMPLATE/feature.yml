@@ -14,6 +14,26 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: page
+    attributes:
+      label: Module / Page
+      description: Where it would live. Pick every one that applies. Names as in docs/UI-PAGES.md.
+      multiple: true
+      options:
+        - PLAITS · BASE
+        - PLAITS · SHIFT (•• held)
+        - PLAITS · SETTINGS
+        - MARBLES · t BASE
+        - MARBLES · t SHIFT (•• held)
+        - MARBLES · X BASE
+        - MARBLES · X SHIFT (•• held)
+        - MARBLES · SETTINGS (Y)
+        - Power, STANDBY or battery display
+        - Not page-specific / not sure
+    validations:
+      required: false
+
   - type: textarea
     id: current
     attributes:
@@ -36,6 +56,20 @@ body:
         * Letting go returns to the normal clock, with the beat where it would have been.
     validations:
       required: true
+
+  - type: textarea
+    id: controls
+    attributes:
+      label: Controls
+      description: >-
+        Which buttons, faders or gesture it would use, if you have an idea. Free
+        combinations are scarce (see "Unassigned" in docs/UI-PAGES.md), and the only
+        long press on a T button is Unpatch, so a proposal that needs another long
+        press will need a different gesture.
+      placeholder: |
+        * FFWD held, as now. No new control.
+    validations:
+      required: false
 
   - type: input
     id: version

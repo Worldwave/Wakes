@@ -14,6 +14,26 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: page
+    attributes:
+      label: Module / Page
+      description: Where it happens. Pick every one that applies. Names as in docs/UI-PAGES.md.
+      multiple: true
+      options:
+        - PLAITS · BASE
+        - PLAITS · SHIFT (•• held)
+        - PLAITS · SETTINGS
+        - MARBLES · t BASE
+        - MARBLES · t SHIFT (•• held)
+        - MARBLES · X BASE
+        - MARBLES · X SHIFT (•• held)
+        - MARBLES · SETTINGS (Y)
+        - Power, STANDBY or battery display
+        - Not page-specific / not sure
+    validations:
+      required: false
+
   - type: textarea
     id: steps
     attributes:
@@ -40,6 +60,20 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How Often
+      description: >-
+        "Sometimes" usually points at timing or noise rather than logic, so this
+        changes where we look first.
+      options:
+        - Every time
+        - Sometimes
+        - Once, could not reproduce
+    validations:
+      required: false
+
   - type: textarea
     id: intended
     attributes:
@@ -58,3 +92,14 @@ body:
       placeholder: v0.4.5
     validations:
       required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Console Log
+      description: >-
+        Optional. Only if you capture the USB console (tools/console-log.py or any
+        serial terminal). Paste the lines from around the moment it happened.
+      render: text
+    validations:
+      required: false
