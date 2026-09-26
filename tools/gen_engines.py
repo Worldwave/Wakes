@@ -11,7 +11,9 @@ Two inputs, deliberately kept apart:
                        Columns Slot, Glyph, Engine. Only Engine is the user's: Slot and
                        Glyph are printed there so the file reads as the device does, and
                        the build checks they are unchanged. An empty Engine is an empty
-                       slot, which T2/T3 engine select skips.
+                       slot, which T2/T3 engine select skips. Any column after the third
+                       is ignored: the shipped file uses a fourth, "Engines you can choose
+                       from", as a reference list (a CSV has no comments).
   this file            FACTS the user cannot choose: each slot's glyph (SLOT_GLYPHS) and
                        each engine's index inside Plaits and centre detents
                        (PLAITS_ENGINES, keyed by name).
