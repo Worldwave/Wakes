@@ -1,12 +1,32 @@
-# Every PR to main, and every push to main: build both configs, run the host suites,
-# gate on check_image.py, and put the size diff in the run's summary.
+# Every PR to main, and every push to main, that touches a build input: build both
+# configs, run the host suites, gate on check_image.py, and put the size diff in the
+# run's summary. Administrative changes (see `paths`) run nothing. Tags always build
+# (release.yml), and workflow_dispatch builds on demand.
 name: ci
 
 on:
   pull_request:
     branches: [main]
+    paths: &build-inputs
+      # Everything triggers a build unless it is named below as administrative, so a
+      # new build input can never be skipped by accident. Later patterns win.
+      - "**"
+      # Administrative: nothing the build, the host suites or the checks read.
+      - "!**.md"
+      - "!LICENSE"
+      - "!LICENSES/**"
+      - "!NOTICE"
+      - "!.gitignore"
+      - "!.vscode/**"
+      - "!.github/ISSUE_TEMPLATE/**"
+      - "!tools/console-log.py"
+      - "!tools/plaits-bench/**"
+      # ...except this document, which IS source code: gen_engines.py builds the
+      # engine table from it, and the host suites read it too.
+      - "docs/PLAITS-ENGINES.md"
   push:
     branches: [main]
+    paths: *build-inputs
   workflow_dispatch:
 
 permissions:
