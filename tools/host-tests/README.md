@@ -6,7 +6,7 @@ proved on a laptop, and because there is exactly one SP-1 (`docs/SAFETY.md`).
 
 | | what it links | what it checks |
 |---|---|---|
-| `uitest.c` | `sp1_plaits_ui.c` + `sp1_marbles_ui.c`, with stubs | pages, layers, pickup, detents, rings, glyph uniqueness, scale stepping, the DEJA VU toggles, the V/Oct interlock, both rip wipes, `[J]` |
+| `uitest.c` | `sp1_plaits_ui.c` + `sp1_marbles_ui.c`, with stubs | pages, layers, pickup, detents, rings, glyph uniqueness, scale stepping, the DEJA VU toggles, the V/Oct interlock, both rip wipes, `[J]`, Unpatch eating its own release (`sp1_release_guard.h`) |
 | `routetest.cc` | all of Plaits and Marbles (with the overrides applied) + `sp1_synth.cc` + `sp1_marbles.cc` + both UI objects | routing, TRIG edges, the summing clamp, the HARMONICS attenuverter, the FREQUENCY quantizer's note sets, the soft-clip drive, the deferred re-seed, INTELLIGENT's per-channel ranges |
 
 ```sh

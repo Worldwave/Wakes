@@ -5,6 +5,7 @@
 
 #include "sp1_marbles_ui.h"
 #include "sp1_plaits_ui.h"
+#include "sp1_release_guard.h"
 
 /* ---- stubs for the parts that live in the audio thread ---- */
 uint8_t sp1_marbles_last_gates(void) { return 0u; }
@@ -40,6 +41,44 @@ static const char *glyph(const uint8_t lv[4])
 		strcat(s, lv[i] >= 200u ? "#" : (lv[i] > 0u ? "o" : "."));
 	}
 	return s;
+}
+
+/* ---- issue #2: main.c's Unpatch tick, reduced to its button logic ----
+ * The order is main.c's: the scan gives held[] and the release edges; Unpatch counts
+ * the hold and arms the guard on commit; the release handlers run; the guard is
+ * disarmed at the end of the tick. `old` replays M4e's flag, cleared every tick, to show
+ * this test catches the bug. Returns how many ordinary shift actions fired. */
+#define RG_HOLD_TICKS 250       /* 2.0 s of 8 ms ticks: SP1_UNPATCH_HOLD_MS */
+struct rg_step { int ticks; int held; };   /* held: -1 = no T button, else 0..3 */
+static int rg_run(const struct rg_step *steps, int n, bool old)
+{
+	struct sp1_release_guard g;
+	sp1_rg_init(&g);
+	bool flag = false;
+	int prev = -1, hold = 0, fired = 0;
+	for (int k = 0; k < n; k++) {
+		for (int t = 0; t < steps[k].ticks; t++) {
+			const int now = steps[k].held;
+			const int released = (prev >= 0 && now != prev) ? prev : -1;
+			/* Unpatch: the same button held for RG_HOLD_TICKS commits once */
+			hold = (now >= 0 && now == prev) ? hold + 1 : 0;
+			if (now >= 0 && hold == RG_HOLD_TICKS) {
+				if (old) { flag = true; } else { sp1_rg_arm(&g, now); }
+			}
+			/* the release handlers */
+			if (released >= 0 && !(old ? flag : sp1_rg_eats(&g, released))) {
+				fired++;
+			}
+			/* end of tick */
+			if (old) {
+				flag = false;
+			} else if (sp1_rg_button(&g) >= 0) {
+				sp1_rg_tick_end(&g, now == sp1_rg_button(&g));
+			}
+			prev = now;
+		}
+	}
+	return fired;
 }
 
 static uint16_t raw_mid[4] = { 1850, 1850, 1850, 1850 };
@@ -720,6 +759,48 @@ int main(void)
 			CHECK(fabsf(p.fm_mod) > 0.1f,
 			      "the deadband also blocked a real fader movement (%.3f)", p.fm_mod);
 		}
+	}
+
+	/* ---------- 16. Unpatch eats its own release (issue #2) ---------- */
+	printf("16. unpatch release\n");
+	{
+		/* Held well past the commit, then let go: the hardware report. */
+		const struct rg_step past[] = { { 1, -1 }, { RG_HOLD_TICKS + 60, 0 }, { 5, -1 } };
+		const int old_fired = rg_run(past, 3, true);
+		const int new_fired = rg_run(past, 3, false);
+		printf("   held 0.5 s past the commit, then released: M4e fired %d, now %d\n",
+		       old_fired, new_fired);
+		CHECK(old_fired == 1, "the model does not reproduce issue #2 (%d)", old_fired);
+		CHECK(new_fired == 0, "the release after an Unpatch still fired (%d)", new_fired);
+
+		/* Released on the very next tick after the commit. */
+		const struct rg_step quick[] = { { 1, -1 }, { RG_HOLD_TICKS + 1, 2 }, { 5, -1 } };
+		CHECK(rg_run(quick, 3, false) == 0, "a release one tick after the commit fired");
+
+		/* The guard must not leak: the NEXT short press of the same button is its own. */
+		const struct rg_step again[] = { { 1, -1 }, { RG_HOLD_TICKS + 30, 1 }, { 5, -1 },
+						 { 20, 1 }, { 5, -1 } };
+		CHECK(rg_run(again, 5, false) == 1,
+		      "the press after an Unpatch was eaten too (guard leaked)");
+
+		/* A short press never reaches Unpatch and always fires on release. */
+		const struct rg_step tap[] = { { 1, -1 }, { 40, 3 }, { 5, -1 } };
+		CHECK(rg_run(tap, 3, false) == 1, "a short shift press did not fire");
+
+		/* Released one tick BEFORE the commit: cancelled, so its release is ordinary. */
+		const struct rg_step early[] = { { 1, -1 }, { RG_HOLD_TICKS, 0 }, { 5, -1 } };
+		CHECK(rg_run(early, 3, false) == 1, "a cancelled Unpatch ate the release");
+
+		/* Only the armed button: another one's release is its own. */
+		struct sp1_release_guard g;
+		sp1_rg_init(&g);
+		sp1_rg_arm(&g, 1);
+		CHECK(sp1_rg_eats(&g, 1) && !sp1_rg_eats(&g, 0) && !sp1_rg_eats(&g, 3),
+		      "the guard ate a button it was not armed for");
+		sp1_rg_tick_end(&g, true);
+		CHECK(sp1_rg_eats(&g, 1), "the guard dropped while its button was still held");
+		sp1_rg_tick_end(&g, false);
+		CHECK(!sp1_rg_eats(&g, 1), "the guard outlived its button's release");
 	}
 
 	printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "all checks passed",

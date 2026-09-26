@@ -86,6 +86,7 @@
 #include "sp1_plaits_ui.h"
 #include "sp1_marbles.h"
 #include "sp1_marbles_ui.h"
+#include "sp1_release_guard.h"
 #endif
 
 #define WDT_NODE DT_ALIAS(watchdog0)
@@ -191,7 +192,7 @@ static void rip_levels(uint32_t t, uint8_t lv[4])
  * which is the useful thing to be able to say in one gesture.
  *
  * ⚠️ Because T1-T4 now carry two meanings under "••", their ORDINARY action moved to the
- * button's RELEASE and fires only if Unpatch did not (`unpatch_done`). Unavoidable with
+ * button's RELEASE and fires only if Unpatch did not (`unpatch_eat`). Unavoidable with
  * two meanings on one button, and it is why every shift-layer T-button below uses
  * sp1_button_released() instead of sp1_button_pressed().
  *
@@ -205,7 +206,9 @@ static void rip_levels(uint32_t t, uint8_t lv[4])
  * clears nothing, like every other hold here. */
 static uint32_t unpatch_ms;             /* how long "••" + the tracked button is held */
 static int      unpatch_btn = -1;       /* 0..3 = T1..T4, -1 = nothing being held     */
-static bool     unpatch_done;           /* this hold already cleared: eat the release */
+/* The button whose hold committed: its release is eaten, however long after the commit
+ * it comes (issue #2 -- see sp1_release_guard.h). */
+static struct sp1_release_guard unpatch_eat = { -1 };
 
 /* The four track LEDs at `t` ms into the animation (0 .. SP1_UNPATCH_ANIM_MS). */
 static void unpatch_levels(uint32_t t, uint8_t lv[4])
@@ -371,7 +374,7 @@ static void plaits_buttons(bool fnc, bool running, uint32_t dt)
 
 	/* ---- "••" + T4: output select, cycles forward and wraps (M3f) ----
 	 * On RELEASE since M4e: T4 is also Unpatch-HARMONICS. */
-	if (fnc && sp1_button_released(SP1_BTN_T4) && !unpatch_done) {
+	if (fnc && sp1_button_released(SP1_BTN_T4) && !sp1_rg_eats(&unpatch_eat, 3)) {
 		g_out_mode = (uint8_t)((g_out_mode + 1u) % SP1_OUT_COUNT);
 		sp1_synth_set_output((enum sp1_synth_output)g_out_mode);
 		uint8_t sel[4] = { 0u, 0u, 0u, 0u };
@@ -433,7 +436,7 @@ static void voct_took_over(uint8_t dest)
 static void marbles_y_dest_button(void)
 {
 	uint8_t lv[4];
-	if (!sp1_button_released(SP1_BTN_T4) || unpatch_done) {
+	if (!sp1_button_released(SP1_BTN_T4) || sp1_rg_eats(&unpatch_eat, 3)) {
 		return;
 	}
 	sp1_mui_dest_step(3);
@@ -456,7 +459,7 @@ static void marbles_buttons(bool fnc, uint32_t dt)
 			 * the default and LEVEL added). T4 = Y destination (M4e). */
 			for (int t = 0; t < 3; t++) {
 				if (sp1_button_released((enum sp1_button)(SP1_BTN_T1 + t)) &&
-				    !unpatch_done) {
+				    !sp1_rg_eats(&unpatch_eat, t)) {
 					sp1_mui_t_dest_step(t);
 					sp1_mui_t_dest_pattern(t, lv);
 					sp1_display_engine(lv);
@@ -473,7 +476,7 @@ static void marbles_buttons(bool fnc, uint32_t dt)
 			 * FFWD / RWD = the next / previous included scale (M4a). */
 			for (int x = 0; x < 3; x++) {
 				if (sp1_button_released((enum sp1_button)(SP1_BTN_T1 + x)) &&
-				    !unpatch_done) {
+				    !sp1_rg_eats(&unpatch_eat, x)) {
 					sp1_mui_dest_step(x);
 					sp1_mui_dest_pattern(x, lv);
 					sp1_display_engine(lv);
@@ -813,7 +816,7 @@ int main(void)
 		ffwd_consumed = false;
 		unpatch_ms = 0u;
 		unpatch_btn = -1;
-		unpatch_done = false;
+		sp1_rg_init(&unpatch_eat);
 		burst_n0 = 0u;
 		rip_ms = 0u;
 		sp1_synth_set_burst_div(1u << g_burst_div);
@@ -1240,9 +1243,9 @@ int main(void)
 				}
 
 				/* ================= UNPATCH ("••" + Tn held, M4e) =================
-				 * Runs BEFORE the button handlers, so `unpatch_done` is already set
-				 * when the release that ends the hold reaches them and the ordinary
-				 * shift action is correctly eaten.
+				 * Runs BEFORE the button handlers. A commit arms `unpatch_eat`, which
+				 * stays armed until that button reads UP, so the release -- whenever
+				 * it comes -- reaches the handlers eaten (issue #2).
 				 *
 				 * Only where that button HAS a cable to cut: the PLAITS base page
 				 * (its SETTINGS panel's T1-T4 are scale controls, not routings) and
@@ -1305,7 +1308,7 @@ int main(void)
 								printk("UNPATCH %s: %d route%s cleared\n",
 								       what, n, n == 1 ? "" : "s");
 							}
-							unpatch_done = true;
+							sp1_rg_arm(&unpatch_eat, ubtn);
 							static const uint8_t dk[4] = { 0u, 0u, 0u, 0u };
 							sp1_display_flash(dk, 0u,
 									  SP1_UNPATCH_FADEBACK_MS);
@@ -1329,11 +1332,9 @@ int main(void)
 					}
 					unpatch_btn = ubtn;
 					unpatch_ms = 0u;
-					/* ⚠️ unpatch_done is NOT cleared here. It must survive until
+					/* ⚠️ unpatch_eat is NOT cleared here. It must survive until
 					 * the RELEASE it is there to suppress has been seen by the
-					 * button handlers below -- which happens later in this very
-					 * tick, because the release is what brought us here. It is
-					 * cleared at the end of the tick instead. */
+					 * button handlers below; it is disarmed after them. */
 				}
 
 				/* ---- T4 swaps module (Adara, M4). Not with "••" (output select
@@ -1368,9 +1369,15 @@ int main(void)
 				} else {
 					marbles_buttons(fnc, dt);
 				}
-				/* The release that ended an Unpatch has now been seen and eaten by
-				 * the handlers above, so the flag has done its job. */
-				unpatch_done = false;
+				/* ⚠️ Disarm only once the button is UP: its release has then been
+				 * seen and eaten by the handlers above. M4e cleared the flag here
+				 * on EVERY tick, and since the commit happens with the button still
+				 * held, the release always arrived to a cleared flag (issue #2). */
+				if (sp1_rg_button(&unpatch_eat) >= 0) {
+					sp1_rg_tick_end(&unpatch_eat, sp1_button_held(
+						(enum sp1_button)(SP1_BTN_T1 +
+								  sp1_rg_button(&unpatch_eat))));
+				}
 
 				/* ---- FFWD on PLAITS: the burst, running or stopped (M4e) ----
 				 * Recomputed every tick, so PLAY or a module change in the middle of
