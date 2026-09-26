@@ -1,25 +1,25 @@
-Slot,Glyph,Engine,Engines you can choose from
-1,●○○○,virtual analog,2-op FM
-2,●●○○,waveshaping,6-op FM A
-3,●●●○,2-op FM,6-op FM B
-4,●●●●,grain / formant,6-op FM C
-5,○●●●,additive,additive
-6,○○●●,wavetable,bass drum
-7,○○○●,chords,chiptune
-8,○●○○,speech,chords
-9,○○●○,swarm,filtered noise
-10,●○○●,filtered noise,grain / formant
-11,○●●○,particle,hi-hat
-12,●○●●,string,modal
-13,●●○●,modal,particle
-14,●○●○,bass drum,phase distortion
-15,○●○●,snare drum,snare drum
-16,○○○○,hi-hat,speech
-17,◐◐◐◐,VA + VCF,string
-18,○◐◐○,phase distortion,string machine
-19,◐○○◐,wave terrain,swarm
-20,○◐○◐,string machine,VA + VCF
-21,◐○◐○,chiptune,virtual analog
-22,○◐◐◐,,wave terrain
-23,○○○◐,,waveshaping
-24,○◐○○,,wavetable
+Slot,Glyph,Engine
+1,●○○○,virtual analog
+2,●●○○,waveshaping
+3,●●●○,2-op FM
+4,●●●●,grain / formant
+5,○●●●,additive
+6,○○●●,wavetable
+7,○○○●,chords
+8,○●○○,speech
+9,○○●○,swarm
+10,●○○●,filtered noise
+11,○●●○,particle
+12,●○●●,string
+13,●●○●,modal
+14,●○●○,bass drum
+15,○●○●,snare drum
+16,○○○○,hi-hat
+17,◐◐◐◐,VA + VCF
+18,○◐◐○,phase distortion
+19,◐○○◐,wave terrain
+20,○◐○◐,string machine
+21,◐○◐○,chiptune
+22,○◐◐◐,
+23,○○○◐,
+24,○◐○○,

@@ -15,7 +15,6 @@ there.
 | **Slot** | the slot number. It's the row's position, printed so the file reads like the device. | No |
 | **Glyph** | the four-LED pattern flashed when the slot is selected, T1 first. It belongs to the slot, not to the engine in it. | No |
 | **Engine** | the engine in that slot, named exactly as under "Available engines" below (upper/lower case doesn't matter). **Leave it empty** for an empty slot, which T2/T3 skip. | **Yes** |
-| **Engines you can choose from** | every name the Engine column accepts, in alphabetical order. It's a reference list and doesn't line up with the slots beside it. The build ignores it. | Ignored |
 
 - **To remove an engine**, clear its Engine cell. The slot stays and is skipped.
 - **To add one**, type its name into an empty slot's Engine cell.
