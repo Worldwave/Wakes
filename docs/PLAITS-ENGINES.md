@@ -144,7 +144,7 @@ engine's cost. **`avg` is the figure that decides whether an engine fits.**
 missing from it on purpose: **F1 is always pitch** — Plaits' V/OCT and frequency control, with
 its range set by SETTINGS F1. Only F2–F4 change meaning with the engine.
 
-| Default slot | Engine | F2 TIMBRE | F3 MORPH | F4 HARMONICS | AUX (`••`+T4) |
+| Default slot | Engine | F2 TIMBRE | F3 MORPH | F4 HARMONICS | AUX (SETTINGS T4) |
 |---|---|---|---|---|---|
 | 1 | virtual analog | variable square, from narrow pulse to full square to hardsync formants | variable saw, from triangle to saw with an increasingly wide notch | detuning between the two waves | sum of two hardsync'ed waveforms, shaped by MORPH |
 | 2 | waveshaping | wavefolder amount | waveform asymmetry | waveshaper waveform | the same, with Warps' other wavefolder curve |

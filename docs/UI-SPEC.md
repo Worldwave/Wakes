@@ -1,9 +1,13 @@
-# wakes-sp1 — UI specification v0.14
+# wakes-sp1 — UI specification v0.15
 
 > **For the flat control map — every control on every page, with nothing else in the way —
 > read `docs/UI-PAGES.md`.** This file is the design record: why each decision went the way it
 > did, what was rejected, and what is still open. `docs/MARBLES-SETTINGS.md` is the same split
 > for Marbles' models, ranges and scales.
+
+v0.15 — 2026-09-26: **Output select moves to PLAITS SETTINGS T4** (#11, v0.4.6), on press.
+`••` + T4 on PLAITS is now Unpatch-HARMONICS only: a short press does nothing, so the shift
+layer's T buttons carry exactly one job each.
 
 v0.14 — 2026-09-25: **M4e** (Adara's M4c/M4d hardware notes). **UNPATCH**: `••` held plus a
 T button held 2 s clears that button's routing — on PLAITS the parameter's (T1 = FREQUENCY, i.e.
@@ -195,7 +199,7 @@ nothing on PLAITS for now and carries a Marbles button on each Marbles page.
 | T2 / T3 | previous / next model |
 | T1 | nothing (v0.9) |
 | T4 | swap to MARBLES (v0.9) |
-| `••` + T4 | output select (built, M3f) |
+| `••` + T4 | ~~output select~~ → PLAITS **SETTINGS T4** (v0.15). Held 2 s: UNPATCH HARMONICS |
 | `••` + T1 / T2 / T3 | free (v0.10) — the whole spare combination supply on this module |
 
 ~~`••`+T2 / `••`+T3 toggle t1 → TRIG / X1 → V/Oct~~ — v0.9: all routing moved to the
@@ -437,11 +441,12 @@ RWD does, and the FFWD burst. Simpler: one button, one job.
 At 1/4 the ratchet changes nothing, and at 1/2 and 1/1 it slows the clock: the division is
 a note value, not a multiplier. The master clock is capped at 500 Hz.
 
-### Output select — four modes on `••`+T4 (SETTLED)
+### Output select — four modes on PLAITS SETTINGS T4 (SETTLED)
 
 Every engine renders two signals: `Voice::Frame` carries `out` and `aux`, and
-`Engine::Render()` fills both. `••`+T4 **cycles forward and wraps** — no reverse control,
-which keeps `••`+T1 free.
+`Engine::Render()` fills both. SETTINGS T4 **cycles forward and wraps** — no reverse control.
+It was `••`+T4 from M3f to v0.14; v0.15 (#11) moved it to the panel's free T4 so that the
+shift layer's T4 is Unpatch and nothing else.
 
 **M3g:** OUT+AUX runs through a peak limiter (Plaits' own limiter constants, ceiling 0.8 of
 full scale; no gain change below it) — it was too hot in M3f.

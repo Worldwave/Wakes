@@ -129,7 +129,7 @@ uint32_t sp1_synth_trig_edges(void);
 
 /* ---- output select (M3f, UI-SPEC "Output select") ----
  * Plaits renders two signals per engine, OUT and AUX; this picks what reaches the
- * codec. Cycled by "••" + T4 on the PLAITS page. Applied from the next Plaits block.
+ * codec. Cycled by T4 on the PLAITS SETTINGS panel. Applied from the next Plaits block.
  *   OUT      Plaits' OUT                         (the default)
  *   AUX      Plaits' AUX
  *   SUM      (OUT + AUX) x 0.71 (-3 dB) through a peak limiter with Plaits' own

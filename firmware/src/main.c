@@ -119,8 +119,9 @@ static uint32_t batt_fade_ms;
 #define SP1_BURST_DIV_MAX 7            /* 1/128 */
 static uint8_t g_burst_div = 5;        /* 1/32  */
 
-/* Output select (M3f): OUT / AUX / OUT+AUX / OUTxAUX, cycled by "••" + T4 on the
- * PLAITS page. RAM only, like the burst division: a real power-off returns to OUT.
+/* Output select (M3f): OUT / AUX / OUT+AUX / OUTxAUX, cycled by T4 on the PLAITS
+ * SETTINGS panel (#11; it was "••" + T4 until v0.4.6). RAM only, like the burst
+ * division: a real power-off returns to OUT.
  * Shown by flashing one track LED per mode, T1 = OUT ... T4 = OUTxAUX. */
 static uint8_t g_out_mode = SP1_OUT_MAIN;
 
@@ -331,7 +332,8 @@ static void plaits_buttons(bool fnc, bool running, uint32_t dt)
 	/* ---- T1-T3 differ between the face page and the SETTINGS panel (M4b) ----
 	 * ⚠️ Nothing on this module used to be page-aware, so on SETTINGS the engine could
 	 * be changed by accident. Adara: make SETTINGS a less fragile panel -- the engine
-	 * is not reachable there, T4 does nothing there, and tapping "••" is the exit. */
+	 * is not reachable there, T4 is not the module swap there, and tapping "••" is the
+	 * exit. */
 	const bool settings = (sp1_pui_page() == SP1_PUI_SETTINGS);
 	const int step = !fnc && sp1_button_pressed(SP1_BTN_T3) ? 1
 		       : !fnc && sp1_button_pressed(SP1_BTN_T2) ? -1 : 0;
@@ -355,7 +357,7 @@ static void plaits_buttons(bool fnc, bool running, uint32_t dt)
 			       sp1_pui_engine_name(), sp1_pui_engine());
 		}
 	} else {
-		/* ---- SETTINGS: T1 shows the scale, T2 / T3 select it, T4 is unbound ---- */
+		/* ---- SETTINGS: T1 shows the scale, T2 / T3 select it, T4 the output ---- */
 		if (!fnc && sp1_button_pressed(SP1_BTN_T1)) {
 			uint8_t slv[4];
 			plaits_scale_glyph(slv);
@@ -365,6 +367,17 @@ static void plaits_buttons(bool fnc, bool running, uint32_t dt)
 		if (step != 0) {
 			plaits_scale_step(step);
 		}
+		/* T4: output select, cycles forward and wraps (M3f). Moved here from
+		 * "••" + T4 (#11), which left the shift layer's T4 to Unpatch alone. On
+		 * PRESS: nothing else lives on this button on this panel. */
+		if (!fnc && sp1_button_pressed(SP1_BTN_T4)) {
+			g_out_mode = (uint8_t)((g_out_mode + 1u) % SP1_OUT_COUNT);
+			sp1_synth_set_output((enum sp1_synth_output)g_out_mode);
+			uint8_t sel[4] = { 0u, 0u, 0u, 0u };
+			sel[g_out_mode] = SP1_ENGINE_LED_FULL;
+			sp1_display_engine(sel);
+			printk("OUTPUT %s\n", out_mode_name[g_out_mode]);
+		}
 	}
 
 	/* ---- RWD: one TRIG, on press -- its own, whether or not Marbles runs (M4) ---- */
@@ -373,16 +386,8 @@ static void plaits_buttons(bool fnc, bool running, uint32_t dt)
 		printk("TRIG RWD%s\n", running ? " (with Marbles)" : "");
 	}
 
-	/* ---- "••" + T4: output select, cycles forward and wraps (M3f) ----
-	 * On RELEASE since M4e: T4 is also Unpatch-HARMONICS. */
-	if (fnc && sp1_button_released(SP1_BTN_T4) && !sp1_rg_eats(&unpatch_eat, 3)) {
-		g_out_mode = (uint8_t)((g_out_mode + 1u) % SP1_OUT_COUNT);
-		sp1_synth_set_output((enum sp1_synth_output)g_out_mode);
-		uint8_t sel[4] = { 0u, 0u, 0u, 0u };
-		sel[g_out_mode] = SP1_ENGINE_LED_FULL;
-		sp1_display_engine(sel);
-		printk("OUTPUT %s\n", out_mode_name[g_out_mode]);
-	}
+	/* "••" + T4 is unbound on PLAITS: held, it is Unpatch-HARMONICS and nothing else
+	 * (#11). Output select moved to SETTINGS T4, above. */
 
 	/* ---- "••" + FFWD / RWD: the division, 1/1 .. 1/128 (M3d). It sets the burst
 	 * (running or stopped since M4e). Not during a burst: FFWD and RWD are one rocker
@@ -1348,12 +1353,13 @@ int main(void)
 					 * button handlers below; it is disarmed after them. */
 				}
 
-				/* ---- T4 swaps module (Adara, M4). Not with "••" (output select
-				 * on PLAITS, [J] on MARBLES) and not on the MARBLES SETTINGS page,
-				 * where T4 is [J]. ---- */
+				/* ---- T4 swaps module (Adara, M4). Not with "••" (Unpatch on
+				 * PLAITS, Y's destination on MARBLES) and not on either SETTINGS
+				 * page. ---- */
 				/* ⚠️ T4 is not the module swap on either SETTINGS page: on
-				 * MARBLES it is [J], and on PLAITS it is unbound so the panel
-				 * cannot be left by accident (Adara, M4b). Tap "••" to leave. */
+				 * MARBLES it is [J], and on PLAITS it is output select (#11) --
+				 * so the panel cannot be left by accident (Adara, M4b). Tap "••"
+				 * to leave. */
 				if (!fnc && sp1_button_pressed(SP1_BTN_T4) &&
 				    !(marbles && sp1_mui_settings()) &&
 				    !(!marbles && sp1_pui_page() == SP1_PUI_SETTINGS)) {

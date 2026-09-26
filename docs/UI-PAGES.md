@@ -108,7 +108,7 @@ So the combination space is exactly: **`••` + one button**, on either ladder
 | **T1** | **flash the engine you are on** — "what am I playing?" | held 2 s: **UNPATCH FREQUENCY** |
 | **T2** | previous engine (flashes its glyph) | held 2 s: **UNPATCH TIMBRE** |
 | **T3** | next engine | held 2 s: **UNPATCH MORPH** |
-| **T4** | **swap module** → MARBLES | **output select**: OUT → AUX → OUT+AUX → OUT×AUX → wrap · held 2 s: **UNPATCH HARMONICS** |
+| **T4** | **swap module** → MARBLES | held 2 s: **UNPATCH HARMONICS** · a short press does nothing (output select moved to SETTINGS T4 in v0.4.6) |
 | **PLAY** | Marbles' clock **run / stop** | held 3 s: **rip out the cables** (see below) |
 | **RWD** | one **TRIG** | **coarser** burst division |
 | **FFWD** | held: **burst** — re-triggers on the 1/div grid, running or stopped | **finer** burst division |
@@ -147,7 +147,7 @@ Nothing on it reaches anything but the panel now.
 |---|---|
 | **T1** | **flash the scale you are quantized to** (`○○○○` when off) — the panel's equivalent of the engine flash |
 | **T2 / T3** | previous / next **FREQUENCY scale quantization**. **Engine select is unbound here** |
-| **T4** | **unbound.** Not the module swap, so the panel cannot be left by accident |
+| **T4** | **output select**: OUT → AUX → OUT+AUX → OUT×AUX → wrap, on press. Not the module swap, so the panel cannot be left by accident. On `••` + T4 until v0.4.6 (#11) |
 | **PLAY · RWD · FFWD · VOL** | **unchanged and live.** You need to keep playing while you set a scale |
 | **`••` + anything** | as on the base page — holding `••` shows the SHIFT layer, so the panel's own bindings are only on the unshifted buttons |
 
@@ -406,23 +406,23 @@ that has nothing on it. This is the supply side for M5 and M6.
 
 | where | what |
 |---|---|
-| PLAITS | `••` + T1, `••` + T2, `••` + T3 |
-| PLAITS | T4 on the SETTINGS panel |
+| PLAITS | a short `••` + T1, T2, T3 or T4 (held, each is UNPATCH) |
 | MARBLES | t SHIFT F1 |
 | MARBLES | X SHIFT F1, F2, F3 |
 | MARBLES | t SHIFT T4 |
 | MARBLES | `••` + FFWD / RWD on the t page and on SETTINGS |
 | MARBLES | *(none — `••` + T4 became Y's destination in M4e)* |
 
-Spent since M4a: PLAITS T1 (engine flash), PLAITS SETTINGS T1–T3 (scale), `••` + VOL± (the
-drive) and MARBLES SETTINGS T2/T3 (`[F]` / `[G]`).
+Spent since M4a: PLAITS T1 (engine flash), PLAITS SETTINGS T1–T3 (scale), PLAITS SETTINGS T4
+(output select, moved from `••` + T4 in v0.4.6), `••` + VOL± (the drive) and MARBLES SETTINGS
+T2/T3 (`[F]` / `[G]`).
 
 ### Plaits features not exposed
 
 | | why not |
 |---|---|
 | **MODEL CV input** | Plaits can be swept through its models by a voltage. T2/T3 do it here; a Marbles output on a MODEL destination would be a real addition, and a genuinely good one. Nothing prevents it: add a destination and a `mods.engine` term. |
-| **Both outputs at once** | Plaits renders OUT and AUX every block and we pick one (or a mix) for a single mono speaker. `••` + T4's four modes are the whole of what one output can be. A second physical output is not available. |
+| **Both outputs at once** | Plaits renders OUT and AUX every block and we pick one (or a mix) for a single mono speaker. SETTINGS T4's four modes are the whole of what one output can be. A second physical output is not available. |
 | **User data** | wavetables and DX7 patches loaded through the ear-jack. `plaits/user_data.h` is **shimmed away** because upstream's reads STM32 flash at an address that does not exist on this chip. |
 | **FINE TUNE** | exposed until M4a, removed: it only ever acted in octave-range mode 9, and mode 9 is the mode that quantizes F1 to whole octaves. |
 | **6-op FM ×3** | compiled but left out of the default `config/engines.csv` (slots 22–24 are empty); a community DX7 firmware covers it. Type a name into an empty slot to get one. |
