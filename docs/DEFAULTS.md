@@ -46,9 +46,9 @@ one**, and F1 to the middle of its travel with the range open and the quantizer 
 detent means it is a real landing spot rather than a coincidence of fader position.
 
 **Which parameters are bipolar is already known per engine**, so nothing new has to be decided:
-the *Detents* column of `docs/PLAITS-ENGINES.md` marks exactly the parameters whose centre is a
-neutral point, and it is compiled into `SP1_ENGINE_TABLE[].centre`. On slot 1 (virtual analog)
-that gives F2 → 0.5, F3 → 0, F4 → 0.5.
+each engine's detents (listed in `docs/PLAITS-ENGINES.md`) mark exactly the parameters whose
+centre is a neutral point, and they are compiled into `SP1_ENGINE_TABLE[].centre`. On virtual
+analog, slot 1 by default, that gives F2 → 0.5, F3 → 0, F4 → 0.5.
 
 ⚠️ **REVIEW 1 — the faders will not match after a ROTC, by design.** ROTC sets the stored values;
 the physical faders stay where your hands left them. Pickup then catches each one up on its next
@@ -87,7 +87,7 @@ Never seeded from the faders, at boot or ever. Gain 0 means nothing modulates un
 
 | parameter | range | boot | ON | ROTC | notes |
 |---|---|---|---|---|---|
-| engine | 24 slots, 21 enabled | slot 1 | — | slot 1 | the first enabled row of `PLAITS-ENGINES.md` |
+| engine | 21 slots by default | slot 1 | — | slot 1 | slot 1 of `config/engines.csv` |
 | FREQUENCY quantization | off + 7 scales | off | — | off | forced off when something is routed to V/Oct |
 | output select | OUT / AUX / OUT+AUX / OUT×AUX | OUT | OUT | OUT | RAM only |
 | soft-clip drive | off, +3 / +8 / +15 / +24 dB | off | off | off | forced off on every entry to ON (this will change when ON is set to reload savestates in M5). Uneven steps since M4e; `••`+VOL− steps DOWN rather than toggling |

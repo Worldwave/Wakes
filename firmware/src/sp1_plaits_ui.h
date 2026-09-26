@@ -42,8 +42,9 @@
  * rest of the travel stretched so both ends are still reached. Widths:
  *   - 10 % of travel for every bipolar parameter;
  *   - 5 % for FREQUENCY, in the range modes where its centre means something.
- * WHICH base-layer parameters are bipolar depends on the engine: the Detents column of
- * docs/PLAITS-ENGINES.md, derived from the Plaits manual and each engine's source.
+ * WHICH base-layer parameters are bipolar depends on the engine: the detent table in
+ * tools/gen_engines.py, derived from the Plaits manual and each engine's source (the
+ * reasons are in docs/PLAITS-ENGINES.md).
  * Unipolar parameters use the full 0..100 % with no detent.
  */
 #ifndef SP1_PLAITS_UI_H
@@ -141,7 +142,7 @@ int  sp1_pui_scale(void);
 void sp1_pui_set_octave_max(void);
 bool sp1_pui_catching(int fader);              /* in the active layer */
 bool sp1_pui_level_connected(void);            /* SETTINGS F4 >= 5 % (M4a) */
-/* ---- engines: order, LEDs, enable and detents come from docs/PLAITS-ENGINES.md ---- */
+/* ---- engines: which, order and glyphs from config/engines.csv; detents from gen_engines.py ---- */
 int  sp1_pui_engine(void);                     /* Plaits engine index (voice.cc) */
 /* Which of the CURRENT engine's parameters are bipolar, as SP1_ENGINE_TABLE[].centre:
  * 0x1 = HARMONICS (F4), 0x2 = TIMBRE (F2), 0x4 = MORPH (F3). A detent is placed exactly
@@ -167,9 +168,9 @@ int  sp1_pui_slot(void);                       /* 0-based position in the list  
  * ⚠️ The faders do not move; pickup catches them up (Adara: by design). */
 void sp1_pui_rip(void);
 const char *sp1_pui_engine_name(void);
-/* The current engine's flash pattern as LED levels, from docs/PLAITS-ENGINES.md. */
+/* The current engine's flash pattern as LED levels, from config/engines.csv. */
 void sp1_pui_engine_leds(uint8_t out[4]);
-/* T3 = +1, T2 = -1. Wraps; skips disabled rows. Returns the new SLOT. */
+/* T3 = +1, T2 = -1. Wraps. Returns the new SLOT. */
 int  sp1_pui_engine_step(int dir);
 
 #endif /* SP1_PLAITS_UI_H */

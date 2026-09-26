@@ -182,7 +182,7 @@ void sp1_mui_page_pattern(uint8_t out[4]);          /* ●●○○ t, ○○●
 void sp1_mui_dest_pattern(int out, uint8_t lv[4]);  /* X1..X3, Y                     */
 void sp1_mui_t_dest_pattern(int t, uint8_t lv[4]);  /* t1..t3                        */
 void sp1_mui_model_pattern(uint8_t lv[4]);          /* one of six, docs/MARBLES-SETTINGS.md */
-void sp1_mui_scale_pattern(uint8_t lv[4]);          /* PLAITS-ENGINES.md glyphs 1-7  */
+void sp1_mui_scale_pattern(uint8_t lv[4]);          /* default engine glyphs 1-7    */
 /* ●●○○ t on · ○○●● X on · ●●●● both · ○○○○ neither -- the page vocabulary, so the glyph
  * says which SIDE rather than needing to be learned (M4b). */
 void sp1_mui_deja_vu_pattern(uint8_t lv[4]);

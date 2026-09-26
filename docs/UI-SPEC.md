@@ -27,7 +27,7 @@ currently selected engine's* parameter polarity — V/Oct 0–2 V, LEVEL and TRI
 TIMBRE / MORPH / HARMONICS ±5 V when bipolar on that engine and 0–5 V when not. ⚠️ Marbles' range
 is a per-GROUP setting; a generated override of `marbles/random/x_y_generator.cc` makes it
 **per channel**, so X1 on V/Oct and X2 on FM hold different ranges at the same time. The polarity
-comes from the *Detents* column of `docs/PLAITS-ENGINES.md` — there is no second table.
+comes from each engine's detents (`docs/PLAITS-ENGINES.md`) — there is no second table.
 Also: a **`••` tap shows the battery** on the play row for 1.5 s, from ON and from OFF, drawn with
 the same `sp1_led_bar()` as STANDBY's charge bar and cancelled by any other input. ⚠️ The power
 gestures are untouched: the OFF flash happens on release, after the decision not to power on, with

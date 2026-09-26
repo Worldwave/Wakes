@@ -16,7 +16,7 @@ OBJ=$SP/hostobj
 
 python3 "$HERE/mkovr.py" "$OVR" >/dev/null
 mkdir -p "$GEN" "$OBJ"
-python3 "$ROOT/tools/gen_engines.py" "$ROOT/docs/PLAITS-ENGINES.md" "$GEN/sp1_engines_gen.h" >/dev/null
+python3 "$ROOT/tools/gen_engines.py" "$ROOT/config/engines.csv" "$GEN/sp1_engines_gen.h" >/dev/null
 
 INC="-I$OVR -I$SRC/plaits_ovr -I$SRC/plaits_shim -I$ER -I$SRC -I$GEN"
 CXXFLAGS="-std=gnu++14 -O2 -funroll-loops -D_DEFAULT_SOURCE -DTEST -DCONFIG_SP1_PLAITS=1 \

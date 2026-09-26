@@ -55,7 +55,7 @@ extern "C" {
  *
  * Re-evaluated every block, so it follows an engine change while the sequence plays --
  * deliberately (Adara). ⚠️ Which parameters are bipolar is NOT a new table: it is the
- * Detents column of docs/PLAITS-ENGINES.md, compiled into SP1_ENGINE_TABLE[].centre and
+ * detent table in tools/gen_engines.py, compiled into SP1_ENGINE_TABLE[].centre and
  * handed to us as sp1_marbles_params::engine_centre. */
 enum sp1_mrb_range {
 	SP1_MRB_RANGE_NARROW = 0,

@@ -41,10 +41,11 @@
 #define DOUBLE_TAP_MS     400u     /* second tap must START within this of the 1st   */
 #define BREATH_MS         1200u    /* SETTINGS page breathing period                 */
 
-/* ---- the engine list: GENERATED from docs/PLAITS-ENGINES.md ----
- * Order, LED slot, enabled flag and per-engine centre detents all come from that table
- * (tools/gen_engines.py, run by the build). The reasons for each detent are written up
- * there too. Edit the markdown, not this file. */
+/* ---- the engine list: GENERATED from config/engines.csv ----
+ * Which engines, their order and their glyphs come from the user's CSV; each engine's
+ * Plaits index and centre detents from the fixed table in tools/gen_engines.py (run by
+ * the build). The reasons for each detent are in docs/PLAITS-ENGINES.md. Edit the CSV,
+ * not this file. */
 #include "sp1_engines_gen.h"
 
 #define C_H 0x1u   /* HARMONICS (F4) */
@@ -454,8 +455,8 @@ void sp1_pui_rip(void)
 	 *
 	 * Neutral means: 0.5 for a BIPOLAR parameter -- its centre is the point where the
 	 * effect is absent -- and 0 for a unipolar one, which has no such point. Which is
-	 * which is per engine and is already known: the Detents column of
-	 * docs/PLAITS-ENGINES.md, compiled into SP1_ENGINE_TABLE[].centre. F1 goes to its
+	 * which is per engine and is already known: the detent table in
+	 * tools/gen_engines.py, compiled into SP1_ENGINE_TABLE[].centre. F1 goes to its
 	 * centre, which in the full range is exactly MIDI 60, C4 (60 + 48*(2*0.5-1)), and
 	 * has a 5 % detent there so it is a real landing spot.
 	 *
@@ -487,19 +488,12 @@ void sp1_pui_engine_leds(uint8_t out[4])
 }
 const char *sp1_pui_engine_name(void)   { return SP1_ENGINE_TABLE[slot].name; }
 
-/* ---- engine select (T2 / T3), in SLOT order from docs/PLAITS-ENGINES.md ----
- * Disabled rows keep their slot and are skipped. As of M3b: modal and additive,
- * projected past 100 % of the budget until trimmed (M5). */
+/* ---- engine select (T2 / T3), in SLOT order from config/engines.csv ----
+ * Every row is selectable: an engine left out of the CSV is simply not in the table,
+ * so there is nothing to skip. Wraps at both ends. */
 int sp1_pui_engine_step(int dir)
 {
-	int s2 = slot;
-	for (int n = 0; n < SP1_ENGINE_SLOTS; n++) {
-		s2 = (s2 + (dir < 0 ? SP1_ENGINE_SLOTS - 1 : 1)) % SP1_ENGINE_SLOTS;
-		if (SP1_ENGINE_TABLE[s2].on) {
-			break;
-		}
-	}
-	slot = s2;
+	slot = (slot + (dir < 0 ? SP1_ENGINE_SLOTS - 1 : 1)) % SP1_ENGINE_SLOTS;
 	return slot;
 }
 

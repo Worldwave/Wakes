@@ -7,18 +7,18 @@ project(wakes-sp1)
 # unavailable on your Zephyr, see docs/BUILD.md -> "USB console fallback".
 include(${ZEPHYR_BASE}/samples/subsys/usb/common/common.cmake)
 
-# ---- the engine list: generated from docs/PLAITS-ENGINES.md (M3b) ----
-# The markdown table is the source of truth for engine order, LED patterns, enabled
-# engines and centre detents. Edit it and rebuild; the build fails with a clear message
-# if the table is malformed or a row's LED pattern does not match its position.
-set(SP1_ENGINES_MD  ${CMAKE_CURRENT_SOURCE_DIR}/../docs/PLAITS-ENGINES.md)
+# ---- the engine list: generated from config/engines.csv ----
+# The CSV is the USER's choice of engines, slots and glyphs; the facts about each engine
+# (its index inside Plaits, its centre detents) live in tools/gen_engines.py and are not
+# user-editable. The build fails with a message naming the line if the CSV is malformed.
+set(SP1_ENGINES_CSV ${CMAKE_CURRENT_SOURCE_DIR}/../config/engines.csv)
 set(SP1_ENGINES_GEN ${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_engines.py)
 set(SP1_ENGINES_H   ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated/sp1_engines_gen.h)
 add_custom_command(
 	OUTPUT  ${SP1_ENGINES_H}
-	COMMAND ${Python3_EXECUTABLE} ${SP1_ENGINES_GEN} ${SP1_ENGINES_MD} ${SP1_ENGINES_H}
-	DEPENDS ${SP1_ENGINES_MD} ${SP1_ENGINES_GEN}
-	COMMENT "Generating the engine table from docs/PLAITS-ENGINES.md"
+	COMMAND ${Python3_EXECUTABLE} ${SP1_ENGINES_GEN} ${SP1_ENGINES_CSV} ${SP1_ENGINES_H}
+	DEPENDS ${SP1_ENGINES_CSV} ${SP1_ENGINES_GEN}
+	COMMENT "Generating the engine table from config/engines.csv"
 )
 add_custom_target(sp1_engines_gen DEPENDS ${SP1_ENGINES_H})
 add_dependencies(app sp1_engines_gen)

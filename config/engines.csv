@@ -1,0 +1,22 @@
+Slot,Glyph,Engine
+1,●○○○,virtual analog
+2,●●○○,waveshaping
+3,●●●○,2-op FM
+4,●●●●,grain / formant
+5,○●●●,additive
+6,○○●●,wavetable
+7,○○○●,chords
+8,○●○○,speech
+9,○○●○,swarm
+10,●○○●,filtered noise
+11,○●●○,particle
+12,●○●●,string
+13,●●○●,modal
+14,●○●○,bass drum
+15,○●○●,snare drum
+16,○○○○,hi-hat
+17,◐◐◐◐,VA + VCF
+18,○◐◐○,phase distortion
+19,◐○○◐,wave terrain
+20,○◐○◐,string machine
+21,◐○◐○,chiptune

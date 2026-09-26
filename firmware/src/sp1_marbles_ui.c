@@ -60,8 +60,8 @@ static const uint8_t model_glyph[SP1_MUI_MODELS] = {
 
 /* ---- the scales ----
  * Marbles ships six (sp1_marbles_scales.inc, from marbles/settings.cc); slot 7 is the
- * free one for Adara to fill. Glyphs are rows 1-7 of the LED column of
- * docs/PLAITS-ENGINES.md, as she asked. "on" is the inclusion column of
+ * free one for Adara to fill. Glyphs are those of slots 1-7 in the DEFAULT
+ * config/engines.csv, as she asked -- a fixed copy: editing the CSV does not change them. "on" is the inclusion column of
  * docs/MARBLES-SETTINGS.md.
  *
  * ⚠️ This table and that document must agree; the document is the authority and

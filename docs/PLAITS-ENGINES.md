@@ -1,72 +1,91 @@
-# Plaits engines — order, LED patterns, detents
+# Plaits engines — choosing them, glyphs, detents
 
-**This file is read by the build.** The firmware's engine list — the order T2/T3 step
-through, the LED pattern each engine flashes, which engines are enabled, and which faders get a
-centre detent — is generated from the table below by `tools/gen_engines.py` every time you
-build. Edit the table and rebuild; nothing else needs touching.
+**Which engines your firmware has, their order and their glyphs are set in
+[`config/engines.csv`](../config/engines.csv)**, not in this document. The build reads that file
+every time. This page is reference: what each engine is, what it costs, and what each fader does
+on it.
 
-## How to edit
+## Choosing engines: `config/engines.csv`
 
-- **Reorder:** move whole rows; each row takes its LED pattern with it. The row's position is
-  its slot (the order T2/T3 step through). After moving rows, renumber the Slot column, or run
-  `python tools/gen_engines.py --fix` to do it for you. The build stops with a message naming
-  the row if a Slot number doesn't match its position.
-- **LED patterns:** four symbols, T1 first, from the legend below. Any combination, as long as
-  every row's pattern is different from every other row's — the build stops if two match.
-- **Enable / disable:** `yes` or `no` in the *On* column. A disabled engine keeps its slot
-  and pattern, and T2/T3 skip it.
-- **Detents:** any of `F2` (TIMBRE), `F3` (MORPH), `F4` (HARMONICS), separated by spaces, or
-  `-` for none. See "Why these detents" below before changing them.
-- **Don't change the `Plaits #` column.** It is the engine's identity inside Plaits
-  (`plaits/dsp/voice.cc`), not its position. Each number 0–23 must appear exactly once.
-- Names are only used for the log. Up to 24 characters.
+Three columns, one row per engine:
 
-## LED patterns
-
-Four LEDs, T1 first (left to right). The patterns are drawn by hand to be recognisable, not
-counted in binary.
-
-| symbol | meaning |
+| column | what it is |
 |---|---|
-| `●` | full brightness |
-| `◐` | half brightness (`SP1_ENGINE_LED_HALF` in `firmware/src/sp1_ui_timing.h`) |
-| `○` | off |
+| **Slot** | the engine's position in the order T2/T3 step through. Slot 1 is where the device starts, and where "rip out the cables" returns. Number the slots 1, 2, 3 … with none missing; the rows can be in any order, because the numbers decide. |
+| **Glyph** | the four-LED pattern flashed when the engine is selected, T1 first. See below. Every engine's glyph must be different. |
+| **Engine** | the engine's name, exactly as listed under "Available engines" below (upper/lower case doesn't matter). |
 
-`○○○○` (all off) belongs to one engine only; its flash shows as a brief dark blink.
+- **To remove an engine**, delete its row, then renumber the slots after it.
+- **To add one**, add a row with a free slot number and a glyph no other row uses.
+- **To reorder**, change the Slot numbers.
 
-## The engines
+Open it in a spreadsheet or a text editor. GitHub shows it as a table. If the file is wrong, the
+build stops with a message naming the line. `python tools/gen_engines.py --list` prints every
+engine name the file may use.
 
-Order: **the 16 original Plaits models first, in their panel order** (full-brightness
-patterns), **then the 8 models added in Plaits 1.2** (half-brightness patterns).
+Leaving an engine out removes it from engine select. It does **not** make the firmware smaller:
+Plaits' voice object contains every engine regardless.
 
-| Slot | LED | Engine | Plaits # | On | Detents | CPU (avg; M3b–M3f logs) |
-|---|---|---|---|---|---|---|
-| 1 | `●○○○` | virtual analog | 8 | yes | F2 F4 | 67.8 % |
-| 2 | `●●○○` | waveshaping | 9 | yes | F4 | 52.2 % (61 % peak) |
-| 3 | `●●●○` | 2-op FM | 10 | yes | F3 | 70.5 % (76 % peak) |
-| 4 | `●●●●` | grain / formant | 11 | yes | F4 | 75.7 % |
-| 5 | `○●●●` | additive | 12 | yes | - | M3f: 54.8 % (64 % peak); M4a: est. ~61 % / ~71 % |
-| 6 | `○○●●` | wavetable | 13 | yes | - | 63.4 % |
-| 7 | `○○○●` | chords | 14 | yes | - | 76.6 % |
-| 8 | `○●○○` | speech | 15 | yes | - | 27–39 % (varies with MORPH/HARMONICS) |
-| 9 | `○○●○` | swarm | 16 | yes | - | 73.9 % |
-| 10 | `●○○●` | filtered noise | 17 | yes | F4 | 64.7 % |
-| 11 | `○●●○` | particle | 18 | yes | F3 | 86.5 % at 6; M3f (3): 49–51 % avg, 83–100 % peaks below MORPH centre; M4: 2 particles |
-| 12 | `●○●●` | string | 19 | yes | - | 68.9 % (74 % peak) at 2 strings (M3f) |
-| 13 | `●●○●` | modal | 20 | yes | - | 49.1 % (54 % peak) at 8 modes (M3f); M3g: 12, est. ~65 % |
-| 14 | `●○●○` | bass drum | 21 | yes | - | 67.1 % |
-| 15 | `○●○●` | snare drum | 22 | yes | - | 68.3 % |
-| 16 | `○○○○` | hi-hat | 23 | yes | - | 71.4 % |
-| 17 | `◐◐◐◐` | VA + VCF | 0 | yes | F3 F4 | 66.4 % |
-| 18 | `○◐◐○` | phase distortion | 1 | yes | - | 72.1 % |
-| 19 | `◐○○◐` | wave terrain | 5 | yes | F3 | 62.6 % (one window) |
-| 20 | `○◐○◐` | string machine | 6 | yes | F2 | 84.4 % (~98 % peak); M3g/M4: est. ~61 % at TIMBRE centre, ~76 % with the 2-tap chorus |
-| 21 | `◐○◐○` | chiptune | 7 | yes | - | 27.7 % (one window) |
-| 22 | `○◐◐◐` | 6-op FM A | 2 | no | F3 | ~78 % (one window) |
-| 23 | `○○○◐` | 6-op FM B | 3 | no | F3 | not measured |
-| 24 | `○◐○○` | 6-op FM C | 4 | no | F3 | not measured |
+### Glyphs
 
-The CPU column is for reference only; the build ignores it. Mean cost of a 5 ms audio block,
+Four symbols, T1 first (left to right). They're drawn by hand to be recognisable, not counted in
+binary.
+
+| symbol | or | meaning |
+|---|---|---|
+| `●` | `#` | full brightness |
+| `◐` | `+` | half brightness (`SP1_ENGINE_LED_HALF` in `firmware/src/sp1_ui_timing.h`) |
+| `○` | `.` | off |
+
+The ASCII forms are for editors and spreadsheets that mangle the circles: `#..#` is the same
+glyph as `●○○●`. Save the file as UTF-8. If the circles turn into `?` or garbage after saving,
+the editor used a different encoding; switch to the ASCII forms.
+
+`○○○○` (all off) is a valid glyph; its flash shows as a brief dark blink.
+
+### What you can't change here
+
+Each engine's **index inside Plaits** and its **centre detents** are facts about Plaits, not
+choices, so they're not in the CSV. They live in the `PLAITS_ENGINES` table in
+`tools/gen_engines.py`. The reasons for each detent are under "Why these detents" below.
+
+## Available engines
+
+The default `config/engines.csv` has the 16 original Plaits models first, in their panel order
+(full-brightness glyphs), then five of the 8 models added in Plaits 1.2 (half-brightness glyphs).
+The three **6-op FM** banks are left out (a community DX7 firmware covers them) but can be added.
+
+| Default slot | Default glyph | Engine | Plaits # | Detents | CPU (avg; M3b–M3f logs) |
+|---|---|---|---|---|---|
+| 1 | `●○○○` | virtual analog | 8 | F2 F4 | 67.8 % |
+| 2 | `●●○○` | waveshaping | 9 | F4 | 52.2 % (61 % peak) |
+| 3 | `●●●○` | 2-op FM | 10 | F3 | 70.5 % (76 % peak) |
+| 4 | `●●●●` | grain / formant | 11 | F4 | 75.7 % |
+| 5 | `○●●●` | additive | 12 | - | M3f: 54.8 % (64 % peak); M4a: est. ~61 % / ~71 % |
+| 6 | `○○●●` | wavetable | 13 | - | 63.4 % |
+| 7 | `○○○●` | chords | 14 | - | 76.6 % |
+| 8 | `○●○○` | speech | 15 | - | 27–39 % (varies with MORPH/HARMONICS) |
+| 9 | `○○●○` | swarm | 16 | - | 73.9 % |
+| 10 | `●○○●` | filtered noise | 17 | F4 | 64.7 % |
+| 11 | `○●●○` | particle | 18 | F3 | 86.5 % at 6; M3f (3): 49–51 % avg, 83–100 % peaks below MORPH centre; M4: 2 particles |
+| 12 | `●○●●` | string | 19 | - | 68.9 % (74 % peak) at 2 strings (M3f) |
+| 13 | `●●○●` | modal | 20 | - | 49.1 % (54 % peak) at 8 modes (M3f); M3g: 12, est. ~65 % |
+| 14 | `●○●○` | bass drum | 21 | - | 67.1 % |
+| 15 | `○●○●` | snare drum | 22 | - | 68.3 % |
+| 16 | `○○○○` | hi-hat | 23 | - | 71.4 % |
+| 17 | `◐◐◐◐` | VA + VCF | 0 | F3 F4 | 66.4 % |
+| 18 | `○◐◐○` | phase distortion | 1 | - | 72.1 % |
+| 19 | `◐○○◐` | wave terrain | 5 | F3 | 62.6 % (one window) |
+| 20 | `○◐○◐` | string machine | 6 | F2 | 84.4 % (~98 % peak); M3g/M4: est. ~61 % at TIMBRE centre, ~76 % with the 2-tap chorus |
+| 21 | `◐○◐○` | chiptune | 7 | - | 27.7 % (one window) |
+| — | (e.g. `○◐◐◐`) | 6-op FM A | 2 | F3 | ~78 % (one window) |
+| — | (e.g. `○○○◐`) | 6-op FM B | 3 | F3 | not measured |
+| — | (e.g. `○◐○○`) | 6-op FM C | 4 | F3 | not measured |
+
+The Plaits # and Detents columns are copied from `tools/gen_engines.py` for reference; that file,
+not this table, is what the build uses.
+
+The CPU column is a mean cost of a 5 ms audio block,
 from `logs/sp1-20260921-153722.log`. Above ~85 % leaves little room for the control loop.
 Trims are Kconfig options in `firmware/prj.conf`, not this table: `CONFIG_SP1_STRING_VOICES`
 (default 2, upstream 3), `CONFIG_SP1_PARTICLES` (2, upstream 6), `CONFIG_SP1_MODAL_MODES` (12,
@@ -122,7 +141,7 @@ engine's cost. **`avg` is the figure that decides whether an engine fits.**
 missing from it on purpose: **F1 is always pitch** — Plaits' V/OCT and frequency control, with
 its range set by SETTINGS F1. Only F2–F4 change meaning with the engine.
 
-| Slot | Engine | F2 TIMBRE | F3 MORPH | F4 HARMONICS | AUX (`••`+T4) |
+| Default slot | Engine | F2 TIMBRE | F3 MORPH | F4 HARMONICS | AUX (`••`+T4) |
 |---|---|---|---|---|---|
 | 1 | virtual analog | variable square, from narrow pulse to full square to hardsync formants | variable saw, from triangle to saw with an increasingly wide notch | detuning between the two waves | sum of two hardsync'ed waveforms, shaped by MORPH |
 | 2 | waveshaping | wavefolder amount | waveform asymmetry | waveshaper waveform | the same, with Warps' other wavefolder curve |
@@ -145,26 +164,26 @@ its range set by SETTINGS F1. Only F2–F4 change meaning with the engine.
 | 19 | wave terrain | path radius | path offset | terrain | the terrain's height read as phase distortion, sin(y+z) |
 | 20 | string machine | chorus / filter amount | waveform | chord | voices 2 and 4, mostly |
 | 21 | chiptune | arpeggio type, or chord inversion | pulse width / sync | chord | the NES triangle voice |
-| 22–24 | 6-op FM A/B/C | modulator level(s) | envelope and modulation stretching ("time travel") | preset selection, within this bank | the same signal as OUT |
+| — | 6-op FM A/B/C | modulator level(s) | envelope and modulation stretching ("time travel") | preset selection, within this bank | the same signal as OUT |
 
 Sources: the Plaits manual's model table for F2–F4 and AUX, and the firmware 1.2 release notes
-for slots 17–24. **Slot 12 (string) is the one the manual never documented** — its row is read
+for the 1.2 models (VA + VCF onwards, and 6-op FM). **String is the one the manual never documented** — its row is read
 off `plaits/dsp/physical_modelling/string_voice.cc`, where HARMONICS is the `structure`
 argument (non-linearity is `(s−0.24)·4.166` below 0.24, `(s−0.26)·1.35` above 0.26, zero
-between), TIMBRE is `brightness` squared, and MORPH is `damping`. Slots 22–24's AUX is
+between), TIMBRE is `brightness` squared, and MORPH is `damping`. The 6-op FM banks' AUX is
 `aux[i] = out[i]` in `six_op_engine.cc`, i.e. the two outputs carry the same thing.
 
-⚠️ **This table's Engine column must match the engine table's, row for row.**
-`tools/gen_engines.py` checks it on every build and stops with a message naming the row if the
-two drift apart — so reordering engines above means reordering here too. The table is
-documentation, not build input: nothing in it reaches the firmware.
+The rows follow the default slot order. Your own `config/engines.csv` may order them
+differently; the per-engine descriptions don't change.
 
 ## Why these detents
 
 A detent goes where the fader's centre is an **exact neutral point** — the zero of a signed
 amount, or the point where one effect ends and a different one begins. It doesn't go on a
 plain 0–1 amount or a selector: they'd lose 10 % of their travel for nothing. Worked out from
-the Plaits manual and each engine's source (the manual doesn't say for several):
+the Plaits manual and each engine's source (the manual doesn't say for several). The build takes
+them from `PLAITS_ENGINES` in `tools/gen_engines.py`; change both together, and only if Plaits
+itself changes:
 
 | engine | detent | centre means (source) |
 |---|---|---|
@@ -179,7 +198,7 @@ the Plaits manual and each engine's source (the manual doesn't say for several):
 | filtered noise | F4 | the 2nd filter sits at the same pitch as the 1st; response goes LP → BP (centre) → HP. |
 | particle | F3 | all-pass network below the centre, resonant band-pass above; the centre is neither. |
 
-⚠️ **This column is also the unipolar/bipolar table.** A detent marks a parameter whose centre is
+⚠️ **The detents are also the unipolar/bipolar table.** A detent marks a parameter whose centre is
 a neutral point — which is exactly what "bipolar" means — so `SP1_ENGINE_TABLE[].centre` is already
 the per-engine polarity data that M4c's INTELLIGENT voltage range needs. Do not build a second
 table for it; if a detent is wrong, the range will be wrong too.

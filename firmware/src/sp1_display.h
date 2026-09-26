@@ -67,7 +67,7 @@ void sp1_display_transient(const uint8_t level[4], uint16_t ms);
  * from the new pattern, so scrolling through engines shows each one instantly without
  * the row blinking back to the page in between.
  *
- * The pattern itself comes from the LED column of docs/PLAITS-ENGINES.md (free-form:
+ * The pattern itself comes from the Glyph column of config/engines.csv (free-form:
  * off / half / full per LED, unique per engine), already turned into levels by the
  * caller -- see sp1_pui_engine_leds(). */
 void sp1_display_engine(const uint8_t level[4]);

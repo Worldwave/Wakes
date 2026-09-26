@@ -4,10 +4,10 @@ The Marbles-side companion to `docs/PLAITS-ENGINES.md`: everything that is a *ch
 than a fader, what each choice does, the LED glyph that flashes when you change it, and whether
 it is included in the firmware.
 
-⚠️ **Unlike `PLAITS-ENGINES.md`, this file is NOT read by the build.** The tables below are the
+⚠️ **This file is NOT read by the build**, unlike `config/engines.csv` for Plaits. The tables below are the
 authority for what the firmware *should* do; `firmware/src/sp1_marbles_ui.c` holds the same
 glyphs and inclusion flags in C. If a third consumer ever appears, generate them from here the
-way `tools/gen_engines.py` generates the engine list — until then, changing a glyph or an
+way `tools/gen_engines.py` generates the engine list from `config/engines.csv` — until then, changing a glyph or an
 inclusion flag means changing both.
 
 ## LED glyphs
@@ -114,7 +114,7 @@ read as though the range chose it; it never did.
 | FM | **±5 V** | always signed, whatever the engine |
 | TIMBRE, MORPH, HARMONICS | **±5 V** if that parameter is **bipolar on the current engine**, else **0 – 5 V** | a bipolar parameter's centre is its neutral point, so modulation should be able to go either side of it; a unipolar one starts at zero and only has one direction to go |
 
-⚠️ **The polarity comes from the *Detents* column of `docs/PLAITS-ENGINES.md`** — a detent marks
+⚠️ **The polarity comes from each engine's detents** (`docs/PLAITS-ENGINES.md`) — a detent marks
 exactly a parameter whose centre is its neutral point, which is what "bipolar" means — compiled by
 `gen_engines.py` into `SP1_ENGINE_TABLE[].centre` (bit 0x1 HARMONICS/F4, 0x2 TIMBRE/F2, 0x4
 MORPH/F3). There is no second table and there must never be one.
@@ -135,7 +135,8 @@ the value it is on (and, with STEPS smooth, ramps across the two). One clock tic
 
 Marbles puts scale selection on a long press of `[J]`; here it is the shifted FFWD / RWD rocker,
 because there are no long presses in this UI (Adara, M4a). **No wrap**, and **excluded scales
-are skipped**. Glyphs are rows 1–7 of the LED column of `docs/PLAITS-ENGINES.md`, as Adara asked.
+are skipped**. Glyphs are those of slots 1–7 in the default `config/engines.csv`, as Adara asked. They're a fixed
+copy: editing that file doesn't change them.
 
 The scale is what X quantizes to when `STEPS` (X page F3) is above its centre. Below the centre
 X is smooth and the scale does nothing.

@@ -35,8 +35,8 @@ extern "C" {
 #define SP1_SYNTH_BLOCK 12u
 
 /* Engine the voice is constructed with, before the UI publishes its first parameters
- * (plaits/dsp/voice.cc order): virtual analog, the first row of docs/PLAITS-ENGINES.md
- * (M4). The UI's own start engine comes from that table. */
+ * (plaits/dsp/voice.cc order): virtual analog. Only a placeholder: the UI starts on slot 1
+ * of config/engines.csv, whatever that is, and publishes it before the first block. */
 #define SP1_SYNTH_ENGINE_INITIAL 8
 
 /* Construct and initialise the voice. Idempotent. */
