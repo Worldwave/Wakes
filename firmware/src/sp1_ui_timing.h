@@ -172,7 +172,7 @@
 #define SP1_DISP_MODEL_MS       1000u   /* model overlay after a change */
 
 /* ---- engine flash (Adara, M3b): instant, brief, fades back into the page ----
- * Patterns: the Glyph column of config/engines.csv. */
+ * Patterns: SLOT_GLYPHS in tools/gen_engines.py, one per slot. */
 /* "••" + PLAY held: rip out the cables (Adara, M4) -- the module on show back to its
  * defaults. The track row flickers twice, fades to black, stays black, and -- only if
  * the hold lasts SP1_RIP_HOLD_MS -- the reset happens and the page fades back in.
@@ -223,7 +223,7 @@
 #define SP1_UNPATCH_BLINK_LEVEL 204u    /* 80 % of 255 (Adara)                      */
 #define SP1_DISP_ENGINE_HOLD_MS  700u   /* pattern shown solid (Adara: 0.7 s)      */
 #define SP1_DISP_ENGINE_FADE_MS  350u   /* then cross-fades into the page         */
-/* M3c: patterns are free-form in config/engines.csv -- each LED off, half or full. */
+/* M3c: glyphs are drawn by hand (SLOT_GLYPHS) -- each LED off, half or full. */
 #define SP1_ENGINE_LED_FULL      255u
 /* The "◐" level: 33 % perceptual (Adara, M3e -- 50 % was too close to full to tell
  * apart in average room light). Also the "◐" of the burst-division bar. */

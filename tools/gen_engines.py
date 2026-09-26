@@ -6,19 +6,18 @@
 
 Two inputs, deliberately kept apart:
 
-  config/engines.csv   the USER's choice: which engines are in the firmware, in which
-                       slot, with which glyph. Columns Slot, Glyph, Engine. Leaving an
-                       engine out removes it from T2/T3 engine select.
-  PLAITS_ENGINES       below, in this file: FACTS about Plaits that a user cannot
-                       choose -- each engine's index inside Plaits and its centre
-                       detents. Keyed by name; the CSV only names engines.
+  config/engines.csv   the USER's choice: which engine sits in which slot. One row per
+                       slot, at most 24, in slot order -- ROW POSITION is the slot.
+                       Columns Slot, Glyph, Engine. Only Engine is the user's: Slot and
+                       Glyph are printed there so the file reads as the device does, and
+                       the build checks they are unchanged. An empty Engine is an empty
+                       slot, which T2/T3 engine select skips.
+  this file            FACTS the user cannot choose: each slot's glyph (SLOT_GLYPHS) and
+                       each engine's index inside Plaits and centre detents
+                       (PLAITS_ENGINES, keyed by name).
 
-Glyphs are four symbols, T1 first, each one of
-    U+25CF  full     or  #
-    U+25D0  half     or  +
-    U+25CB  off      or  .
-The ASCII aliases exist for editors and spreadsheets that mangle the circles. Every
-glyph in a config must be different, so each engine is recognisable on its own.
+Glyphs are four symbols, T1 first: U+25CF full, U+25D0 half, U+25CB off. The CSV may
+also spell them # + . -- editors and spreadsheets sometimes mangle the circles.
 
 Standard library only. The CSV is read as UTF-8 (with or without a BOM, which Excel
 writes): Windows' default code page would mangle the glyphs.
@@ -27,7 +26,18 @@ import csv
 import os
 import sys
 
-# ---- facts about Plaits: NOT user configuration ----------------------------------------
+# ---- facts: NOT user configuration -------------------------------------------------------
+
+# The glyph each slot flashes when it is selected, T1 first. A glyph stands for the SLOT,
+# not the engine in it: drawn by hand to be recognisable (Adara, M3c), full-brightness
+# for slots 1-16 and half-brightness from 17. Every glyph is different.
+SLOT_GLYPHS = [
+    "●○○○", "●●○○", "●●●○", "●●●●", "○●●●", "○○●●", "○○○●", "○●○○",      # 1-8
+    "○○●○", "●○○●", "○●●○", "●○●●", "●●○●", "●○●○", "○●○●", "○○○○",      # 9-16
+    "◐◐◐◐", "○◐◐○", "◐○○◐", "○◐○◐", "◐○◐○", "○◐◐◐", "○○○◐", "○◐○○",      # 17-24
+]
+MAX_SLOTS = len(SLOT_GLYPHS)
+
 # (index in plaits/dsp/voice.cc, name, centre detents). The index is the engine's identity
 # inside Plaits, fixed by upstream. A detent marks a fader whose centre is an exact neutral
 # point, which also makes it the per-engine bipolar table M4c's INTELLIGENT range reads
@@ -61,7 +71,10 @@ PLAITS_ENGINES = [
 ]
 DETENT_BITS = {"F4": 0x1, "F2": 0x2, "F3": 0x4}   # HARMONICS, TIMBRE, MORPH
 
+# -------------------------------------------------------------------------------------------
+
 GLYPH_LEVEL = {"○": 0, ".": 0, "◐": 1, "+": 1, "●": 2, "#": 2}
+ASCII_GLYPH = {ord("●"): "#", ord("◐"): "+", ord("○"): "."}
 COLUMNS = ("slot", "glyph", "engine")
 CSV_NAME = "config/engines.csv"
 
@@ -72,12 +85,21 @@ def fail(msg):
         msg.encode(sys.stderr.encoding or "ascii")
     except UnicodeEncodeError:
         # A Windows console (cp1252) cannot show the circles; the ASCII forms can.
-        msg = msg.translate({ord("●"): "#", ord("◐"): "+", ord("○"): "."})
+        msg = msg.translate(ASCII_GLYPH)
     sys.stderr.write(msg)
     sys.exit(1)
 
 
+def levels(glyph):
+    """Four symbols -> [0|1|2] * 4, or None if it is not a glyph."""
+    syms = [ch for ch in glyph if not ch.isspace()]
+    if len(syms) != 4 or any(ch not in GLYPH_LEVEL for ch in syms):
+        return None
+    return [GLYPH_LEVEL[ch] for ch in syms]
+
+
 def facts():
+    assert len({tuple(levels(g)) for g in SLOT_GLYPHS}) == MAX_SLOTS, "slot glyphs must differ"
     by_name = {}
     for idx, name, det in PLAITS_ENGINES:
         bits = 0
@@ -88,63 +110,57 @@ def facts():
     return by_name
 
 
-def glyph_levels(text, where):
-    syms = [ch for ch in text if not ch.isspace()]
-    if len(syms) != 4 or any(ch not in GLYPH_LEVEL for ch in syms):
-        fail("%s: Glyph must be exactly four symbols, T1 first: ● full, ◐ half, ○ off\n"
-             "    (or # + .) -- got `%s`. If the circles came out as '?' or garbage, your\n"
-             "    editor saved in the wrong encoding: save as UTF-8, or use # + . instead."
-             % (where, text))
-    return [GLYPH_LEVEL[ch] for ch in syms]
-
-
 def parse(csv_path):
     known = facts()
     with open(csv_path, encoding="utf-8-sig", newline="") as f:
-        rows = list(csv.reader(f))
-    rows = [(n + 1, r) for n, r in enumerate(rows) if any(c.strip() for c in r)]
+        rows = [(n + 1, r) for n, r in enumerate(csv.reader(f)) if r]
     if not rows:
         fail("the file is empty")
     header = [c.strip().lower() for c in rows[0][1]]
     if tuple(header[:3]) != COLUMNS:
         fail("line %d: the first row must be the header Slot,Glyph,Engine -- got %s"
              % (rows[0][0], ",".join(rows[0][1])))
+    rows = rows[1:]
+    if len(rows) > MAX_SLOTS:
+        fail("%d slots listed; there are at most %d" % (len(rows), MAX_SLOTS))
 
-    engines, by_slot, by_engine, by_glyph = [], {}, {}, {}
-    for line, r in rows[1:]:
-        if len(r) < 3:
-            fail("line %d: expected Slot,Glyph,Engine -- got %s" % (line, ",".join(r)))
-        slot_t, glyph_t, name_t = (c.strip() for c in r[:3])
-        where = "line %d (%s)" % (line, name_t or "no engine")
-        e = known.get(name_t.lower())
-        if e is None:
-            fail("%s: no engine is called %r. Available engines:\n    %s"
-                 % (where, name_t, "\n    ".join(n for _, n, _ in PLAITS_ENGINES)))
-        if e["name"] in by_engine:
-            fail("%s: %s is already in slot %d; an engine can be listed once"
-                 % (where, e["name"], by_engine[e["name"]]))
-        try:
-            slot = int(slot_t)
-        except ValueError:
-            fail("%s: Slot must be a number, got %r" % (where, slot_t))
-        if slot in by_slot:
-            fail("%s: slot %d is also %s's" % (where, slot, by_slot[slot]))
-        levels = glyph_levels(glyph_t, where)
-        if tuple(levels) in by_glyph:
-            fail("%s: glyph %s is the same as %s's -- every glyph must be different"
-                 % (where, glyph_t, by_glyph[tuple(levels)]))
-        by_slot[slot], by_engine[e["name"]], by_glyph[tuple(levels)] = \
-            e["name"], slot, e["name"]
-        engines.append(dict(e, slot=slot, levels=levels))
+    slots, used = [], {}
+    for n, (line, r) in enumerate(rows):
+        slot = n + 1
+        r = [c.strip() for c in r] + [""] * 3
+        slot_t, glyph_t, name_t = r[:3]
+        where = "line %d (slot %d)" % (line, slot)
+        # Slot and Glyph are labels, not settings: row position is the slot, and the
+        # glyph belongs to the slot. A mismatch means a whole row was moved, or edited.
+        if slot_t != str(slot):
+            fail("%s: the Slot column says %r, but this is row %d, so slot %d.\n"
+                 "    Row position is the slot and cannot be changed. To reorder, move the\n"
+                 "    Engine names between rows, not whole rows." % (where, slot_t, slot, slot))
+        want = SLOT_GLYPHS[n]
+        got = levels(glyph_t)
+        if got != levels(want):
+            hint = ("" if got is not None else
+                    "\n    If the circles came out as '?' or garbage, your editor saved in the"
+                    "\n    wrong encoding: save as UTF-8, or write the glyph as `%s`."
+                    % want.translate(ASCII_GLYPH))
+            fail("%s: slot %d's glyph is %s and cannot be changed -- the file says `%s`.%s"
+                 % (where, slot, want, glyph_t, hint))
+        entry = dict(slot=slot, levels=levels(want), on=False, plaits=0, centre=0, name="")
+        if name_t:
+            e = known.get(name_t.lower())
+            if e is None:
+                fail("%s: no engine is called %r. Available engines:\n    %s"
+                     % (where, name_t, "\n    ".join(n for _, n, _ in PLAITS_ENGINES)))
+            if e["name"] in used:
+                fail("%s: %s is already in slot %d; an engine can be listed once"
+                     % (where, e["name"], used[e["name"]]))
+            used[e["name"]] = slot
+            entry.update(e, on=True)
+        slots.append(entry)
 
-    if not engines:
-        fail("no engines listed; the firmware needs at least one")
-    engines.sort(key=lambda e: e["slot"])
-    want = list(range(1, len(engines) + 1))
-    if [e["slot"] for e in engines] != want:
-        fail("slots must be numbered 1 to %d with none missing -- got %s"
-             % (len(engines), ", ".join(str(e["slot"]) for e in engines)))
-    return engines
+    if not used:
+        fail("every slot is empty; the firmware needs at least one engine")
+    return slots
 
 
 def c_str(s):
@@ -153,7 +169,9 @@ def c_str(s):
 
 
 def generate(csv_path, out_path):
-    engines = parse(csv_path)
+    slots = parse(csv_path)
+    # The device starts on the first slot with an engine in it (M4, Adara: slot 1 by default).
+    default = next(n for n, s in enumerate(slots) if s["on"])
     out = [
         "/* GENERATED from config/engines.csv by tools/gen_engines.py.",
         " * Do not edit: edit the CSV and rebuild. */",
@@ -162,22 +180,24 @@ def generate(csv_path, out_path):
         "",
         "#include <stdint.h>",
         "",
-        "#define SP1_ENGINE_SLOTS        %d" % len(engines),
-        "#define SP1_ENGINE_DEFAULT_SLOT 0   /* slot 1: the device starts here */",
+        "#define SP1_ENGINE_SLOTS        %d" % len(slots),
+        "#define SP1_ENGINE_DEFAULT_SLOT %d   /* the first slot with an engine */" % default,
         "",
-        "/* centre: 0x1 = F4 HARMONICS, 0x2 = F2 TIMBRE, 0x4 = F3 MORPH",
-        " * led:    T1..T4, 0 = off, 1 = half, 2 = full */",
+        "/* on:     0 = an empty slot, which engine select skips",
+        " * centre: 0x1 = F4 HARMONICS, 0x2 = F2 TIMBRE, 0x4 = F3 MORPH",
+        " * led:    T1..T4, 0 = off, 1 = half, 2 = full (the slot's fixed glyph) */",
         "static const struct {",
         "\tuint8_t plaits;     /* index in plaits/dsp/voice.cc */",
+        "\tuint8_t on;",
         "\tuint8_t centre;",
         "\tuint8_t led[4];",
         "\tconst char *name;",
         "} SP1_ENGINE_TABLE[SP1_ENGINE_SLOTS] = {",
     ]
-    for e in engines:
-        out.append("\t{ %2d, 0x%x, { %d, %d, %d, %d }, %s },   /* slot %2d */"
-                   % ((e["plaits"], e["centre"]) + tuple(e["levels"])
-                      + (c_str(e["name"]), e["slot"])))
+    for s in slots:
+        out.append("\t{ %2d, %d, 0x%x, { %d, %d, %d, %d }, %s },   /* slot %2d */"
+                   % ((s["plaits"], int(s["on"]), s["centre"]) + tuple(s["levels"])
+                      + (c_str(s["name"]), s["slot"])))
     out += ["};", "", "#endif /* SP1_ENGINES_GEN_H */", ""]
     text = "\n".join(out)
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)

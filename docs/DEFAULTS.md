@@ -87,7 +87,7 @@ Never seeded from the faders, at boot or ever. Gain 0 means nothing modulates un
 
 | parameter | range | boot | ON | ROTC | notes |
 |---|---|---|---|---|---|
-| engine | 21 slots by default | slot 1 | — | slot 1 | slot 1 of `config/engines.csv` |
+| engine | 24 slots, 21 filled by default | slot 1 | — | slot 1 | the first filled slot of `config/engines.csv` |
 | FREQUENCY quantization | off + 7 scales | off | — | off | forced off when something is routed to V/Oct |
 | output select | OUT / AUX / OUT+AUX / OUT×AUX | OUT | OUT | OUT | RAM only |
 | soft-clip drive | off, +3 / +8 / +15 / +24 dB | off | off | off | forced off on every entry to ON (this will change when ON is set to reload savestates in M5). Uneven steps since M4e; `••`+VOL− steps DOWN rather than toggling |

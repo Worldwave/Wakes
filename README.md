@@ -63,7 +63,7 @@ tools/host-tests/hostbuild.sh routetest.cc uitest.c   # prints the path of each 
 | | |
 |---|---|
 | [`docs/UI-PAGES.md`](docs/UI-PAGES.md) | every control on every page |
-| [`config/engines.csv`](config/engines.csv) | **which engines are in your firmware**, their order and glyphs. Read by the build |
+| [`config/engines.csv`](config/engines.csv) | **which engine is in each of the 24 slots**; an empty slot is skipped. Read by the build |
 | [`docs/PLAITS-ENGINES.md`](docs/PLAITS-ENGINES.md) | how to edit that file, every available engine, its cost, faders and detents |
 | [`docs/MARBLES-SETTINGS.md`](docs/MARBLES-SETTINGS.md) | Marbles models, ranges and scales |
 | [`docs/DEFAULTS.md`](docs/DEFAULTS.md) | every parameter's default, and what a reset restores |

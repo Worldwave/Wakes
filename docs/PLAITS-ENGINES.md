@@ -1,35 +1,38 @@
 # Plaits engines — choosing them, glyphs, detents
 
-**Which engines your firmware has, their order and their glyphs are set in
-[`config/engines.csv`](../config/engines.csv)**, not in this document. The build reads that file
-every time. This page is reference: what each engine is, what it costs, and what each fader does
-on it.
+**Which engine sits in which slot is set in [`config/engines.csv`](../config/engines.csv)**, not in
+this document. The build reads that file every time. This page is reference: what each engine is,
+what it costs, and what each fader does on it.
 
 ## Choosing engines: `config/engines.csv`
 
-Three columns, one row per engine:
+The file has one row per slot, 24 at most, in slot order. T2/T3 step through the slots in that
+order. The device starts on the first slot that has an engine, and "rip out the cables" returns
+there.
 
-| column | what it is |
-|---|---|
-| **Slot** | the engine's position in the order T2/T3 step through. Slot 1 is where the device starts, and where "rip out the cables" returns. Number the slots 1, 2, 3 … with none missing; the rows can be in any order, because the numbers decide. |
-| **Glyph** | the four-LED pattern flashed when the engine is selected, T1 first. See below. Every engine's glyph must be different. |
-| **Engine** | the engine's name, exactly as listed under "Available engines" below (upper/lower case doesn't matter). |
+| column | what it is | can you change it? |
+|---|---|---|
+| **Slot** | the slot number. It's the row's position, printed so the file reads like the device. | No |
+| **Glyph** | the four-LED pattern flashed when the slot is selected, T1 first. It belongs to the slot, not to the engine in it. | No |
+| **Engine** | the engine in that slot, named exactly as under "Available engines" below (upper/lower case doesn't matter). **Leave it empty** for an empty slot, which T2/T3 skip. | **Yes** |
 
-- **To remove an engine**, delete its row, then renumber the slots after it.
-- **To add one**, add a row with a free slot number and a glyph no other row uses.
-- **To reorder**, change the Slot numbers.
+- **To remove an engine**, clear its Engine cell. The slot stays and is skipped.
+- **To add one**, type its name into an empty slot's Engine cell.
+- **To reorder**, move the engine names between rows. Don't move whole rows: the Slot and Glyph
+  columns have to stay where they are.
 
-Open it in a spreadsheet or a text editor. GitHub shows it as a table. If the file is wrong, the
-build stops with a message naming the line. `python tools/gen_engines.py --list` prints every
-engine name the file may use.
+Each engine can appear once. Open the file in a spreadsheet or a text editor; GitHub shows it as
+a table. If the file is wrong, for example a glyph edited or a whole row moved, the build stops
+with a message naming the line and saying what's expected there.
+`python tools/gen_engines.py --list` prints every engine name the file may use.
 
 Leaving an engine out removes it from engine select. It does **not** make the firmware smaller:
 Plaits' voice object contains every engine regardless.
 
 ### Glyphs
 
-Four symbols, T1 first (left to right). They're drawn by hand to be recognisable, not counted in
-binary.
+Four symbols, T1 first (left to right), one fixed glyph per slot. They're drawn by hand to be
+recognisable, not counted in binary: full brightness for slots 1–16, half brightness from 17.
 
 | symbol | or | meaning |
 |---|---|---|
@@ -37,50 +40,50 @@ binary.
 | `◐` | `+` | half brightness (`SP1_ENGINE_LED_HALF` in `firmware/src/sp1_ui_timing.h`) |
 | `○` | `.` | off |
 
-The ASCII forms are for editors and spreadsheets that mangle the circles: `#..#` is the same
-glyph as `●○○●`. Save the file as UTF-8. If the circles turn into `?` or garbage after saving,
-the editor used a different encoding; switch to the ASCII forms.
+Save the file as UTF-8. If a spreadsheet or editor turns the circles into `?` or garbage, the
+build will say so; write the glyphs in their ASCII forms instead (`#..#` is the same glyph as
+`●○○●`).
 
-`○○○○` (all off) is a valid glyph; its flash shows as a brief dark blink.
+Slot 16's glyph is `○○○○` (all off); its flash shows as a brief dark blink.
 
 ### What you can't change here
 
-Each engine's **index inside Plaits** and its **centre detents** are facts about Plaits, not
-choices, so they're not in the CSV. They live in the `PLAITS_ENGINES` table in
+Each slot's **glyph**, and each engine's **index inside Plaits** and **centre detents**, are fixed,
+so the CSV can't change them. They live in `SLOT_GLYPHS` and `PLAITS_ENGINES` in
 `tools/gen_engines.py`. The reasons for each detent are under "Why these detents" below.
 
 ## Available engines
 
-The default `config/engines.csv` has the 16 original Plaits models first, in their panel order
-(full-brightness glyphs), then five of the 8 models added in Plaits 1.2 (half-brightness glyphs).
-The three **6-op FM** banks are left out (a community DX7 firmware covers them) but can be added.
+The default `config/engines.csv` has the 16 original Plaits models first, in their panel order,
+then five of the 8 models added in Plaits 1.2. Slots 22–24 are empty: the three **6-op FM** banks
+are left out (a community DX7 firmware covers them), but any of them can go in an empty slot.
 
-| Default slot | Default glyph | Engine | Plaits # | Detents | CPU (avg; M3b–M3f logs) |
-|---|---|---|---|---|---|
-| 1 | `●○○○` | virtual analog | 8 | F2 F4 | 67.8 % |
-| 2 | `●●○○` | waveshaping | 9 | F4 | 52.2 % (61 % peak) |
-| 3 | `●●●○` | 2-op FM | 10 | F3 | 70.5 % (76 % peak) |
-| 4 | `●●●●` | grain / formant | 11 | F4 | 75.7 % |
-| 5 | `○●●●` | additive | 12 | - | M3f: 54.8 % (64 % peak); M4a: est. ~61 % / ~71 % |
-| 6 | `○○●●` | wavetable | 13 | - | 63.4 % |
-| 7 | `○○○●` | chords | 14 | - | 76.6 % |
-| 8 | `○●○○` | speech | 15 | - | 27–39 % (varies with MORPH/HARMONICS) |
-| 9 | `○○●○` | swarm | 16 | - | 73.9 % |
-| 10 | `●○○●` | filtered noise | 17 | F4 | 64.7 % |
-| 11 | `○●●○` | particle | 18 | F3 | 86.5 % at 6; M3f (3): 49–51 % avg, 83–100 % peaks below MORPH centre; M4: 2 particles |
-| 12 | `●○●●` | string | 19 | - | 68.9 % (74 % peak) at 2 strings (M3f) |
-| 13 | `●●○●` | modal | 20 | - | 49.1 % (54 % peak) at 8 modes (M3f); M3g: 12, est. ~65 % |
-| 14 | `●○●○` | bass drum | 21 | - | 67.1 % |
-| 15 | `○●○●` | snare drum | 22 | - | 68.3 % |
-| 16 | `○○○○` | hi-hat | 23 | - | 71.4 % |
-| 17 | `◐◐◐◐` | VA + VCF | 0 | F3 F4 | 66.4 % |
-| 18 | `○◐◐○` | phase distortion | 1 | - | 72.1 % |
-| 19 | `◐○○◐` | wave terrain | 5 | F3 | 62.6 % (one window) |
-| 20 | `○◐○◐` | string machine | 6 | F2 | 84.4 % (~98 % peak); M3g/M4: est. ~61 % at TIMBRE centre, ~76 % with the 2-tap chorus |
-| 21 | `◐○◐○` | chiptune | 7 | - | 27.7 % (one window) |
-| — | (e.g. `○◐◐◐`) | 6-op FM A | 2 | F3 | ~78 % (one window) |
-| — | (e.g. `○○○◐`) | 6-op FM B | 3 | F3 | not measured |
-| — | (e.g. `○◐○○`) | 6-op FM C | 4 | F3 | not measured |
+| Default slot | Engine | Plaits # | Detents | CPU (avg; M3b–M3f logs) |
+|---|---|---|---|---|
+| 1 | virtual analog | 8 | F2 F4 | 67.8 % |
+| 2 | waveshaping | 9 | F4 | 52.2 % (61 % peak) |
+| 3 | 2-op FM | 10 | F3 | 70.5 % (76 % peak) |
+| 4 | grain / formant | 11 | F4 | 75.7 % |
+| 5 | additive | 12 | - | M3f: 54.8 % (64 % peak); M4a: est. ~61 % / ~71 % |
+| 6 | wavetable | 13 | - | 63.4 % |
+| 7 | chords | 14 | - | 76.6 % |
+| 8 | speech | 15 | - | 27–39 % (varies with MORPH/HARMONICS) |
+| 9 | swarm | 16 | - | 73.9 % |
+| 10 | filtered noise | 17 | F4 | 64.7 % |
+| 11 | particle | 18 | F3 | 86.5 % at 6; M3f (3): 49–51 % avg, 83–100 % peaks below MORPH centre; M4: 2 particles |
+| 12 | string | 19 | - | 68.9 % (74 % peak) at 2 strings (M3f) |
+| 13 | modal | 20 | - | 49.1 % (54 % peak) at 8 modes (M3f); M3g: 12, est. ~65 % |
+| 14 | bass drum | 21 | - | 67.1 % |
+| 15 | snare drum | 22 | - | 68.3 % |
+| 16 | hi-hat | 23 | - | 71.4 % |
+| 17 | VA + VCF | 0 | F3 F4 | 66.4 % |
+| 18 | phase distortion | 1 | - | 72.1 % |
+| 19 | wave terrain | 5 | F3 | 62.6 % (one window) |
+| 20 | string machine | 6 | F2 | 84.4 % (~98 % peak); M3g/M4: est. ~61 % at TIMBRE centre, ~76 % with the 2-tap chorus |
+| 21 | chiptune | 7 | - | 27.7 % (one window) |
+| — | 6-op FM A | 2 | F3 | ~78 % (one window) |
+| — | 6-op FM B | 3 | F3 | not measured |
+| — | 6-op FM C | 4 | F3 | not measured |
 
 The Plaits # and Detents columns are copied from `tools/gen_engines.py` for reference; that file,
 not this table, is what the build uses.

@@ -425,7 +425,7 @@ drive) and MARBLES SETTINGS T2/T3 (`[F]` / `[G]`).
 | **Both outputs at once** | Plaits renders OUT and AUX every block and we pick one (or a mix) for a single mono speaker. `••` + T4's four modes are the whole of what one output can be. A second physical output is not available. |
 | **User data** | wavetables and DX7 patches loaded through the ear-jack. `plaits/user_data.h` is **shimmed away** because upstream's reads STM32 flash at an address that does not exist on this chip. |
 | **FINE TUNE** | exposed until M4a, removed: it only ever acted in octave-range mode 9, and mode 9 is the mode that quantizes F1 to whole octaves. |
-| **6-op FM ×3** | compiled but left out of the default `config/engines.csv`; a community DX7 firmware covers it. Add the rows to get them. |
+| **6-op FM ×3** | compiled but left out of the default `config/engines.csv` (slots 22–24 are empty); a community DX7 firmware covers it. Type a name into an empty slot to get one. |
 
 ### Marbles features not exposed
 

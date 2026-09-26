@@ -135,8 +135,8 @@ the value it is on (and, with STEPS smooth, ramps across the two). One clock tic
 
 Marbles puts scale selection on a long press of `[J]`; here it is the shifted FFWD / RWD rocker,
 because there are no long presses in this UI (Adara, M4a). **No wrap**, and **excluded scales
-are skipped**. Glyphs are those of slots 1–7 in the default `config/engines.csv`, as Adara asked. They're a fixed
-copy: editing that file doesn't change them.
+are skipped**. Glyphs are those of engine slots 1–7, as Adara asked. Slot glyphs are fixed, so the two can't
+drift apart.
 
 The scale is what X quantizes to when `STEPS` (X page F3) is above its centre. Below the centre
 X is smooth and the scale does nothing.

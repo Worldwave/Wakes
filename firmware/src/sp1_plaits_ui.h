@@ -142,7 +142,7 @@ int  sp1_pui_scale(void);
 void sp1_pui_set_octave_max(void);
 bool sp1_pui_catching(int fader);              /* in the active layer */
 bool sp1_pui_level_connected(void);            /* SETTINGS F4 >= 5 % (M4a) */
-/* ---- engines: which, order and glyphs from config/engines.csv; detents from gen_engines.py ---- */
+/* ---- engines: slots from config/engines.csv; glyphs and detents fixed in gen_engines.py ---- */
 int  sp1_pui_engine(void);                     /* Plaits engine index (voice.cc) */
 /* Which of the CURRENT engine's parameters are bipolar, as SP1_ENGINE_TABLE[].centre:
  * 0x1 = HARMONICS (F4), 0x2 = TIMBRE (F2), 0x4 = MORPH (F3). A detent is placed exactly
@@ -168,9 +168,9 @@ int  sp1_pui_slot(void);                       /* 0-based position in the list  
  * ⚠️ The faders do not move; pickup catches them up (Adara: by design). */
 void sp1_pui_rip(void);
 const char *sp1_pui_engine_name(void);
-/* The current engine's flash pattern as LED levels, from config/engines.csv. */
+/* The current slot's glyph as LED levels (fixed per slot, tools/gen_engines.py). */
 void sp1_pui_engine_leds(uint8_t out[4]);
-/* T3 = +1, T2 = -1. Wraps. Returns the new SLOT. */
+/* T3 = +1, T2 = -1. Wraps; skips empty slots. Returns the new SLOT. */
 int  sp1_pui_engine_step(int dir);
 
 #endif /* SP1_PLAITS_UI_H */

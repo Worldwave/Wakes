@@ -42,10 +42,10 @@
 #define BREATH_MS         1200u    /* SETTINGS page breathing period                 */
 
 /* ---- the engine list: GENERATED from config/engines.csv ----
- * Which engines, their order and their glyphs come from the user's CSV; each engine's
- * Plaits index and centre detents from the fixed table in tools/gen_engines.py (run by
- * the build). The reasons for each detent are in docs/PLAITS-ENGINES.md. Edit the CSV,
- * not this file. */
+ * Which engine is in which slot comes from the user's CSV; each slot's glyph, and each
+ * engine's Plaits index and centre detents, from the fixed tables in tools/gen_engines.py
+ * (run by the build). The reasons for each detent are in docs/PLAITS-ENGINES.md. Edit
+ * the CSV, not this file. */
 #include "sp1_engines_gen.h"
 
 #define C_H 0x1u   /* HARMONICS (F4) */
@@ -489,11 +489,18 @@ void sp1_pui_engine_leds(uint8_t out[4])
 const char *sp1_pui_engine_name(void)   { return SP1_ENGINE_TABLE[slot].name; }
 
 /* ---- engine select (T2 / T3), in SLOT order from config/engines.csv ----
- * Every row is selectable: an engine left out of the CSV is simply not in the table,
- * so there is nothing to skip. Wraps at both ends. */
+ * A slot with no engine in the CSV is empty: it keeps its place and glyph, and is
+ * skipped. The build guarantees at least one slot is filled. Wraps at both ends. */
 int sp1_pui_engine_step(int dir)
 {
-	slot = (slot + (dir < 0 ? SP1_ENGINE_SLOTS - 1 : 1)) % SP1_ENGINE_SLOTS;
+	int s2 = slot;
+	for (int n = 0; n < SP1_ENGINE_SLOTS; n++) {
+		s2 = (s2 + (dir < 0 ? SP1_ENGINE_SLOTS - 1 : 1)) % SP1_ENGINE_SLOTS;
+		if (SP1_ENGINE_TABLE[s2].on) {
+			break;
+		}
+	}
+	slot = s2;
 	return slot;
 }
 
