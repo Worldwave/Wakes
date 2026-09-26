@@ -1,0 +1,100 @@
+name: Set up the pinned Zephyr workspace
+description: >
+  Zephyr and its modules at exactly the revisions in west.yml, the local
+  zephyr-patches applied, and Zephyr SDK (arm-zephyr-eabi only). Expects this
+  repo checked out at ws/wakes-sp1; the west workspace is ws/.
+
+inputs:
+  sdk-version:
+    description: Zephyr SDK version. Pinned alongside Zephyr in west.yml's comment.
+    default: "0.17.4"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+
+    - name: Host tools
+      shell: bash
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y -q --no-install-recommends ninja-build
+        cmake --version | head -1
+        ninja --version
+
+    # Keyed on west.yml alone: the pin decides what is fetched. The patches are NOT
+    # in the key because they are re-applied from a clean tree on every run below.
+    - name: Restore the Zephyr workspace
+      id: ws-cache
+      uses: actions/cache@v6
+      with:
+        path: |
+          ws/zephyr
+          ws/modules
+        key: zephyr-ws-${{ runner.os }}-${{ hashFiles('ws/wakes-sp1/west.yml') }}
+
+    - name: west init / update
+      shell: bash
+      working-directory: ws
+      run: |
+        python -m pip install -q "west>=1.2"
+        python -m west init -l wakes-sp1
+        if [ "${{ steps.ws-cache.outputs.cache-hit }}" != "true" ]; then
+          python -m west update --narrow -o=--depth=1
+        fi
+        python -m west list
+
+    # Patches live outside west's manifest and do not survive `west update`, so a
+    # cached tree is reset first and every patch applied fresh. A patch that stops
+    # applying is an error, never a skip: the build cannot configure without it.
+    - name: Apply zephyr-patches
+      shell: bash
+      working-directory: ws/zephyr
+      run: |
+        git reset -q --hard
+        git clean -qfd
+        for p in ../wakes-sp1/zephyr-patches/*.patch; do
+          if ! git apply --check "$p"; then
+            echo "::error file=zephyr-patches/$(basename "$p")::does not apply to the pinned Zephyr"
+            exit 1
+          fi
+          git apply "$p"
+          echo "applied $(basename "$p")"
+        done
+
+    - name: Zephyr Python requirements
+      shell: bash
+      run: python -m pip install -q -r ws/zephyr/scripts/requirements-base.txt
+
+    - name: Restore the Zephyr SDK
+      id: sdk-cache
+      uses: actions/cache@v6
+      with:
+        path: ~/zephyr-sdk-${{ inputs.sdk-version }}
+        key: zephyr-sdk-${{ runner.os }}-${{ inputs.sdk-version }}-arm
+
+    - name: Install the Zephyr SDK
+      if: steps.sdk-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        V: ${{ inputs.sdk-version }}
+      run: |
+        url=https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v$V
+        min=zephyr-sdk-${V}_linux-x86_64_minimal.tar.xz
+        arm=toolchain_linux-x86_64_arm-zephyr-eabi.tar.xz
+        cd "$RUNNER_TEMP"
+        curl -sSfLO "$url/sha256.sum" -O "$url/$min" -O "$url/$arm"
+        grep -E " ($min|$arm)\$" sha256.sum | sha256sum -c -
+        tar -xJf "$min" -C ~
+        tar -xJf "$arm" -C ~/zephyr-sdk-$V
+
+    - name: Register the Zephyr SDK
+      shell: bash
+      env:
+        V: ${{ inputs.sdk-version }}
+      run: |
+        ~/zephyr-sdk-$V/setup.sh -c
+        echo "ZEPHYR_SDK_INSTALL_DIR=$HOME/zephyr-sdk-$V" >> "$GITHUB_ENV"
+        echo "ZEPHYR_TOOLCHAIN_VARIANT=zephyr" >> "$GITHUB_ENV"

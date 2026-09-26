@@ -1,0 +1,145 @@
+# The local loop, in CI: clean build -> size -> confirm the image links at 0x20000.
+# Called by ci.yml (PRs, main) and release.yml (tags). Never flashes anything.
+name: build
+
+on:
+  workflow_call:
+    inputs:
+      base-ref:
+        description: Revision to diff sizes against. Empty = sizes only, no diff.
+        type: string
+        default: ""
+      base-label:
+        description: How the base is named in the size table.
+        type: string
+        default: base
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # Explicit so every step gets -eo pipefail: `build | tee log` must fail when the build does.
+    shell: bash
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and run the host suites
+        env:
+          SP1_HOST_BUILD_DIR: ${{ runner.temp }}/host
+        run: |
+          sh tools/host-tests/hostbuild.sh routetest.cc uitest.c
+          "$SP1_HOST_BUILD_DIR/routetest"
+          "$SP1_HOST_BUILD_DIR/uitest"
+
+  firmware:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - config: plaits
+            plaits: y
+          - config: fallback
+            plaits: n
+    defaults:
+      run:
+        working-directory: ws
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: ws/wakes-sp1
+
+      - uses: ./ws/wakes-sp1/.github/actions/setup-zephyr
+
+      - name: Build (${{ matrix.config }})
+        run: |
+          python -m west build -p always -b stem_player wakes-sp1/firmware -d build \
+            -- -DBOARD_ROOT="$PWD/wakes-sp1" -DCONFIG_SP1_PLAITS=${{ matrix.plaits }} \
+            2>&1 | tee build.log
+
+      # Both configs build with 0 warnings; keep it that way. This also catches a
+      # Kconfig "assigned ... but got ..." warning, i.e. a -DCONFIG_ that did not take.
+      - name: No warnings
+        run: |
+          if grep -n "warning:" build.log; then
+            echo "::error::the ${{ matrix.config }} build has warnings (above)"
+            exit 1
+          fi
+
+      # The gate. check_image.py prints every check and exits non-zero on any failure.
+      - name: Check the image (0x20000, SAFETY.md constraints)
+        run: python wakes-sp1/tools/ci/check_image.py build | tee check.txt
+
+      - name: Size
+        run: python wakes-sp1/tools/ci/size_report.py report build -o size-head.json
+
+      # --- the comparison build. Its failure never fails the job: the base may
+      # predate a fix, or (on a push after a force-push) not exist at all.
+      # The scripts always come from HEAD, so the base need not contain tools/ci/.
+      # It uses HEAD's Zephyr workspace; across a west.yml pin change the delta
+      # therefore shows our code alone, not the Zephyr bump.
+      - name: Check out the base (${{ inputs.base-label }})
+        id: base-checkout
+        if: inputs.base-ref != ''
+        continue-on-error: true
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.base-ref }}
+          path: ws/base
+
+      - name: Build the base
+        if: steps.base-checkout.outcome == 'success'
+        continue-on-error: true
+        run: |
+          if ! python -m west build -p always -b stem_player base/firmware -d build-base \
+               -- -DBOARD_ROOT="$PWD/base" -DCONFIG_SP1_PLAITS=${{ matrix.plaits }} \
+               > build-base.log 2>&1; then
+            tail -n 40 build-base.log
+            exit 1
+          fi
+          python wakes-sp1/tools/ci/size_report.py report build-base -o size-base.json
+
+      - name: Summary
+        if: always() && hashFiles('ws/size-head.json') != ''
+        run: |
+          title="${{ matrix.config }}"
+          {
+            if [ -f size-base.json ]; then
+              python wakes-sp1/tools/ci/size_report.py diff size-base.json size-head.json \
+                --title "$title vs ${{ inputs.base-label }}"
+            else
+              python wakes-sp1/tools/ci/size_report.py show size-head.json --title "$title"
+              if [ -n "${{ inputs.base-ref }}" ]; then
+                echo
+                echo "_The base (${{ inputs.base-label }}) did not build; no diff._"
+              fi
+            fi
+            echo
+            echo "<details><summary>check_image</summary>"
+            echo
+            echo '```'
+            cat check.txt
+            echo '```'
+            echo "</details>"
+          } | tee "size-${{ matrix.config }}.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: wakes-sp1-${{ matrix.config }}
+          # .config is a dotfile, and upload-artifact skips those unless told.
+          include-hidden-files: true
+          if-no-files-found: warn
+          path: |
+            ws/build/zephyr/wakes-sp1.bin
+            ws/build/zephyr/wakes-sp1.elf
+            ws/build/zephyr/wakes-sp1.map
+            ws/build/zephyr/.config
+            ws/build.log
+            ws/check.txt
+            ws/size-*.json
+            ws/size-${{ matrix.config }}.md

@@ -1,0 +1,124 @@
+# A v* tag -> the same build and checks as CI -> a DRAFT release.
+#
+# The workflow never publishes. A published .bin is what other people flash onto a
+# device with no reset pin, so publishing is a person's decision, made after reading
+# the draft -- the same "stop before the irreversible step" as the local loop.
+#
+# The .bin attached is the exact file that passed check_image.py in this run. It is
+# never rebuilt between the check and the release.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      previous: ${{ steps.prev.outputs.tag }}
+      prerelease: ${{ steps.gate.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # tags and history, for the previous-release lookup
+
+      # The tag must say what firmware/VERSION says, or the binary reports a version
+      # its release page does not. EXTRAVERSION, if set, becomes the tag suffix
+      # (0.5.0 + "beta1" = v0.5.0-beta1) and marks the release as a pre-release.
+      - name: Tag matches firmware/VERSION
+        id: gate
+        run: |
+          field() { tr -d '\r' < firmware/VERSION | sed -n "s/^$1 *= *//p"; }
+          want="v$(field VERSION_MAJOR).$(field VERSION_MINOR).$(field PATCHLEVEL)"
+          extra=$(field EXTRAVERSION)
+          [ -n "$extra" ] && want="$want-$extra"
+          if [ "$GITHUB_REF_NAME" != "$want" ]; then
+            echo "::error file=firmware/VERSION::tag is $GITHUB_REF_NAME but firmware/VERSION says $want"
+            exit 1
+          fi
+          echo "prerelease=$([ -n "$extra" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "version $want"
+
+      - name: Previous release tag
+        id: prev
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_REF_NAME^" 2>/dev/null || true)
+          echo "tag=$prev" >> "$GITHUB_OUTPUT"
+          echo "previous release: ${prev:-none}"
+
+  build:
+    needs: version
+    uses: ./.github/workflows/build.yml
+    with:
+      base-ref: ${{ needs.version.outputs.previous }}
+      base-label: ${{ needs.version.outputs.previous }}
+
+  draft:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # this job only: creating the draft
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: in
+          pattern: wakes-sp1-*
+
+      - name: Assemble the release files and notes
+        env:
+          PREV: ${{ needs.version.outputs.previous }}
+        run: |
+          t=$GITHUB_REF_NAME
+          mkdir dist
+          cp in/wakes-sp1-plaits/build/zephyr/wakes-sp1.bin   "dist/wakes-sp1-$t.bin"
+          cp in/wakes-sp1-fallback/build/zephyr/wakes-sp1.bin "dist/wakes-sp1-$t-fallback.bin"
+          (cd dist && sha256sum -- *.bin > SHA256SUMS)
+
+          src="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$t"
+          {
+            echo "> **Draft created by CI. Read it, then publish by hand.**"
+            echo
+            echo "## Flashing"
+            echo
+            echo "Read [\`docs/SAFETY.md\`]($src/docs/SAFETY.md) first. The SP-1 has no hardware reset pin."
+            echo
+            echo "1. Open <https://solderless.engineering> in a browser and connect the SP-1 over USB-C."
+            echo "2. Hold Track 1 + Track 4 while plugging in. The four track lights go solid."
+            echo "3. Select \`wakes-sp1-$t.bin\`, flash, then unplug and replug."
+            echo
+            echo "Check the file against \`SHA256SUMS\` before flashing."
+            echo "\`wakes-sp1-$t-fallback.bin\` is the test-tone build without Plaits or Marbles,"
+            echo "for diagnosing hardware only. It is not the instrument."
+            echo
+            echo "## Size${PREV:+ vs $PREV}"
+            echo
+            cat in/wakes-sp1-plaits/size-plaits.md
+            echo
+            cat in/wakes-sp1-fallback/size-fallback.md
+            echo
+            echo "## SHA-256"
+            echo
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+          } > notes.md
+          ls -l dist
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          t=$GITHUB_REF_NAME
+          gh release create "$t" dist/* \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+            --title "Wakes $t" --notes-file notes.md \
+            $([ "$PRE" = true ] && echo --prerelease)

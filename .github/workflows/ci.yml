@@ -1,0 +1,27 @@
+# Every PR to main, and every push to main: build both configs, run the host suites,
+# gate on check_image.py, and put the size diff in the run's summary.
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # A new push to a PR supersedes the old run; runs on main each keep their record.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    with:
+      # PR: the tip of main it merges into -- actions/checkout builds the merge commit,
+      # so the diff is exactly what merging adds. Push: the previous tip of main.
+      base-ref: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+      base-label: ${{ github.event_name == 'pull_request' && github.base_ref || 'previous main' }}
