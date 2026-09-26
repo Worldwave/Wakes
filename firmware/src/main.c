@@ -147,6 +147,7 @@ static bool     burst_was;             /* FFWD burst running (PLAITS, clock stop
 static bool     ffwd_consumed;         /* FFWD pressed with "••": not transport      */
 static uint32_t burst_n0;
 static uint32_t rip_ms;                /* "••" + PLAY held, towards SP1_RIP_HOLD_MS  */
+static bool     rip_show_page;         /* rip done, still held: draw the page        */
 static uint32_t beats_seen;            /* Marbles t2 ticks already shown             */
 static uint32_t trig_print0;           /* TRIG edges at the last AUD line            */
 
@@ -819,6 +820,7 @@ int main(void)
 		sp1_rg_init(&unpatch_eat);
 		burst_n0 = 0u;
 		rip_ms = 0u;
+		rip_show_page = false;
 		sp1_synth_set_burst_div(1u << g_burst_div);
 		sp1_synth_set_output((enum sp1_synth_output)g_out_mode);
 		sp1_synth_burst(0);
@@ -1040,9 +1042,9 @@ int main(void)
 			{
 				uint8_t lv[SP1_NUM_FADERS];
 				if (g_module == SP1_MODULE_MARBLES) {
-					sp1_mui_leds(lv);
+					(rip_show_page ? sp1_mui_page_leds : sp1_mui_leds)(lv);
 				} else {
-					sp1_pui_leds(lv);
+					(rip_show_page ? sp1_pui_page_leds : sp1_pui_leds)(lv);
 				}
 				sp1_display_meter(lv);
 			}
@@ -1225,6 +1227,13 @@ int main(void)
 							static const uint8_t dark[4] = { 0u, 0u, 0u, 0u };
 							sp1_display_flash(dark, 0u,
 									  SP1_RIP_FADEBACK_MS);
+							/* ⚠️ Fade back to the PAGE, not the SHIFT
+							 * layer "••" would otherwise show: the rip
+							 * has just zeroed every attenuverter, which
+							 * draws DARK, so the fade went black -> black
+							 * and the rip looked unfinished until "••"
+							 * was let go (issue #4). */
+							rip_show_page = true;
 						} else {
 							uint8_t lv[4];
 							rip_levels(rip_ms, lv);
@@ -1240,6 +1249,8 @@ int main(void)
 						printk("RIP cancelled\n");
 					}
 					rip_ms = 0u;
+					/* The gesture is over: the ordinary layer rules again. */
+					rip_show_page = false;
 				}
 
 				/* ================= UNPATCH ("••" + Tn held, M4e) =================

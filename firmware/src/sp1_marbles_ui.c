@@ -639,9 +639,9 @@ static uint8_t volt_led(float v, int range)
 	return (uint8_t)(x * 255.0f + 0.5f);
 }
 
-void sp1_mui_leds(uint8_t out[4])
+static void leds_of(enum sp1_mui_layer l, uint8_t out[4])
 {
-	const bool base = active == SP1_MUI_T_BASE || active == SP1_MUI_X_BASE;
+	const bool base = l == SP1_MUI_T_BASE || l == SP1_MUI_X_BASE;
 	if (base && show_ms == 0u) {
 		/* Marbles' own output LEDs; T4 = Y on both pages. */
 		if (page == SP1_MUI_PAGE_T) {
@@ -659,23 +659,29 @@ void sp1_mui_leds(uint8_t out[4])
 	}
 
 	uint32_t k = 256u;
-	if (active == SP1_MUI_Y) {
+	if (l == SP1_MUI_Y) {
 		const uint32_t half = BREATH_MS / 2u;
 		const uint32_t tri = breath_ms < half ? breath_ms : BREATH_MS - breath_ms;
 		k = 90u + (166u * tri) / half;      /* the PLAITS SETTINGS breathing */
 	}
 	for (int i = 0; i < 4; i++) {
 		float x;
-		if (is_reserved(active, i)) {
+		if (is_reserved(l, i)) {
 			x = 0.0f;
-		} else if (is_bipolar(active, i)) {
-			x = 2.0f * fabsf(detent(VAL(active, i), DETENT_BIPOLAR) - 0.5f);
+		} else if (is_bipolar(l, i)) {
+			x = 2.0f * fabsf(detent(VAL(l, i), DETENT_BIPOLAR) - 0.5f);
 		} else {
-			x = clamp01(VAL(active, i));
+			x = clamp01(VAL(l, i));
 		}
 		const uint32_t v = (uint32_t)(x * 255.0f + 0.5f);
 		out[i] = (uint8_t)((v * k) >> 8);
 	}
+}
+
+void sp1_mui_leds(uint8_t out[4]) { leds_of(active, out); }
+void sp1_mui_page_leds(uint8_t out[4])
+{
+	leds_of(settings ? SP1_MUI_Y : base_of(page), out);
 }
 
 /* ---- flash patterns ---------------------------------------------------------------- */

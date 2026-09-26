@@ -397,10 +397,10 @@ void sp1_pui_params(struct sp1_synth_params *p)
 	p->engine     = SP1_ENGINE_TABLE[slot].plaits;
 }
 
-void sp1_pui_leds(uint8_t out[4])
+static void leds_of(enum sp1_pui_layer l, uint8_t out[4])
 {
 	uint32_t k = 256u;                         /* x/256 brightness factor */
-	if (active == SP1_PUI_SETTINGS) {
+	if (l == SP1_PUI_SETTINGS) {
 		const uint32_t half = BREATH_MS / 2u;
 		const uint32_t tri = breath_ms < half ? breath_ms : BREATH_MS - breath_ms;
 		k = 90u + (166u * tri) / half;         /* 35 % .. 100 % (Adara: 20 points
@@ -410,13 +410,16 @@ void sp1_pui_leds(uint8_t out[4])
 		/* Bipolar parameters show their MAGNITUDE (Adara, M3b): full negative and
 		 * full positive are both 100 %, the centre is dark; the fader position says
 		 * which side. The detent applies, so the whole centre band reads dark. */
-		const float x = bipolar(active, i)
-			? 2.0f * fabsf(detent(stored[active][i], DETENT_BIPOLAR) - 0.5f)
-			: clamp01(stored[active][i]);
+		const float x = bipolar(l, i)
+			? 2.0f * fabsf(detent(stored[l][i], DETENT_BIPOLAR) - 0.5f)
+			: clamp01(stored[l][i]);
 		const uint32_t v = (uint32_t)(x * 255.0f + 0.5f);
 		out[i] = (uint8_t)((v * k) >> 8);
 	}
 }
+
+void sp1_pui_leds(uint8_t out[4])      { leds_of(active, out); }
+void sp1_pui_page_leds(uint8_t out[4]) { leds_of(page, out); }
 
 enum sp1_pui_layer sp1_pui_active(void) { return active; }
 enum sp1_pui_layer sp1_pui_page(void)   { return page; }

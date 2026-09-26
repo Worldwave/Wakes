@@ -108,6 +108,9 @@ void sp1_pui_params(struct sp1_synth_params *out);
  * (0..255), so a fader that has not caught up shows where it has to go. SETTINGS
  * breathes, so a latched page is never mistaken for BASE. */
 void sp1_pui_leds(uint8_t out[4]);
+/* The PAGE you are standing on (BASE or SETTINGS), ignoring SHIFT. For a view that
+ * must not be the SHIFT layer while "••" is still held -- the end of a rip (issue #4). */
+void sp1_pui_page_leds(uint8_t out[4]);
 
 enum sp1_pui_layer sp1_pui_active(void);
 enum sp1_pui_layer sp1_pui_page(void);         /* BASE or SETTINGS */

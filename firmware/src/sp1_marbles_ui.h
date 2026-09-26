@@ -169,6 +169,9 @@ void sp1_mui_routing(struct sp1_mui_routing *out);
 float sp1_mui_bpm(void);
 /* Track row, see above. */
 void sp1_mui_leds(uint8_t out[4]);
+/* The PAGE you are standing on (t, X or SETTINGS), ignoring SHIFT -- see
+ * sp1_pui_page_leds(). */
+void sp1_mui_page_leds(uint8_t out[4]);
 
 /* ---- flash patterns (0 / SP1_ENGINE_LED_FULL levels; no half levels on this page --
  * Adara, M4a: dimmed glyphs are hard to tell apart in room light) ----

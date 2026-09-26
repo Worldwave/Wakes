@@ -803,6 +803,46 @@ int main(void)
 		CHECK(!sp1_rg_eats(&g, 1), "the guard outlived its button's release");
 	}
 
+	/* ---------- 17. the rip fades back to the PAGE, not SHIFT (issue #4) ---------- */
+	printf("17. rip fade-back target\n");
+	{
+		uint8_t shift_lv[4], page_lv[4];
+		sp1_pui_init();
+		sp1_pui_enter(raw_top);
+		for (int i = 0; i < 400; i++) {
+			sp1_pui_tick(8u, raw_mid, true, true, false);   /* "••" held */
+		}
+		sp1_pui_rip();
+		sp1_pui_tick(8u, raw_mid, true, true, false);           /* still held */
+		CHECK(sp1_pui_active() == SP1_PUI_SHIFT, "the test is not on SHIFT");
+		sp1_pui_leds(shift_lv);
+		sp1_pui_page_leds(page_lv);
+		/* glyph() returns one static buffer: one call per printf */
+		printf("   after a rip, \"••\" held: SHIFT draws %s, ", glyph(shift_lv));
+		printf("the page draws %s\n", glyph(page_lv));
+		/* The bug: every attenuverter is 0 and draws dark, so the fade had nowhere
+		 * visible to land. */
+		CHECK((shift_lv[0] | shift_lv[1] | shift_lv[2] | shift_lv[3]) == 0u,
+		      "SHIFT after a rip is not dark -- issue #4's premise changed");
+		/* The page: FREQUENCY at C4 is mid-travel, so T1 shows ~half. */
+		CHECK(page_lv[0] > 100u && page_lv[0] < 160u,
+		      "the page after a rip should show T1 at ~half, got %u", page_lv[0]);
+
+		/* With nothing held, the page view IS the ordinary view. */
+		sp1_pui_tick(8u, raw_mid, false, false, false);
+		sp1_pui_leds(shift_lv);
+		sp1_pui_page_leds(page_lv);
+		CHECK(memcmp(shift_lv, page_lv, 4) == 0,
+		      "PLAITS page view differs from the ordinary view off SHIFT");
+
+		sp1_mui_init();
+		sp1_mui_enter(raw_mid, false);
+		sp1_mui_leds(shift_lv);
+		sp1_mui_page_leds(page_lv);
+		CHECK(memcmp(shift_lv, page_lv, 4) == 0,
+		      "MARBLES page view differs from the ordinary view off SHIFT");
+	}
+
 	printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "all checks passed",
 	       fails, fails == 1 ? "" : "s");
 	return fails != 0;
