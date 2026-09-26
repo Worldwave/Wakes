@@ -14,8 +14,9 @@ Instruments. Nothing here is sold. Flashing custom firmware is at your own risk.
 
 ## Status
 
-**v0.4.5 (M4e), pre-release.** The previous build (M4d) has been played on hardware for an hour
-with no audio dropouts or resets. M4e is built and host-tested but not yet verified on hardware.
+**v0.4.6 (M4e), pre-release.** M4d was played on hardware for an hour with no audio dropouts or
+resets. M4e's first build, v0.4.5, has been flashed and smoke-tested; v0.4.6 adds two UI fixes
+from that testing and awaits the full M4e hardware test.
 All testing so far has been on a single SP-1 unit.
 
 ## Before you flash
