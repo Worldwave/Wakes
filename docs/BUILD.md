@@ -1,13 +1,12 @@
 # Building wakes-sp1
 
-Windows host. Zephyr **v4.3.1** + Zephyr SDK **0.17.4**, pinned in `west.yml`.
-Workspace: **`W:\wakes-sp1-ws`**.
+Windows host. Zephyr **v4.3.1** + Zephyr SDK **0.17.4**, pinned in `west.yml`. Linux and
+macOS follow the same steps with the obvious path changes; the short version is in the
+README.
 
-| | |
-|---|---|
-| Toolchain + workspace | ✅ set up and working |
-| M0 | ✅ built, flashed, passed on hardware |
-| M1a | ⏳ written, needs a rebuild |
+The examples use **`C:\sp1-ws`** as the workspace — the folder that *contains* the
+`wakes-sp1` clone. Any location works as long as its path has **no spaces** (see the
+appendix). Substitute your own path wherever `C:\sp1-ws` appears.
 
 Fresh machine? Skip to [Appendix: first-time setup](#appendix-first-time-setup).
 
@@ -16,8 +15,8 @@ Fresh machine? Skip to [Appendix: first-time setup](#appendix-first-time-setup).
 ## The build
 
 ```powershell
-cd W:\wakes-sp1-ws
-west build -p always -b stem_player wakes-sp1\firmware -- -DBOARD_ROOT="W:/wakes-sp1-ws/wakes-sp1"
+cd C:\sp1-ws
+west build -p always -b stem_player wakes-sp1\firmware -- -DBOARD_ROOT="C:/sp1-ws/wakes-sp1"
 ```
 
 Artifact: **`build\zephyr\wakes-sp1.bin`**. (`CONFIG_KERNEL_BIN_NAME="wakes-sp1"` in
@@ -27,10 +26,10 @@ Artifact: **`build\zephyr\wakes-sp1.bin`**. (`CONFIG_KERNEL_BIN_NAME="wakes-sp1"
 ### Three things that are not optional
 
 **Quote `BOARD_ROOT` and use forward slashes.** Unquoted, the argument splits at the
-drive colon and CMake receives `BOARD_ROOT=W:` plus a stray path. Observed:
+drive colon and CMake receives `BOARD_ROOT=C:` plus a stray path. Observed:
 
 ```
--DBOARD_ROOT=W: '\wakes-sp1-ws\wakes-sp1'
+-DBOARD_ROOT=C: '\sp1-ws\wakes-sp1'
 -- Configuring incomplete, errors occurred!
 ```
 
@@ -41,7 +40,7 @@ Get-Command cmake, ninja -All | Select-Object Name, Source
 ```
 
 Anything resolving inside `C:\mingw64\bin` or an MSYS2 tree does POSIX↔Windows path
-translation and mangles `W:\` arguments — the same split as above, even with correct
+translation and mangles drive-letter arguments — the same split as above, even with correct
 quoting. Delete `build\` after changing toolchains; a failed configure leaves a cache
 that keeps reasserting old paths.
 
@@ -56,7 +55,7 @@ stock `samples/hello_world` for `nrf52840dk/nrf52840`, and was unfixed on Zephyr
 as of 2026-09-14.
 
 ```powershell
-cd W:\wakes-sp1-ws\zephyr
+cd C:\sp1-ws\zephyr
 git apply ..\wakes-sp1\zephyr-patches\nordic-cmsis-system-core-clock.patch
 ```
 
@@ -134,23 +133,25 @@ Same property, more moving parts. Prefer the DT property if it exists.
 
 ## Sanity-check before flashing
 
+Run the same gate CI runs, from the workspace root:
+
 ```powershell
-(Get-Item build\zephyr\wakes-sp1.bin).Length
+python wakes-sp1\tools\ci\check_image.py build
 ```
 
-**Compare against M0's size** rather than an absolute figure. M1a adds a PWM driver, a
-512-byte gamma table and two small state machines — expect *modestly* larger. A jump of
-hundreds of KB means something leaked in (a console, a USB stack) and is worth
+It refuses an image that is not linked at `0x20000`, that overruns the app slot, or that
+has dropped any constraint from `docs/SAFETY.md` (`CONFIG_USE_DT_CODE_PARTITION`,
+`CONFIG_WATCHDOG`, `CONFIG_REBOOT`, the bootloader's clock source, …), and prints every
+check and the binary's size either way. It needs
+`pyelftools`, which Zephyr's `requirements.txt` already installs. If it fails, fix the build,
+never the check.
+
+Also **compare the size against the previous build** rather than an absolute figure. A jump
+of tens or hundreds of KB with no new subsystem means something leaked in and is worth
 understanding before it reaches the device.
 
-Then confirm the image is linked for `0x20000`:
-
-```powershell
-Select-String -Path build\zephyr\wakes-sp1.map -Pattern "0x0*20000" | Select-Object -First 5
-```
-
 If the vector table sits at `0x0`, `CONFIG_USE_DT_CODE_PARTITION=y` did not take effect
-and **the device will not boot**. Fix that before flashing.
+and **the device will not boot**.
 
 ## Flashing
 
@@ -166,18 +167,12 @@ than in our firmware, so it works even if our app is completely broken.
 
 ## Appendix: first-time setup
 
-Only needed on a fresh machine. `W:\wakes-sp1-ws` is already set up.
-
 > ### The workspace path must contain no spaces
 >
 > Zephyr's CMake/devicetree tooling breaks on them, and `subst` / directory junctions do
 > **not** work around it: CMake's `REALPATH` and Python's `os.path.realpath` both resolve
-> back through the alias to the real path.
->
-> This is why the project moved off `W:\Worldwave Dev\Teenage Engineering SP-1\`. That
-> location is now an **inert backup only** — do not build or edit there, and never set up
-> a copy-between-trees sync. Two trees plus manual sync is how a stale binary reaches the
-> one device we have.
+> back through the alias to the real path. Move the workspace instead — and keep **one**
+> working tree. Two trees plus manual sync is how a stale binary reaches the device.
 
 ### Host prerequisites
 
@@ -238,25 +233,29 @@ opened** shells.
 python -m pip install --user west
 python -m west --version
 
-cd W:\wakes-sp1-ws
+mkdir C:\sp1-ws
+cd C:\sp1-ws
+git clone https://github.com/Worldwave/Wakes wakes-sp1
 west init -l wakes-sp1
 west update
 west zephyr-export
 python -m pip install -r zephyr\scripts\requirements.txt
 ```
 
-`west.yml` sets `self: path: wakes-sp1`, so the **workspace root is the parent of the
-repo** — init from `W:\wakes-sp1-ws`, not from inside `wakes-sp1\`.
+`west.yml` sets `self: path: wakes-sp1`, so the clone **must be named `wakes-sp1`** and
+the **workspace root is its parent** — init from `C:\sp1-ws`, not from inside
+`wakes-sp1\`.
 
-**⚠️ "detected dubious ownership".** This filesystem does not record ownership, so
-`west update` fails on each newly cloned project until you trust it:
+**⚠️ "detected dubious ownership".** On a filesystem that does not record ownership
+(exFAT, some network and external drives), `west update` fails on each newly cloned
+project until you trust it:
 
 ```powershell
-git config --global --add safe.directory W:/wakes-sp1-ws/zephyr
-git config --global --add safe.directory W:/wakes-sp1-ws/modules/hal/cmsis
-git config --global --add safe.directory W:/wakes-sp1-ws/modules/hal/cmsis_6
-git config --global --add safe.directory W:/wakes-sp1-ws/modules/hal/nordic
-git config --global --add safe.directory W:/wakes-sp1-ws/wakes-sp1
+git config --global --add safe.directory C:/sp1-ws/zephyr
+git config --global --add safe.directory C:/sp1-ws/modules/hal/cmsis
+git config --global --add safe.directory C:/sp1-ws/modules/hal/cmsis_6
+git config --global --add safe.directory C:/sp1-ws/modules/hal/nordic
+git config --global --add safe.directory C:/sp1-ws/wakes-sp1
 ```
 
 These are **global** git config entries — they only mark paths as trusted. Undo with
@@ -265,7 +264,7 @@ These are **global** git config entries — they only mark paths as trusted. Und
 ### Zephyr SDK 0.17.4
 
 ```powershell
-cd W:\wakes-sp1-ws\zephyr
+cd C:\sp1-ws\zephyr
 west sdk install --version 0.17.4
 west sdk list
 ```

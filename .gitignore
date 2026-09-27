@@ -17,3 +17,7 @@ __pycache__/
 # editor settings (machine-specific paths)
 .vscode/
 .idea/
+
+# design sources and editor lock files (the manual ships as its exported PDF)
+*.af
+*~lock~

@@ -55,6 +55,6 @@ re-run `tools/plaits-bench`, and re-measure on hardware.
 
 "Mutable Instruments is a registered trademark. The name "Mutable Instruments" should not
 be used on any of the derivative works you create from these files." It also recommends not
-keeping the original module name. So the firmware is **waves-sp1**; "Plaits" and "Mutable
+keeping the original module name. So the firmware is **Wakes** (`wakes-sp1`); "Plaits" and "Mutable
 Instruments" appear only as attribution — in NOTICE, here, and in comments — never as
 the product's name, a boot banner, or a release title.

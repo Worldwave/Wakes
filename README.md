@@ -15,8 +15,10 @@ Instruments. Nothing here is sold. Flashing custom firmware is at your own risk.
 ## Status
 
 **v0.4.6 (M4e), pre-release.** M4d was played on hardware for an hour with no audio dropouts or
-resets. M4e's first build, v0.4.5, has been flashed and smoke-tested; v0.4.6 adds two UI fixes
-from that testing and awaits the full M4e hardware test.
+resets. M4e's first build, v0.4.5, has been flashed and smoke-tested. v0.4.6 adds three UI changes
+from that testing: Unpatch no longer fires the button's ordinary action on release, a
+completed rip fades back to the page, and output select moves to PLAITS SETTINGS T4 so that
+`••` + T4 is Unpatch only. It awaits the full M4e hardware test.
 All testing so far has been on a single SP-1 unit.
 
 ## Before you flash

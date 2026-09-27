@@ -8,13 +8,13 @@ line, which matters for anything observed over time (charge curves, ladder sweep
 
     python -m pip install --user pyserial
 
-    python W:\wakes-sp1-ws\wakes-sp1\tools\console-log.py --list
-    python W:\wakes-sp1-ws\wakes-sp1\tools\console-log.py
-    python W:\wakes-sp1-ws\wakes-sp1\tools\console-log.py COM7
+    python C:\sp1-ws\wakes-sp1\tools\console-log.py --list
+    python C:\sp1-ws\wakes-sp1\tools\console-log.py
+    python C:\sp1-ws\wakes-sp1\tools\console-log.py COM7
 
-An absolute path on purpose: the west workspace root (W:\wakes-sp1-ws) is one level
-ABOVE this repo, and that is where the build commands run from, so a relative
-"tools\console-log.py" fails there with Errno 2.
+(C:\sp1-ws standing for your west workspace, as in docs/BUILD.md.) An absolute path on
+purpose: the workspace root is one level ABOVE this repo, and that is where the build
+commands run from, so a relative "tools\console-log.py" fails there with Errno 2.
 
 Requires M1c firmware or later to be FLASHED -- earlier builds have no USB at all,
 so there is no serial device to open.
