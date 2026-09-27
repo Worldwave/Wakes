@@ -1,4 +1,10 @@
-# Wakes
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/wakes-logo-dark.png">
+    <img src="docs/images/wakes-logo.png" width="520"
+         alt="Wakes: a love letter to Mutable Instruments, by Worldwave">
+  </picture>
+</p>
 
 Synthesizer firmware for the Teenage Engineering SP-1, the unreleased stem player. It runs
 ports of two Mutable Instruments modules together on the SP-1's own controls:
