@@ -162,6 +162,13 @@ float   sp1_marbles_volts(uint32_t j, int k);
  * you can hear rather than a second oscillator beating against it. */
 float   sp1_marbles_ramp(uint32_t j);
 
+/* The same three, as the arrays themselves (issue #22), for a caller that reads every
+ * frame of a block: gates[j], volts[4 * j + k], ramp[j]. One call per block instead of
+ * five per frame. Valid until the next sp1_marbles_render(). */
+const uint8_t *sp1_marbles_gate_frames(void);
+const float   *sp1_marbles_volt_frames(void);
+const float   *sp1_marbles_ramp_frames(void);
+
 /* ---- main thread: for the LEDs and the play-row clock ---- */
 /* The latest gates / voltages (updated once per audio block). */
 uint8_t sp1_marbles_last_gates(void);

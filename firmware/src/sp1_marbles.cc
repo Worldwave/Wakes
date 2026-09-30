@@ -596,6 +596,18 @@ extern "C" void sp1_marbles_render(uint32_t n) {
   }
 }
 
+extern "C" const uint8_t* sp1_marbles_gate_frames(void) {
+  return frame_gates;
+}
+
+extern "C" const float* sp1_marbles_volt_frames(void) {
+  return &frame_volts[0][0];
+}
+
+extern "C" const float* sp1_marbles_ramp_frames(void) {
+  return frame_ramp;
+}
+
 extern "C" uint8_t sp1_marbles_gates(uint32_t j) {
   return j < kN ? frame_gates[j] : 0u;
 }

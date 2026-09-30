@@ -47,6 +47,14 @@ void sp1_synth_init(void);
  * one int16 per frame. `frames` must be a multiple of SP1_SYNTH_BLOCK. */
 void sp1_synth_render(int16_t *out, uint32_t frames);
 
+/* AUDIO THREAD (issue #22): the device's render. Writes `frames` interleaved stereo
+ * frames straight into the DMA block (the same sample left and right), with the output
+ * level ramped linearly from `level_from` to `level_to` (0..1) across the block, and the
+ * block's largest |sample| in *peak for the meter. It replaces render-then-copy: the
+ * level, the stereo copy and the meter used to be a second pass over every sample. */
+void sp1_synth_render_stereo(int16_t *stereo, uint32_t frames, float level_from,
+                             float level_to, uint32_t *peak);
+
 /* Everything the UI decides, already mapped to Plaits' own units (M3b). The UI layer
  * (sp1_plaits_ui) owns pages, pickup, centre detents and the octave-range logic; the
  * synth just renders what it is given. */
@@ -136,7 +144,13 @@ uint32_t sp1_synth_trig_edges(void);
  *            constants and ceiling (0.8 of full scale; M3g). Below the ceiling it
  *            is untouched, so a quiet sum keeps its level
  *   RING     OUT x AUX x 2, saturated -- the product of two signals near full scale
- *            is quieter than either; x2 is the UI-SPEC's starting gain. */
+ *            is quieter than either; x2 is the UI-SPEC's starting gain.
+ *
+ * Since issue #22 the mode is a set of mixing weights applied INSIDE the voice, BEFORE
+ * its one low-pass gate (see the vendored plaits/dsp/voice.h): the chain is
+ * OUT/AUX -> sum or product -> LPG -> drive -> OUT+AUX limiter -> output level. Every
+ * mode costs the same. OUT, AUX and OUT+AUX sound as before; OUTxAUX is gated once
+ * AFTER the multiply (Adara), where it used to multiply two gated channels. */
 enum sp1_synth_output {
 	SP1_OUT_MAIN = 0,
 	SP1_OUT_AUX,

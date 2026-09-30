@@ -203,6 +203,13 @@ chosen first and that one signal is driven, so the sum and the ring product dist
 the intermodulation is intended. The OUT+AUX limiter stays **after** the drive, because it bounds
 what leaves the device. Through M4e the drive sat on OUT and AUX separately, before the mix.
 
+**The whole output chain** (issue #22): `OUT / AUX → sum or product → LPG → drive → OUT+AUX
+limiter → VOL → both channels`. Plaits' low-pass gate runs ONCE, on the selected mix — the SP-1
+never sends OUT and AUX to separate outputs, so Plaits' second gate only ever fed a mix. Every
+output mode costs the same. OUT, AUX and OUT+AUX sound as before; **OUT×AUX changed**: the product
+is now gated after the multiply (the LPG is the subtractive stage at the end), where through M4e
+two gated channels were multiplied, so the envelope reached the product twice.
+
 ⚠️ **It is a saturator, not a volume control.** Measured: +12 dB in comes out +7.1 dB louder
 and peaks stop just short of full scale without ever hard-clipping. Quiet material comes up,
 loud material compresses and gains harmonics. Step 0 bypasses the stage completely — not
