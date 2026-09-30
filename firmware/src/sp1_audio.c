@@ -15,6 +15,7 @@
 #endif
 
 #include <zephyr/kernel.h>
+#include <zephyr/linker/section_tags.h>   /* __ramfunc */
 #include <zephyr/device.h>
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/i2s.h>
@@ -98,7 +99,8 @@ static volatile uint32_t over_n, over_run_max;
 static uint32_t over_run;         /* audio thread only: the run in progress */
 static uint32_t cyc_budget;       /* copy of st.cyc_budget for the audio thread */
 
-static void account_sections(uint32_t cyc)
+/* __ramfunc (issue #22): per-block code runs from RAM, see sp1_synth.cc's SP1_HOT. */
+static __ramfunc void account_sections(uint32_t cyc)
 {
 	uint32_t s[SP1_SEC_N] = { 0u };
 #if defined(CONFIG_SP1_PLAITS)
@@ -184,7 +186,7 @@ static uint32_t      phase;
  * cleared by the control loop. */
 static atomic_t peak;
 
-static void publish_peak(uint32_t p)
+static __ramfunc void publish_peak(uint32_t p)
 {
 	/* Atomic max. Bounded: the only other writer is the meter's once-per-tick swap,
 	 * so this retries at most a couple of times and cannot spin. */
@@ -243,7 +245,7 @@ static void tone_render(int16_t *out)
 #endif
 
 /* Fill one block. The meter's entire audio-path cost is the two lines marked METER. */
-static void fill_block(int16_t *b)
+static __ramfunc void fill_block(int16_t *b)
 {
 	/* Read the controls ONCE per block, so a change lands on a block boundary and
 	 * a half-updated value is never seen mid-block. */

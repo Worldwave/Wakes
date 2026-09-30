@@ -172,7 +172,18 @@ uint8_t cur_range[4] = {
   marbles::VOLTAGE_RANGE_FULL, marbles::VOLTAGE_RANGE_FULL,
 };
 
-marbles::VoltageRange IntelligentRange(uint8_t dest, uint8_t centre) {
+// ---- the hot glue runs from RAM (issue #22) ----
+// The nRF52840's flash cache misses ~2.5-3 million times a second while audio runs, and
+// every miss is the CPU waiting on flash. This file's per-block code (Marbles' per-block glue) is placed in Zephyr's `.ramfunc` section: copied
+// from flash to RAM at boot, executed from RAM, covered by Zephyr's own MPU region for
+// it (self-aligned, power-of-two sized, execute permitted). Host builds leave it out.
+#if defined(__ZEPHYR__)
+#define SP1_HOT __attribute__((section(".ramfunc")))
+#else
+#define SP1_HOT
+#endif
+
+SP1_HOT marbles::VoltageRange IntelligentRange(uint8_t dest, uint8_t centre) {
   // The bits are SP1_ENGINE_TABLE[].centre: 0x1 = HARMONICS (F4), 0x2 = TIMBRE (F2),
   // 0x4 = MORPH (F3). A detent means the parameter's centre is its neutral point, which
   // is exactly what makes it bipolar.
@@ -285,7 +296,7 @@ namespace {
 // goes in on the very 4 kHz sample of that wrap -- known here because the whole block's
 // ramps exist before Plaits reads any of it -- and the result is bit-identical to 4 kHz.
 // A SMOOTH output is interpolated linearly across the four samples of its group.
-void RenderXY1k(marbles::ClockSource clk, const GroupSettings& x,
+SP1_HOT void RenderXY1k(marbles::ClockSource clk, const GroupSettings& x,
                 const GroupSettings& y, bool* reset, const marbles::Ramps& ramps,
                 uint32_t n) {
   const uint32_t groups = n / kXYDecim;
@@ -383,7 +394,7 @@ void RenderXY1k(marbles::ClockSource clk, const GroupSettings& x,
 // XYGenerator::Process, and a block-scope extern declaration names an entity in the
 // innermost enclosing namespace. `extern "C"` is not permitted at block scope at all.
 namespace marbles {
-int sp1_mrb_channel_range(int channel, int group_range) {
+SP1_HOT int sp1_mrb_channel_range(int channel, int group_range) {
   if (channel < 0 || channel > 3) {
     return group_range;
   }
@@ -438,7 +449,7 @@ extern "C" bool sp1_marbles_running(void) {
   return run_req;
 }
 
-extern "C" void sp1_marbles_render(uint32_t n) {
+extern "C" SP1_HOT void sp1_marbles_render(uint32_t n) {
   if (n > kN) {
     n = kN;
   }
@@ -596,15 +607,15 @@ extern "C" void sp1_marbles_render(uint32_t n) {
   }
 }
 
-extern "C" uint8_t sp1_marbles_gates(uint32_t j) {
+extern "C" SP1_HOT uint8_t sp1_marbles_gates(uint32_t j) {
   return j < kN ? frame_gates[j] : 0u;
 }
 
-extern "C" float sp1_marbles_ramp(uint32_t j) {
+extern "C" SP1_HOT float sp1_marbles_ramp(uint32_t j) {
   return j < kN ? frame_ramp[j] : 0.0f;
 }
 
-extern "C" float sp1_marbles_volts(uint32_t j, int k) {
+extern "C" SP1_HOT float sp1_marbles_volts(uint32_t j, int k) {
   return (j < kN && k >= 0 && k < 4) ? frame_volts[j][k] : 0.0f;
 }
 

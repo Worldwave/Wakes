@@ -258,7 +258,19 @@ inline int16_t Stage(const plaits::Voice::Frame& f, float g) {
 
 // The same for a mode and drive state known only at run time: the mode cross-fade and
 // the one block in which the drive gain ramps.
-inline int16_t StageAny(int mode, const plaits::Voice::Frame& f, bool drive, float g) {
+// ---- the hot glue runs from RAM (issue #22) ----
+// The nRF52840's flash cache misses ~2.5-3 million times a second while audio runs, and
+// every miss is the CPU waiting on flash. This file's per-block code (the render loop,
+// the routing and the output stage) is placed in Zephyr's `.ramfunc` section: copied
+// from flash to RAM at boot, executed from RAM, covered by Zephyr's own MPU region for
+// it (self-aligned, power-of-two sized, execute permitted). Host builds leave it out.
+#if defined(__ZEPHYR__)
+#define SP1_HOT __attribute__((section(".ramfunc")))
+#else
+#define SP1_HOT
+#endif
+
+SP1_HOT inline int16_t StageAny(int mode, const plaits::Voice::Frame& f, bool drive, float g) {
   switch (mode) {
     case SP1_OUT_AUX:
       return drive ? Stage<SP1_OUT_AUX, true>(f, g) : Stage<SP1_OUT_AUX, false>(f, g);
@@ -281,7 +293,7 @@ void StageBlock(const plaits::Voice::Frame* f, int16_t* out, float g) {
   }
 }
 
-inline void StageBlockAny(int mode, bool drive, const plaits::Voice::Frame* f,
+SP1_HOT inline void StageBlockAny(int mode, bool drive, const plaits::Voice::Frame* f,
                           int16_t* out, float g) {
   switch (mode) {
     case SP1_OUT_AUX:
@@ -384,7 +396,7 @@ inline uint32_t Now() {
   return cyc_counter ? *cyc_counter : 0u;
 }
 
-extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
+extern "C" SP1_HOT void sp1_synth_render(int16_t* out, uint32_t frames) {
   const uint32_t prof_t0 = Now();
   uint32_t prof_eng = 0u;
   uint32_t prof_post = 0u;
@@ -668,7 +680,7 @@ extern "C" void sp1_synth_set_cycle_counter(const volatile uint32_t* counter) {
   cyc_counter = counter;
 }
 
-extern "C" void sp1_synth_last_profile(sp1_synth_profile* out) {
+extern "C" SP1_HOT void sp1_synth_last_profile(sp1_synth_profile* out) {
   *out = prof;
 }
 
