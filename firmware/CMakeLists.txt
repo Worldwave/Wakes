@@ -158,6 +158,11 @@ if(CONFIG_SP1_PLAITS)
 	# holds its gains per block. Both headers only.
 	sp1_plaits_replace(plaits/dsp/fx/ensemble.h)
 	sp1_plaits_replace(plaits/dsp/oscillator/string_synth_oscillator.h)
+	# issue #22: the variable-shape and variable-saw oscillators (virtual analog, phase
+	# distortion, VA-VCF) take ONE divide per sample for their two slopes instead of two,
+	# at the same cost whether PW moves or not. Same quantities, float rounding only.
+	sp1_plaits_replace(plaits/dsp/oscillator/variable_shape_oscillator.h)
+	sp1_plaits_replace(plaits/dsp/oscillator/variable_saw_oscillator.h)
 	# ---- issue #22: Chords' organ/wavetable crossfade, bounded in time (Adara) ----
 	# Each of the five notes fades from its divide-down organ to its wavetable over a
 	# 0.02-wide slice of MORPH, and a note inside its slice renders BOTH oscillators --
@@ -169,70 +174,13 @@ if(CONFIG_SP1_PLAITS)
 	#     every fade is slew-limited to 50 ms end to end, and only one note may start a
 	#     fade while another is mid-way -- so six oscillators is the ceiling and is never
 	#     sustained while MORPH rests.
-	# The state lives in ChordEngine (header), the call in Render (.cc): one passage each.
-	sp1_plaits_override(plaits/dsp/engine/chord_engine.h
-		"  float morph_lp_;
-  float timbre_lp_;
-"
-		"  float morph_lp_;
-  float timbre_lp_;
-
-  // wakes-sp1 (issue #22): one note's organ -> wavetable amount, 0..1. The slice is a
-  // quarter of upstream's width; resting inside it resolves to the nearer side after
-  // kSp1RestBlocks; every move is slew-limited; one note fades at a time.
- public:
-  static const bool kSp1BoundedCrossfade = true;   // checked in sp1_synth.cc
- private:
-  static const int kSp1RestBlocks = 200;           // 50 ms of 12-sample blocks
-  static constexpr float kSp1Slew = 1.0f / 200.0f; // 0 -> 1 in 50 ms
-  static constexpr float kSp1Moved = 0.25f;        // of the slice: fader noise is ~0.12
-  float sp1_xf_[kChordNumVoices] = { };
-  float sp1_ref_[kChordNumVoices] = { };
-  int sp1_rest_[kChordNumVoices] = { };
-  bool sp1_seen_[kChordNumVoices] = { };
-
-  float Sp1Crossfade(int note, float morph, float fade_point) {
-    // Upstream: 50 x (morph - fade_point), a 0.02 slice. Same midpoint, 0.005 wide.
-    float p = 200.0f * (morph - fade_point - 0.0075f);
-    CONSTRAIN(p, 0.0f, 1.0f);
-    float& x = sp1_xf_[note];
-    if (!sp1_seen_[note]) {
-      sp1_seen_[note] = true;
-      x = p;
-      sp1_ref_[note] = p;
-    }
-    if (p - sp1_ref_[note] > kSp1Moved || sp1_ref_[note] - p > kSp1Moved) {
-      sp1_ref_[note] = p;
-      sp1_rest_[note] = 0;
-    } else if (sp1_rest_[note] < kSp1RestBlocks) {
-      ++sp1_rest_[note];
-    }
-    float target = p;
-    if (p > 0.0f && p < 1.0f && sp1_rest_[note] >= kSp1RestBlocks) {
-      target = sp1_ref_[note] >= 0.5f ? 1.0f : 0.0f;
-    }
-    if (x != target) {
-      bool other_mid = false;
-      for (int i = 0; i < kChordNumVoices; ++i) {
-        if (i != note && sp1_xf_[i] > 0.0f && sp1_xf_[i] < 1.0f) {
-          other_mid = true;
-        }
-      }
-      if (!(other_mid && (x <= 0.0f || x >= 1.0f))) {
-        float d = target - x;
-        CONSTRAIN(d, -kSp1Slew, kSp1Slew);
-        x += d;
-      }
-    }
-    return x;
-  }
-")
-	sp1_plaits_override(plaits/dsp/engine/chord_engine.cc
-		"    float wavetable_amount = 50.0f * (morph_lp_ - fade_point[note]);
-    CONSTRAIN(wavetable_amount, 0.0f, 1.0f);"
-		"    // wakes-sp1 (issue #22): bounded crossfade, see chord_engine.h. Upstream is
-    // 50 x (morph_lp_ - fade_point[note]), constrained to 0..1.
-    float wavetable_amount = Sp1Crossfade(note, morph_lp_, fade_point[note]);")
+	# And the five voices share ONE waveform position (MORPH), stepped once per sample
+	# instead of once per voice -- same cost in every state (Adara). Both changes needed
+	# more than one passage per file, so the chord engine and the wavetable oscillator
+	# are full replacements in src/plaits_ovr (was: generated overrides of the engine).
+	sp1_plaits_replace(plaits/dsp/engine/chord_engine.h)
+	sp1_plaits_replace(plaits/dsp/engine/chord_engine.cc)
+	sp1_plaits_replace(plaits/dsp/oscillator/wavetable_oscillator.h)
 	# ---- M4a: a HARMONICS attenuverter (Adara) ----
 	# Plaits' panel has attenuverters on FM, TIMBRE and MORPH but not on HARMONICS: its
 	# HARMONICS CV is summed in raw, and -- the part that matters musically -- HARMONICS

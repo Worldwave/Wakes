@@ -13,10 +13,14 @@
 //   OUT+AUX:  the same, except that the sum is no longer clipped per channel before it is
 //             added: the voice hands the SP-1 an unclipped value and the one 16-bit
 //             saturation happens after the drive and the OUT+AUX limiter.
-//   OUTxAUX:  NOT merged. A product of two gated signals is not a gated product (each
-//             side is low-pass filtered before multiplying), and one gate on the product
-//             sounds different on plucked notes. OUTxAUX keeps two gates, exactly as
-//             upstream; only the other three modes save the second one.
+//   OUTxAUX:  the product is taken BEFORE the gate, like the sum (Adara: the LPG is the
+//             subtractive stage at the end of the chain; nothing here means to multiply
+//             two already-gated signals). This one is a deliberate change of sound: upstream
+//             gated each channel and M3f multiplied the results, so the envelope reached
+//             the product twice and each side was low-pass filtered before multiplying.
+//             Level at full envelope is unchanged (product x 2, as M3f's ring modulator).
+//
+//   Every mode costs the same: one gate, and the same mixing arithmetic on every sample.
 //
 // Plaits' per-channel limiter (engines with a negative output gain) is kept per channel,
 // before the mix, with its per-sample divide replaced by a Newton reciprocal (see
@@ -102,10 +106,6 @@ void Voice::Init(BufferAllocator* allocator) {
   out_limiter_.Init();
   aux_limiter_.Init();
   lpg_.Init();
-  ring_lpg_out_.Init();
-  ring_lpg_aux_.Init();
-  mix_gate_live_ = true;
-  ring_gates_live_ = true;
 
   decay_envelope_.Init();
   lpg_envelope_.Init();
@@ -308,74 +308,33 @@ void Voice::Render(
   const float gate_gain = -32767.0f * lpg_envelope_.gain();
   const float inv = 1.0f / static_cast<float>(size);
 
-  // ---- OUT, AUX, OUT+AUX: their weighted sum through ONE gate ----
-  const bool mix_on = from.out != 0.0f || to.out != 0.0f ||
-                      from.aux != 0.0f || to.aux != 0.0f;
-  if (mix_on) {
-    if (!mix_gate_live_) {
-      lpg_.Init();
-      mix_gate_live_ = true;
-    }
-    const float d_out = (to.out - from.out) * inv;
-    const float d_aux = (to.aux - from.aux) * inv;
-    float wo = from.out, wa = from.aux;
-    for (size_t i = 0; i < size; ++i) {
-      wo += d_out;
-      wa += d_aux;
-      mix_buffer_[i] = wo * out_buffer_[i] * out_gain + wa * aux_buffer_[i] * aux_gain;
-    }
-    if (!lpg_bypass) {
-      lpg_.Process(
-          gate_gain,
-          lpg_envelope_.frequency(),
-          lpg_envelope_.hf_bleed(),
-          mix_buffer_,
-          size);
-    } else {
-      for (size_t i = 0; i < size; ++i) {
-        mix_buffer_[i] *= -32767.0f;
-      }
-    }
-  } else {
-    mix_gate_live_ = false;
-    std::fill(&mix_buffer_[0], &mix_buffer_[size], 0.0f);
+  // ---- OUT, AUX, OUT+AUX, OUTxAUX: one weighted mix through ONE gate ----
+  // The same arithmetic on every sample whatever the mode, so no mode costs more than
+  // another. OUTxAUX is -2 x OUT x AUX: x 2 as M3f's ring modulator, and negative
+  // because the gate's -32767 flips every term alike.
+  const float d_out = (to.out - from.out) * inv;
+  const float d_aux = (to.aux - from.aux) * inv;
+  const float d_ring = (to.ring - from.ring) * inv;
+  float wo = from.out, wa = from.aux, wr = from.ring;
+  for (size_t i = 0; i < size; ++i) {
+    wo += d_out;
+    wa += d_aux;
+    wr += d_ring;
+    const float o = out_buffer_[i] * out_gain;
+    const float a = aux_buffer_[i] * aux_gain;
+    mix_buffer_[i] = wo * o + wa * a - 2.0f * wr * o * a;
   }
-
-  // ---- OUTxAUX: upstream's two gates, then the product (as M3f's ring modulator) ----
-  const bool ring_on = from.ring != 0.0f || to.ring != 0.0f;
-  if (ring_on) {
-    if (!ring_gates_live_) {
-      ring_lpg_out_.Init();
-      ring_lpg_aux_.Init();
-      ring_gates_live_ = true;
-    }
-    for (size_t i = 0; i < size; ++i) {
-      out_buffer_[i] *= out_gain;
-      aux_buffer_[i] *= aux_gain;
-    }
-    if (!lpg_bypass) {
-      ring_lpg_out_.Process(gate_gain, lpg_envelope_.frequency(),
-                            lpg_envelope_.hf_bleed(), out_buffer_, size);
-      ring_lpg_aux_.Process(gate_gain, lpg_envelope_.frequency(),
-                            lpg_envelope_.hf_bleed(), aux_buffer_, size);
-    } else {
-      for (size_t i = 0; i < size; ++i) {
-        out_buffer_[i] *= -32767.0f;
-        aux_buffer_[i] *= -32767.0f;
-      }
-    }
-    const float d_ring = (to.ring - from.ring) * inv;
-    float wr = from.ring;
-    for (size_t i = 0; i < size; ++i) {
-      wr += d_ring;
-      // Upstream's two int16 channels, and M3f's (a x b) >> 14, saturated.
-      const int32_t o16 = stmlib::Clip16(1 + static_cast<int32_t>(out_buffer_[i]));
-      const int32_t a16 = stmlib::Clip16(1 + static_cast<int32_t>(aux_buffer_[i]));
-      const int32_t ring = stmlib::Clip16((o16 * a16) >> 14);
-      mix_buffer_[i] += wr * static_cast<float>(ring);
-    }
+  if (!lpg_bypass) {
+    lpg_.Process(
+        gate_gain,
+        lpg_envelope_.frequency(),
+        lpg_envelope_.hf_bleed(),
+        mix_buffer_,
+        size);
   } else {
-    ring_gates_live_ = false;
+    for (size_t i = 0; i < size; ++i) {
+      mix_buffer_[i] *= -32767.0f;
+    }
   }
 
   std::copy(&mix_buffer_[0], &mix_buffer_[size], out);

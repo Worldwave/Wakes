@@ -13,10 +13,14 @@
 //   OUT+AUX:  the same, except that the sum is no longer clipped per channel before it is
 //             added: the voice hands the SP-1 an unclipped value and the one 16-bit
 //             saturation happens after the drive and the OUT+AUX limiter.
-//   OUTxAUX:  NOT merged. A product of two gated signals is not a gated product (each
-//             side is low-pass filtered before multiplying), and one gate on the product
-//             sounds different on plucked notes. OUTxAUX keeps two gates, exactly as
-//             upstream; only the other three modes save the second one.
+//   OUTxAUX:  the product is taken BEFORE the gate, like the sum (Adara: the LPG is the
+//             subtractive stage at the end of the chain; nothing here means to multiply
+//             two already-gated signals). This one is a deliberate change of sound: upstream
+//             gated each channel and M3f multiplied the results, so the envelope reached
+//             the product twice and each side was low-pass filtered before multiplying.
+//             Level at full envelope is unchanged (product x 2, as M3f's ring modulator).
+//
+//   Every mode costs the same: one gate, and the same mixing arithmetic on every sample.
 //
 // Plaits' per-channel limiter (engines with a negative output gain) is kept per channel,
 // before the mix, with its per-sample divide replaced by a Newton reciprocal (see
@@ -330,17 +334,11 @@ class Voice {
   float trigger_delay_line_[kMaxTriggerDelay];
   DelayLine<float, kMaxTriggerDelay> trigger_delay_;
   
-  // wakes-sp1 (issue #22): one gate for the mix of OUT and AUX; two more used only by
-  // OUTxAUX (as upstream gated each channel); the per-channel limiters kept. A gate
-  // that sat unused restarts from silence (Init) the next time it is needed -- always
-  // inside a mode cross-fade, where its weight starts at zero.
+  // wakes-sp1 (issue #22): ONE gate for the mix of OUT, AUX and their product; the
+  // per-channel limiters kept.
   Sp1Limiter out_limiter_;
   Sp1Limiter aux_limiter_;
   LowPassGate lpg_;
-  LowPassGate ring_lpg_out_;
-  LowPassGate ring_lpg_aux_;
-  bool mix_gate_live_;
-  bool ring_gates_live_;
   float mix_buffer_[kMaxBlockSize];
   
   EngineRegistry<kMaxEngines> engines_;

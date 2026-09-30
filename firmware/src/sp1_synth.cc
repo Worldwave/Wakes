@@ -742,5 +742,11 @@ static_assert(plaits::StringSynthOscillator::kSp1Override,
               "String-synth oscillator replacement not applied");
 static_assert(plaits::Voice::kSp1SingleLpg,
               "voice.h replacement not applied: two low-pass gates");
+static_assert(plaits::VariableShapeOscillator::kSp1Override &&
+                  plaits::VariableSawOscillator::kSp1Override,
+              "oscillator replacements not applied: two divides per sample");
+static_assert(plaits::ChordEngine::kSp1SharedWaveform &&
+                  plaits::WavetableOscillator<128, 15>::kSp1Override,
+              "chord engine replacement not applied: per-voice waveform");
 static_assert(plaits::ChordEngine::kSp1BoundedCrossfade,
               "chord_engine.h override not applied: Chords' crossfade is unbounded");
