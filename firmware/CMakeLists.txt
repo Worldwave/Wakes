@@ -239,77 +239,26 @@ if(CONFIG_SP1_PLAITS)
 	# is the one parameter the internal decay envelope can never reach, because that
 	# routing is what an unpatched attenuverter means on the other three.
 	#
-	# These two overrides give HARMONICS the same treatment, which is a genuine addition
-	# to Plaits rather than a re-binding. Together they add `harmonics_modulation_amount`
-	# to Patch and `harmonics_patched` to Modulations, then run HARMONICS through the
-	# same ApplyModulations() as the other three. The envelope amount is the plain
-	# decay envelope, like TIMBRE's: the speech engine's `internal_envelope_amplitude`
-	# is computed FROM p.harmonics, so using it here would be circular.
+	# HARMONICS gets the same treatment, which is a genuine addition to Plaits rather
+	# than a re-binding: `harmonics_modulation_amount` in Patch, `harmonics_patched` in
+	# Modulations, and HARMONICS run through the same ApplyModulations() as the other
+	# three. The envelope amount is the plain decay envelope, like TIMBRE's: the speech
+	# engine's `internal_envelope_amplitude` is computed FROM p.harmonics, so using it
+	# here would be circular.
 	#
-	# ⚠️ Patch and Modulations are laid out by this header for EVERY Plaits file, so the
-	# override must shadow upstream for all of them -- that is what SP1_OVR being first
-	# on the include path does. sp1_synth.cc static_asserts that it took.
-	# One passage, because a file may only be overridden once and the two new fields
-	# live in two different structs.
-	sp1_plaits_override(plaits/dsp/voice.h
-		"  float morph_modulation_amount;
-
-  int engine;
-  float decay;
-  float lpg_colour;
-};
-
-struct Modulations {
-  float engine;
-  float note;
-  float frequency;
-  float harmonics;
-  float timbre;
-  float morph;
-  float trigger;
-  float level;
-
-  bool frequency_patched;"
-		"  float morph_modulation_amount;
-  // wakes-sp1 (M4a): HARMONICS gets an attenuverter of its own. Upstream has none.
-  float harmonics_modulation_amount;
-
-  int engine;
-  float decay;
-  float lpg_colour;
-
-  // Proof to sp1_synth.cc's static_assert that this override was compiled.
-  static const bool kSp1HarmonicsAttenuverter = true;
-};
-
-struct Modulations {
-  float engine;
-  float note;
-  float frequency;
-  float harmonics;
-  float timbre;
-  float morph;
-  float trigger;
-  float level;
-
-  bool harmonics_patched;   // wakes-sp1 (M4a)
-  bool frequency_patched;")
-	sp1_plaits_override(plaits/dsp/voice.cc
-		"  p.harmonics = patch.harmonics + modulations.harmonics;
-  CONSTRAIN(p.harmonics, 0.0f, 1.0f);"
-		"  // wakes-sp1 (M4a): HARMONICS through the same attenuverter + internal-envelope
-  // path as TIMBRE and MORPH. Upstream is: p.harmonics = patch.harmonics +
-  // modulations.harmonics, constrained to 0..1.
-  p.harmonics = ApplyModulations(
-      patch.harmonics,
-      patch.harmonics_modulation_amount,
-      modulations.harmonics_patched,
-      modulations.harmonics,
-      use_internal_envelope,
-      decay_envelope_.value(),
-      0.0f,
-      0.0f,
-      1.0f);")
+	# ---- issue #22: ONE low-pass gate for the mix (Adara) ----
+	# Plaits gates OUT and AUX separately; the SP-1 only ever plays one of OUT, AUX,
+	# OUT+AUX, OUTxAUX through one output, so the voice now mixes first and gates once.
+	# The reasoning and what is exact per mode are at the top of the replacement files.
+	# That needed more than one passage, so M4a's two one-passage overrides became these
+	# full replacements, which carry M4a's changes unchanged.
+	#
+	# ⚠️ Patch, Modulations and Voice are laid out by this header for EVERY Plaits file,
+	# so it must shadow upstream for all of them (src/plaits_ovr is on the include path
+	# ahead of the eurorack root). sp1_synth.cc static_asserts both changes, and
+	# check_image.py fails any image where two objects disagree on a layout.
+	sp1_plaits_replace(plaits/dsp/voice.h)
+	sp1_plaits_replace(plaits/dsp/voice.cc)
 	# ---- M4c: the X / Y voltage range becomes PER CHANNEL ----
 	# Marbles' range is a per-GROUP setting and XYGenerator::Process writes it into each
 	# channel's ScaleOffset itself, every block -- so anything we set per channel would be
@@ -333,6 +282,26 @@ struct Modulations {
 	sp1_plaits_override(marbles/random/t_generator.h
 		"  inline void set_model(TGeneratorModel model) {"
 		"  // wakes-sp1 (M4): PLAY starts the clock on a beat.\n  inline void set_master_phase(float phase) {\n    master_phase_ = phase;\n  }\n\n  inline void set_model(TGeneratorModel model) {")
+
+	# ⚠️ Remove any generated file that is no longer an override (issue #22). SP1_OVR is
+	# FIRST on the include path, so a stale copy left by an earlier configure -- voice.h
+	# after it became a full replacement in src/plaits_ovr -- would shadow the file that
+	# replaced it. Current overrides are left alone, so their timestamps (and the Plaits
+	# objects built from them) survive a reconfigure.
+	get_property(sp1_swaps GLOBAL PROPERTY SP1_PLAITS_SWAP)
+	file(GLOB_RECURSE sp1_ovr_files LIST_DIRECTORIES false ${SP1_OVR}/*)
+	foreach(f ${sp1_ovr_files})
+		file(RELATIVE_PATH frel ${SP1_OVR} ${f})
+		string(REGEX REPLACE "\\.tmp$" "" frel_base "${frel}")
+		set(sp1_keep FALSE)
+		if("${frel_base}" IN_LIST sp1_swaps AND NOT EXISTS ${SP1_REPL}/${frel_base})
+			set(sp1_keep TRUE)
+		endif()
+		if(NOT sp1_keep)
+			file(REMOVE ${f})
+			message(STATUS "Plaits override: removed stale ${frel}")
+		endif()
+	endforeach()
 
 	set(PLAITS_SOURCES
 		${ER}/plaits/dsp/voice.cc

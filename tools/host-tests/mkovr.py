@@ -73,4 +73,14 @@ for rel, frm, to in calls:
     open(dst, 'w', encoding='utf-8').write(src.replace(frm, to))
     n += 1
     print('  override %s' % rel)
+# ⚠️ Remove any generated file that is no longer an override. OUT comes FIRST on the
+# include path, so a stale copy -- say voice.h after it became a full replacement in
+# firmware/src/plaits_ovr -- would silently shadow the file that replaced it.
+wanted = {os.path.normpath(os.path.join(OUT, rel)) for rel, _, _ in calls}
+for root, _, files in os.walk(OUT):
+    for f in files:
+        path = os.path.normpath(os.path.join(root, f))
+        if path not in wanted:
+            os.remove(path)
+            print('  removed stale %s' % os.path.relpath(path, OUT))
 print('%d overrides written to %s' % (n, OUT))
