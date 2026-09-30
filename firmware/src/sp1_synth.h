@@ -175,6 +175,27 @@ void sp1_synth_set_drive(int step);
 int  sp1_synth_drive(void);
 int  sp1_synth_drive_db(int step);     /* the dB at `step`, 0 at step 0 */
 
+/* ---- where a block's cycles went (issue #22) ----
+ * One number for the whole block cannot say whether an engine, Marbles or our own output
+ * stage is the expensive part, and every optimisation has to be judged against that. So
+ * sp1_synth_render() timestamps its sections from a free-running cycle counter it is
+ * handed -- a pointer, because this layer includes no Zephyr or CMSIS header. NULL (the
+ * default, and the host) turns the profile off and every figure reads 0.
+ *
+ *   mrb    Marbles' generators (sp1_marbles_render)
+ *   eng    plaits::Voice::Render -- the engine, its LPG and Plaits' own limiter
+ *   post   the drive, the output select and its limiter, the conversion to int16
+ *   total  the whole call; total - mrb - eng - post is the routing between them
+ *
+ * An interrupt landing inside a section is counted in it: these are wall-clock spans.
+ * About 45 counter reads per DMA block, under 0.1 % of the budget. */
+struct sp1_synth_profile {
+	uint32_t total, mrb, eng, post;
+};
+void sp1_synth_set_cycle_counter(const volatile uint32_t *counter);
+/* AUDIO THREAD: the spans of the last sp1_synth_render() call. */
+void sp1_synth_last_profile(struct sp1_synth_profile *out);
+
 
 #ifdef __cplusplus
 }

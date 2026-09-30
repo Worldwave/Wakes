@@ -113,6 +113,28 @@ int sp1_audio_jack_state(void);        /* 1 in, 0 out, -1 unknown */
 /* Block cost since the last call: worst and mean cycles per block. Read-and-clear. */
 void sp1_audio_take_cycles(uint32_t *max, uint32_t *avg);
 
+/* Where the blocks since the last call went (issue #22): mean and worst cycles per block
+ * for each section, and how often the whole block ran over. Read-and-clear, like
+ * sp1_audio_take_cycles(), and meant to be read in the same place.
+ *
+ *   ENG / MRB / POST   sp1_synth.h's sections
+ *   RTE                the rest of sp1_synth_render(): Marbles -> Plaits routing, TRIG
+ *   OUT                the rest of the block: gain ramp, stereo copy, meter peak
+ *
+ * `over` counts blocks that cost more than the budget; `over_run` is the longest run of
+ * them in a row. A long run is what starves the main loop -- one late block is absorbed
+ * by the I2S queue, a second of them is not. */
+enum {
+	SP1_SEC_ENG, SP1_SEC_MRB, SP1_SEC_RTE, SP1_SEC_POST, SP1_SEC_OUT, SP1_SEC_N
+};
+struct sp1_audio_sections {
+	uint32_t avg[SP1_SEC_N];
+	uint32_t max[SP1_SEC_N];
+	uint32_t over;
+	uint32_t over_run;
+};
+void sp1_audio_take_sections(struct sp1_audio_sections *out);
+
 /* ---- diagnostics ---- */
 struct sp1_audio_stats {
 	uint32_t blocks;         /* blocks handed to I2S                         */

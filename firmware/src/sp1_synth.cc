@@ -252,7 +252,19 @@ extern "C" void sp1_synth_init(void) {
   trig_blocks_left = 0;
 }
 
+// ---- where the block went (issue #22; sp1_synth.h) ----
+const volatile uint32_t* cyc_counter;        // NULL = no profile (host, or not set yet)
+sp1_synth_profile prof;                      // audio thread: spans of the last render
+
+inline uint32_t Now() {
+  return cyc_counter ? *cyc_counter : 0u;
+}
+
 extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
+  const uint32_t prof_t0 = Now();
+  uint32_t prof_eng = 0u;
+  uint32_t prof_post = 0u;
+  prof.total = prof.mrb = prof.eng = prof.post = 0u;
   if (!voice) {
     for (uint32_t i = 0; i < frames; ++i) {
       out[i] = 0;
@@ -301,7 +313,9 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
   // Marbles, one sample per Plaits block (the 4 kHz rule, sp1_marbles.h). Stopped,
   // it renders nothing and every Marbles input below stays unpatched.
   const bool mrb = sp1_marbles_running();
+  const uint32_t prof_m0 = Now();
   sp1_marbles_render(frames / plaits::kBlockSize);
+  prof.mrb = Now() - prof_m0;
   if (!mrb) {
     mrb_gates_prev = 0u;
   }
@@ -492,7 +506,10 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
       patch.note = c.note;
     }
     ++j;
+    const uint32_t prof_e0 = Now();
     voice->Render(patch, mods, f, plaits::kBlockSize);
+    const uint32_t prof_e1 = Now();
+    prof_eng += prof_e1 - prof_e0;
     for (size_t i = 0; i < plaits::kBlockSize; ++i) {
       if (driving) {
         drive_g += drive_inc;
@@ -515,10 +532,22 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
         out[i] = static_cast<int16_t>(now);
       }
     }
+    prof_post += Now() - prof_e1;
     out += plaits::kBlockSize;
     frames -= plaits::kBlockSize;
   }
   output_prev = omode;
+  prof.eng = prof_eng;
+  prof.post = prof_post;
+  prof.total = Now() - prof_t0;
+}
+
+extern "C" void sp1_synth_set_cycle_counter(const volatile uint32_t* counter) {
+  cyc_counter = counter;
+}
+
+extern "C" void sp1_synth_last_profile(sp1_synth_profile* out) {
+  *out = prof;
 }
 
 extern "C" void sp1_synth_set_params(const sp1_synth_params* p) {

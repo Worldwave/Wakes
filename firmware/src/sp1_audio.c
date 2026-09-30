@@ -91,6 +91,41 @@ static bool jack_enabled;       /* ditto; cleared by start() and stop() */
  * the next window. Diagnostics, not control. */
 static volatile uint32_t win_max, win_sum, win_n;
 
+/* The same window, by section (issue #22; sp1_audio.h). sec_n is its own count so this
+ * window and the one above can be read-and-cleared independently. */
+static volatile uint32_t sec_sum[SP1_SEC_N], sec_max[SP1_SEC_N], sec_n;
+static volatile uint32_t over_n, over_run_max;
+static uint32_t over_run;         /* audio thread only: the run in progress */
+static uint32_t cyc_budget;       /* copy of st.cyc_budget for the audio thread */
+
+static void account_sections(uint32_t cyc)
+{
+	uint32_t s[SP1_SEC_N] = { 0u };
+#if defined(CONFIG_SP1_PLAITS)
+	struct sp1_synth_profile p;
+	sp1_synth_last_profile(&p);
+	s[SP1_SEC_ENG]  = p.eng;
+	s[SP1_SEC_MRB]  = p.mrb;
+	s[SP1_SEC_POST] = p.post;
+	s[SP1_SEC_RTE]  = p.total - p.mrb - p.eng - p.post;
+	s[SP1_SEC_OUT]  = cyc - p.total;
+#else
+	s[SP1_SEC_OUT]  = cyc;
+#endif
+	for (int i = 0; i < SP1_SEC_N; i++) {
+		sec_sum[i] += s[i];
+		if (s[i] > sec_max[i]) { sec_max[i] = s[i]; }
+	}
+	sec_n++;
+
+	if (cyc > cyc_budget) {
+		over_n++;
+		if (++over_run > over_run_max) { over_run_max = over_run; }
+	} else {
+		over_run = 0u;
+	}
+}
+
 /* ============================================================================
  *  The test tone. Integer only: a phase accumulator into a sine table with linear
  *  interpolation. ~10 cycles per sample, no libm, no floating point.
@@ -346,6 +381,7 @@ static void audio_thread(void *a, void *b, void *c)
 			if (cyc > win_max) { win_max = cyc; }
 			win_sum += cyc;
 			win_n++;
+			account_sections(cyc);
 
 			if (i2s_write(i2s_dev, blk, BLK_BYTES) != 0) {
 				k_mem_slab_free(&tx_slab, blk);
@@ -580,6 +616,10 @@ void sp1_audio_init(void)
 	/* 64 MHz, a constant rather than SystemCoreClock: one fewer dependency on a
 	 * symbol this build only reaches through a local Zephyr patch. */
 	st.cyc_budget = (uint32_t)((64000000ull * BLK_FRAMES) / SR_HZ);   /* 320 000 */
+	cyc_budget = st.cyc_budget;
+#if defined(CONFIG_SP1_PLAITS)
+	sp1_synth_set_cycle_counter(&DWT->CYCCNT);
+#endif
 
 #if defined(CONFIG_SP1_PLAITS)
 	/* Construct the voice and set up all its engines, here in the main thread at
@@ -727,6 +767,31 @@ void sp1_audio_take_cycles(uint32_t *max, uint32_t *avg)
 	k_sched_unlock();
 	*max = mx;
 	*avg = n ? (sum / n) : 0u;
+}
+
+void sp1_audio_take_sections(struct sp1_audio_sections *out)
+{
+	uint32_t sum[SP1_SEC_N];
+
+	/* Same lock, same reason, as sp1_audio_take_cycles(). */
+	k_sched_lock();
+	const uint32_t n = sec_n;
+	for (int i = 0; i < SP1_SEC_N; i++) {
+		sum[i] = sec_sum[i];
+		out->max[i] = sec_max[i];
+		sec_sum[i] = 0u;
+		sec_max[i] = 0u;
+	}
+	sec_n = 0u;
+	out->over = over_n;
+	out->over_run = over_run_max;
+	over_n = 0u;
+	over_run_max = 0u;
+	k_sched_unlock();
+
+	for (int i = 0; i < SP1_SEC_N; i++) {
+		out->avg[i] = n ? (sum[i] / n) : 0u;
+	}
 }
 
 /* ============================================================================

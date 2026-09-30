@@ -1615,6 +1615,36 @@ int main(void)
 				       );
 #if defined(CONFIG_SP1_PLAITS)
 				trig_print0 = sp1_synth_trig_edges();
+
+				/* Where those blocks went (issue #22), as avg/max percent
+				 * of the budget per section -- see sp1_audio.h. A line of
+				 * its own: the AUD line is already as long as one CDC
+				 * burst should be. The section maxima need not come from
+				 * the same block, so they do not add up to AUD's max. */
+				struct sp1_audio_sections sc;
+				sp1_audio_take_sections(&sc);
+				uint32_t a10[SP1_SEC_N], m10[SP1_SEC_N];
+				for (int i = 0; i < SP1_SEC_N; i++) {
+					a10[i] = as.cyc_budget
+						? (uint32_t)(((uint64_t)sc.avg[i] * 1000u) /
+							     as.cyc_budget) : 0u;
+					m10[i] = as.cyc_budget
+						? (uint32_t)(((uint64_t)sc.max[i] * 1000u) /
+							     as.cyc_budget) : 0u;
+				}
+				printk("CPU eng=%u.%u/%u.%u mrb=%u.%u/%u.%u rte=%u.%u/%u.%u"
+				       " post=%u.%u/%u.%u out=%u.%u/%u.%u  ovr=%u run=%u\n",
+				       a10[SP1_SEC_ENG] / 10u, a10[SP1_SEC_ENG] % 10u,
+				       m10[SP1_SEC_ENG] / 10u, m10[SP1_SEC_ENG] % 10u,
+				       a10[SP1_SEC_MRB] / 10u, a10[SP1_SEC_MRB] % 10u,
+				       m10[SP1_SEC_MRB] / 10u, m10[SP1_SEC_MRB] % 10u,
+				       a10[SP1_SEC_RTE] / 10u, a10[SP1_SEC_RTE] % 10u,
+				       m10[SP1_SEC_RTE] / 10u, m10[SP1_SEC_RTE] % 10u,
+				       a10[SP1_SEC_POST] / 10u, a10[SP1_SEC_POST] % 10u,
+				       m10[SP1_SEC_POST] / 10u, m10[SP1_SEC_POST] % 10u,
+				       a10[SP1_SEC_OUT] / 10u, a10[SP1_SEC_OUT] % 10u,
+				       m10[SP1_SEC_OUT] / 10u, m10[SP1_SEC_OUT] % 10u,
+				       sc.over, sc.over_run);
 #endif
 			}
 
