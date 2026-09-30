@@ -89,7 +89,7 @@ body:
     attributes:
       label: Version
       description: The release you flashed (e.g. from its file name), or the commit if you built it yourself.
-      placeholder: v0.4.6
+      placeholder: v0.4.8
     validations:
       required: true
 
