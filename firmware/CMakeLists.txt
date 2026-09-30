@@ -399,11 +399,6 @@ struct Modulations {
 	)
 	# A Zephyr library declared from the APPLICATION is not linked on its own.
 	target_link_libraries(app PRIVATE sp1_plaits)
-	# ⚠️ Experiment switch (issue #22), OFF by default: see sp1_synth.cc.
-	option(SP1_DRIVE_TABLE_RAM "Copy the drive's curve into RAM (flash-read cost test)" OFF)
-	if(SP1_DRIVE_TABLE_RAM)
-		target_compile_definitions(sp1_plaits PRIVATE SP1_DRIVE_TABLE_RAM)
-	endif()
 	target_sources(app PRIVATE src/sp1_marbles_ui.c)
 	target_include_directories(app PRIVATE src)
 endif()
