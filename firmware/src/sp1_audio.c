@@ -613,6 +613,12 @@ void sp1_audio_init(void)
 	DWT->CYCCNT = 0u;
 	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 
+	/* The flash cache's hit/miss counters (issue #22): diagnostics only, read and
+	 * cleared with the CPU line. Profiling does not change what the cache does. */
+	NRF_NVMC->ICACHECNF |= NVMC_ICACHECNF_CACHEPROFEN_Msk;
+	NRF_NVMC->IHIT = 0u;
+	NRF_NVMC->IMISS = 0u;
+
 	/* 64 MHz, a constant rather than SystemCoreClock: one fewer dependency on a
 	 * symbol this build only reaches through a local Zephyr patch. */
 	st.cyc_budget = (uint32_t)((64000000ull * BLK_FRAMES) / SR_HZ);   /* 320 000 */
@@ -785,6 +791,10 @@ void sp1_audio_take_sections(struct sp1_audio_sections *out)
 	sec_n = 0u;
 	out->over = over_n;
 	out->over_run = over_run_max;
+	out->icache_hit = NRF_NVMC->IHIT;
+	out->icache_miss = NRF_NVMC->IMISS;
+	NRF_NVMC->IHIT = 0u;
+	NRF_NVMC->IMISS = 0u;
 	over_n = 0u;
 	over_run_max = 0u;
 	k_sched_unlock();

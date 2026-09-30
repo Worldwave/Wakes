@@ -172,13 +172,24 @@ constexpr ShapeTable kSoftClip = MakeSoftClip();
 static_assert(kSoftClip.v[0] == 0.0f && kSoftClip.v[kShapeSegments] == 1.0f,
               "SoftClip is 0 at 0 and exactly 1 at |x| = 3");
 
+// ⚠️ EXPERIMENT (issue #22), off unless -DSP1_DRIVE_TABLE_RAM=ON: the nRF52840's flash
+// cache serves instruction fetches only, so a table read from flash waits on flash every
+// time. SP1_DRIVE_TABLE_RAM copies the table into RAM at init, to measure that cost on
+// the one table whose section (`post`) is timed on its own.
+#if defined(SP1_DRIVE_TABLE_RAM)
+float soft_clip_ram[kShapeSegments + 1];
+const float* const kShapeTable = soft_clip_ram;
+#else
+const float* const kShapeTable = kSoftClip.v;
+#endif
+
 inline float Shape(float x) {
   const float a = fabsf(x) * (kShapeSegments / kShapeSpan);
   float y = 1.0f;
   if (a < static_cast<float>(kShapeSegments)) {
     const int i = static_cast<int>(a);
     const float fr = a - static_cast<float>(i);
-    y = kSoftClip.v[i] + (kSoftClip.v[i + 1] - kSoftClip.v[i]) * fr;
+    y = kShapeTable[i] + (kShapeTable[i + 1] - kShapeTable[i]) * fr;
   }
   return x < 0.0f ? -y : y;
 }
@@ -299,6 +310,11 @@ extern "C" void sp1_synth_init(void) {
     return;
   }
   sp1_marbles_init();                  // M4: Marbles' generators, stopped
+#if defined(SP1_DRIVE_TABLE_RAM)
+  for (int i = 0; i <= kShapeSegments; ++i) {
+    soft_clip_ram[i] = kSoftClip.v[i];
+  }
+#endif
   voice = new (voice_mem) plaits::Voice();
   stmlib::BufferAllocator allocator(arena, sizeof(arena));
   voice->Init(&allocator);

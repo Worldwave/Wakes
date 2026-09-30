@@ -1645,6 +1645,15 @@ int main(void)
 				       a10[SP1_SEC_OUT] / 10u, a10[SP1_SEC_OUT] % 10u,
 				       m10[SP1_SEC_OUT] / 10u, m10[SP1_SEC_OUT] % 10u,
 				       sc.over, sc.over_run);
+				/* Flash cache over the same window, all threads: misses
+				 * per second and the miss share of all fetches. */
+				const uint32_t ic_all = sc.icache_hit + sc.icache_miss;
+				const uint32_t ic_x10 = ic_all
+					? (uint32_t)(((uint64_t)sc.icache_miss * 1000u) / ic_all)
+					: 0u;
+				printk("ICACHE miss=%u.%u%%  %u k misses / %u k fetches\n",
+				       ic_x10 / 10u, ic_x10 % 10u,
+				       sc.icache_miss / 1000u, ic_all / 1000u);
 #endif
 			}
 

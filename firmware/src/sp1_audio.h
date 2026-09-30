@@ -132,6 +132,11 @@ struct sp1_audio_sections {
 	uint32_t max[SP1_SEC_N];
 	uint32_t over;
 	uint32_t over_run;
+	/* The flash cache's own counters over the same window (NVMC IHIT / IMISS), for
+	 * EVERY thread, not only audio. A high miss count is the CPU waiting on flash:
+	 * the suspected reason the audio path costs ~2 cycles per bench instruction. */
+	uint32_t icache_hit;
+	uint32_t icache_miss;
 };
 void sp1_audio_take_sections(struct sp1_audio_sections *out);
 
