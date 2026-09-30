@@ -742,3 +742,5 @@ static_assert(plaits::Patch::kSp1HarmonicsAttenuverter,
 static_assert(plaits::Ensemble::kSp1Override, "Ensemble replacement not applied");
 static_assert(plaits::StringSynthOscillator::kSp1Override,
               "String-synth oscillator replacement not applied");
+static_assert(plaits::ChordEngine::kSp1BoundedCrossfade,
+              "chord_engine.h override not applied: Chords' crossfade is unbounded");
