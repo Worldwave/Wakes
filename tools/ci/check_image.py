@@ -93,6 +93,61 @@ def check_config(zd):
     return cfg
 
 
+def check_layouts(zd):
+    """Every Plaits / Marbles / stmlib class must have ONE size across the whole image.
+
+    The overrides change class layouts (voice.h, chord_engine.h, ...) and rely on every
+    file seeing the overridden header first. If one object is compiled against upstream's
+    header instead, the program holds two layouts of the same class and nothing fails
+    to build: on 2026-09-30 (#22) voice.cc saw an 8516-byte plaits::Voice while
+    sp1_synth.cc allocated 8584, Voice::Init wrote past the fields it thought it had,
+    and the device reset before STANDBY on every boot. The compiler cannot see across
+    objects and the linker does not compare layouts, so it is checked here, from DWARF.
+    """
+    watched = ("eurorack", "plaits_overrides", "plaits_ovr", "/src/sp1_", "\\src\\sp1_")
+    sizes = {}                      # qualified name -> {byte size: [compile units]}
+    with open(zd / f"{NAME}.elf", "rb") as fh:
+        elf = ELFFile(fh)
+        if not elf.has_dwarf_info():
+            check(False, "one layout per Plaits/Marbles class", "no DWARF in the ELF")
+            return
+        for cu in elf.get_dwarf_info().iter_CUs():
+            top = cu.get_top_DIE()
+            cu_name = top.attributes["DW_AT_name"].value.decode(errors="replace") \
+                if "DW_AT_name" in top.attributes else "?"
+            if not any(w in cu_name for w in watched):
+                continue
+
+            def walk(die, scope):
+                for child in die.iter_children():
+                    tag = child.tag
+                    name = child.attributes.get("DW_AT_name")
+                    name = name.value.decode(errors="replace") if name else None
+                    if tag == "DW_TAG_namespace":
+                        if name is not None:            # anonymous namespaces are per file
+                            walk(child, scope + [name])
+                    elif tag in ("DW_TAG_class_type", "DW_TAG_structure_type"):
+                        if name is None or "DW_AT_declaration" in child.attributes:
+                            continue
+                        if scope and scope[0] in ("plaits", "marbles", "stmlib"):
+                            size = child.attributes.get("DW_AT_byte_size")
+                            if size is not None:
+                                q = "::".join(scope + [name])
+                                sizes.setdefault(q, {}).setdefault(size.value, []).append(cu_name)
+                        walk(child, scope + [name])
+
+            walk(top, [])
+
+    bad = {q: s for q, s in sizes.items() if len(s) > 1}
+    detail = f"{len(sizes)} classes"
+    if bad:
+        worst = sorted(bad.items())[:4]
+        detail = "; ".join(
+            f"{q}: " + ", ".join(f"{b} B in {Path(c[0]).name}" for b, c in s.items())
+            for q, s in worst)
+    check(not bad and len(sizes) > 0, "one layout per Plaits/Marbles class", detail)
+
+
 def check_source(repo):
     # A header constant, not a build flag, so nothing else would catch a leftover 1:
     # the device would boot into the calibration wizard.
@@ -115,6 +170,8 @@ def main():
     check_bin(zd, span)
     check_map(zd)
     cfg = check_config(zd)
+    if cfg.get("CONFIG_SP1_PLAITS") == "y":
+        check_layouts(zd)
     check_source(a.repo)
 
     failed = results.count(False)

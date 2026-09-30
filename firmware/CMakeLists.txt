@@ -1,4 +1,15 @@
 cmake_minimum_required(VERSION 3.20.0)
+
+# ⚠️ NO CCACHE, EVER (issue #22, 2026-09-30). Zephyr wraps every compile in ccache when
+# it finds one, and ccache's direct mode reuses an object whenever the source and the
+# headers it read LAST time are unchanged. It cannot see a NEW header appearing earlier
+# on the include path -- which is exactly what every Plaits override is. When the
+# chord_engine.h override was added, voice.cc and string_machine_engine.cc came out of
+# the cache still built against upstream's header: two layouts of plaits::Voice in one
+# image, memory corrupted in Voice::Init at boot, and the device reset before STANDBY on
+# every boot. check_image.py now also compares class layouts across objects.
+set(USE_CCACHE 0 CACHE STRING "Never ccache: it cannot see the Plaits header overrides" FORCE)
+
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wakes-sp1)
 
