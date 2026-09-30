@@ -151,9 +151,13 @@ void sp1_synth_set_output(enum sp1_synth_output o);
  * up, "••" + VOL- switches the whole stage off (and back on at the last setting), on
  * either module. Unshifted VOL+/- is still the ordinary output level.
  *
- * It sits on Plaits' OUT and AUX separately, BEFORE the ring modulator and before the
- * OUT+AUX limiter (Adara), so the limiter catches what the clipper produces rather than
- * the clipper being fed a signal the limiter has already flattened.
+ * ONE drive channel since issue #22 (Adara): the output select comes first, so OUT, AUX,
+ * OUT+AUX or OUTxAUX is driven as one signal -- the sum and the ring product distort
+ * together, and the intermodulation that produces is intended. The OUT+AUX limiter
+ * stays AFTER the drive: it bounds what leaves the device. (Through M4e the drive sat on
+ * OUT and AUX separately, before the mix; that cost two clippers and sounded different
+ * in OUT+AUX and OUTxAUX.) The curve is a table (sp1_synth.cc), so other shapes would
+ * cost the same.
  *
  * ⚠️ This is a saturator, not a volume control. stmlib::SoftClip is already curving at
  * x = 1, so full-scale peaks come DOWN (+3 dB of drive maps 1.0 -> 0.91) while quiet

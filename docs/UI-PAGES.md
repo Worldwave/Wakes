@@ -198,14 +198,17 @@ ladder now.
 full scale and the output is +9.2 dB above dry. That is the requested extreme, not a fault —
 but expect to pull VOL down when you reach for it.
 
-It sits on Plaits' OUT and AUX separately, **before** the ring modulator and before the
-OUT+AUX limiter, so the limiter catches what the clipper produces.
+**One drive channel, after the output select** (issue #22): OUT, AUX, OUT+AUX or OUT×AUX is
+chosen first and that one signal is driven, so the sum and the ring product distort together —
+the intermodulation is intended. The OUT+AUX limiter stays **after** the drive, because it bounds
+what leaves the device. Through M4e the drive sat on OUT and AUX separately, before the mix.
 
 ⚠️ **It is a saturator, not a volume control.** Measured: +12 dB in comes out +7.1 dB louder
 and peaks stop just short of full scale without ever hard-clipping. Quiet material comes up,
 loud material compresses and gains harmonics. Step 0 bypasses the stage completely — not
 "clip at unity gain", which would attenuate by ~2 dB and colour everything. Costs ~+4.7 points
-of the CPU budget at peak, and only while it is on. It resets to off on every power-on.
+of the CPU budget at peak, and only while it is on (the M4b host estimate; the hardware
+measured +8–10 before issue #22 made it one channel and a table lookup). It resets to off on every power-on.
 
 ### LEDs
 

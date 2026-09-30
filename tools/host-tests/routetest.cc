@@ -416,6 +416,31 @@ int main() {
     printf("   back to 0: rms %.1f (was %.1f), peak %d\n", back, dry, back_peak);
     CHECK(fabs(back - dry) < dry * 0.05,
           "drive 0 is not the same as never having driven: %.1f vs %.1f", back, dry);
+
+    // Issue #22 (Adara): ONE drive after the output select, and the OUT+AUX limiter
+    // AFTER the drive, because it bounds what leaves the device. At the top step the
+    // clipper alone would sit at full scale; in OUT+AUX the limiter must still hold the
+    // output at its 0.8 ceiling.
+    sp1_synth_set_output(SP1_OUT_SUM);
+    sp1_synth_set_drive(SP1_DRIVE_STEPS - 1);
+    render_rms(40);                            // the mode fade, the ramp, the limiter's attack
+    int32_t sum_peak = 0;
+    for (int i = 0; i < 60; ++i) {
+      sp1_synth_render(out.data(), kFrames);
+      for (uint32_t k = 0; k < kFrames; ++k) {
+        const int32_t a = out[k] < 0 ? -out[k] : out[k];
+        if (a > sum_peak) { sum_peak = a; }
+      }
+    }
+    printf("   OUT+AUX at +%d dB: peak %d (limiter ceiling %d)\n",
+           sp1_synth_drive_db(SP1_DRIVE_STEPS - 1), sum_peak, int(0.8f * 32768.0f));
+    CHECK(sum_peak <= int32_t(0.8f * 32768.0f) + 64,
+          "the OUT+AUX limiter is not after the drive: peak %d", sum_peak);
+    CHECK(sum_peak > int32_t(0.7f * 32768.0f),
+          "OUT+AUX at the top drive step should reach the limiter, peak %d", sum_peak);
+    sp1_synth_set_drive(0);
+    sp1_synth_set_output(SP1_OUT_MAIN);
+    render_rms(20);
   }
 
   // ---------- 8. the deferred re-seed (M4d) ----------

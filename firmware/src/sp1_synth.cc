@@ -131,21 +131,64 @@ int output_prev = SP1_OUT_MAIN;               // audio thread
 // release 0.00002 per sample) and Plaits' ceiling (0.8 of full scale). Unlike
 // Plaits' limiter it applies no gain below the ceiling, so a quiet sum is untouched.
 // Audio thread only; runs only while OUT+AUX is selected (or being faded to/from).
+const float kQ15 = 1.0f / 32768.0f;          // int16 -> +-1
 const float kSumGain = 0.7071f / 32768.0f;   // -3 dB, int16 -> +-1
 const float kSumCeiling = 0.8f;
 float sum_peak = 0.0f;
 
-inline int32_t LimitedSum(const plaits::Voice::Frame& f) {
-  const float s = (static_cast<float>(f.out) + static_cast<float>(f.aux)) * kSumGain;
+inline float Limit(float s) {
   SLOPE(sum_peak, fabsf(s), 0.05f, 0.00002f);
   const float g = sum_peak <= kSumCeiling ? 1.0f : kSumCeiling / sum_peak;
-  return Sat16(static_cast<int32_t>(s * g * 32768.0f));
+  return s * g;
 }
 
-// ---- the soft-clip drive (M4b) ----
-// stmlib::SoftClip in int16 units, on OUT and AUX separately, upstream of both the ring
-// modulator and the OUT+AUX limiter. `g` is the linear gain; the caller guarantees
-// g > 1, because at g == 1 the stage is skipped rather than run (see sp1_synth.h).
+// ---- the drive's transfer curve, as a table (issue #22) ----
+// stmlib::SoftClip, tabulated: M4b evaluated it per sample (two range tests and a float
+// DIVIDE, 14 cycles on its own) on OUT and on AUX, and the log measured +8-10 % of the
+// block for it. A table read with linear interpolation is a few multiply-adds, and any
+// other memoryless curve would cost exactly the same -- which is what a future set of
+// drive shapes would plug into.
+//
+// SoftClip is odd and exactly +-1 beyond |x| = 3, so only 0..3 is stored. 512 segments:
+// linear interpolation's error is h^2/8 x max|f''|, about 2e-6 of full scale -- under a
+// tenth of one 16-bit step, so the table and the formula give the same int16 output to
+// within that rounding. constexpr, so the table is built by the compiler and lives in
+// flash; no generator script, and it cannot drift from the formula written here, which
+// is stmlib::SoftLimit's.
+constexpr int kShapeSegments = 512;
+constexpr float kShapeSpan = 3.0f;
+struct ShapeTable {
+  float v[kShapeSegments + 1];
+};
+constexpr ShapeTable MakeSoftClip() {
+  ShapeTable t{};
+  for (int i = 0; i <= kShapeSegments; ++i) {
+    const float x = kShapeSpan * static_cast<float>(i) / kShapeSegments;
+    t.v[i] = x * (27.0f + x * x) / (27.0f + 9.0f * x * x);
+  }
+  return t;
+}
+constexpr ShapeTable kSoftClip = MakeSoftClip();
+static_assert(kSoftClip.v[0] == 0.0f && kSoftClip.v[kShapeSegments] == 1.0f,
+              "SoftClip is 0 at 0 and exactly 1 at |x| = 3");
+
+inline float Shape(float x) {
+  const float a = fabsf(x) * (kShapeSegments / kShapeSpan);
+  float y = 1.0f;
+  if (a < static_cast<float>(kShapeSegments)) {
+    const int i = static_cast<int>(a);
+    const float fr = a - static_cast<float>(i);
+    y = kSoftClip.v[i] + (kSoftClip.v[i + 1] - kSoftClip.v[i]) * fr;
+  }
+  return x < 0.0f ? -y : y;
+}
+
+// ---- the soft-clip drive (M4b; one channel since issue #22) ----
+// ONE drive, after the output select and before the OUT+AUX limiter (Adara): OUT, AUX,
+// OUT+AUX or OUTxAUX is chosen first and the result is driven, so the sum and the ring
+// product distort as one signal -- the intermodulation is the point. The limiter stays
+// LAST because it bounds what leaves the device. The stage is applied only while the
+// gain is above 1: at g == 1 it is skipped rather than run (see sp1_synth.h).
 volatile int drive_step;                     // main writes, audio reads per block
 float drive_gain_prev = 1.0f;                // audio thread: last block's gain
 
@@ -164,23 +207,88 @@ inline float DriveGain(int step) {
   return powf(10.0f, static_cast<float>(kDriveDb[step]) / 20.0f);
 }
 
-inline int16_t Drive1(int16_t v, float g) {
-  const float x = static_cast<float>(v) * (1.0f / 32768.0f) * g;
-  return Sat16(static_cast<int32_t>(stmlib::SoftClip(x) * 32768.0f));
+// One output sample: output select -> drive -> the OUT+AUX limiter, saturated to 16
+// bits. With the drive off, OUT, AUX and OUTxAUX are exactly what they were before the
+// drive existed, and OUT+AUX is exactly the M3g limited sum.
+template <int kMode, bool kDrive>
+inline int16_t Stage(const plaits::Voice::Frame& f, float g) {
+  if (!kDrive) {
+    if (kMode == SP1_OUT_AUX) {
+      return f.aux;
+    }
+    if (kMode == SP1_OUT_MAIN) {
+      return f.out;
+    }
+  }
+  float v;
+  switch (kMode) {
+    case SP1_OUT_AUX:
+      v = static_cast<float>(f.aux) * kQ15;
+      break;
+    case SP1_OUT_SUM:
+      v = (static_cast<float>(f.out) + static_cast<float>(f.aux)) * kSumGain;
+      break;
+    case SP1_OUT_RING:   // (a x b) / 32768 x 2 = (a x b) >> 14
+      v = static_cast<float>(
+          Sat16((static_cast<int32_t>(f.out) * f.aux) >> 14)) * kQ15;
+      break;
+    default:
+      v = static_cast<float>(f.out) * kQ15;
+      break;
+  }
+  if (kDrive) {
+    v = Shape(v * g);
+  }
+  if (kMode == SP1_OUT_SUM) {
+    v = Limit(v);
+  }
+  return Sat16(static_cast<int32_t>(v * 32768.0f));
 }
 
-// One output sample for an output mode (sp1_synth.h), already saturated to 16 bits.
-// `sum` is LimitedSum() of this frame, computed by the caller when needed.
-inline int32_t Mix(int mode, const plaits::Voice::Frame& f, int32_t sum) {
+// The same for a mode and drive state known only at run time: the mode cross-fade and
+// the one block in which the drive gain ramps.
+inline int16_t StageAny(int mode, const plaits::Voice::Frame& f, bool drive, float g) {
   switch (mode) {
     case SP1_OUT_AUX:
-      return f.aux;
+      return drive ? Stage<SP1_OUT_AUX, true>(f, g) : Stage<SP1_OUT_AUX, false>(f, g);
     case SP1_OUT_SUM:
-      return sum;
-    case SP1_OUT_RING:   // (a x b) / 32768 x 2 = (a x b) >> 14
-      return Sat16((static_cast<int32_t>(f.out) * f.aux) >> 14);
+      return drive ? Stage<SP1_OUT_SUM, true>(f, g) : Stage<SP1_OUT_SUM, false>(f, g);
+    case SP1_OUT_RING:
+      return drive ? Stage<SP1_OUT_RING, true>(f, g) : Stage<SP1_OUT_RING, false>(f, g);
     default:
-      return f.out;
+      return drive ? Stage<SP1_OUT_MAIN, true>(f, g) : Stage<SP1_OUT_MAIN, false>(f, g);
+  }
+}
+
+// A whole Plaits block in a steady state -- no mode cross-fade, no drive ramp -- which
+// is every block but one per change. The mode and the drive state are template
+// arguments, so the per-sample loop carries no switch and no branch on either.
+template <int kMode, bool kDrive>
+void StageBlock(const plaits::Voice::Frame* f, int16_t* out, float g) {
+  for (size_t i = 0; i < plaits::kBlockSize; ++i) {
+    out[i] = Stage<kMode, kDrive>(f[i], g);
+  }
+}
+
+inline void StageBlockAny(int mode, bool drive, const plaits::Voice::Frame* f,
+                          int16_t* out, float g) {
+  switch (mode) {
+    case SP1_OUT_AUX:
+      drive ? StageBlock<SP1_OUT_AUX, true>(f, out, g)
+            : StageBlock<SP1_OUT_AUX, false>(f, out, g);
+      break;
+    case SP1_OUT_SUM:
+      drive ? StageBlock<SP1_OUT_SUM, true>(f, out, g)
+            : StageBlock<SP1_OUT_SUM, false>(f, out, g);
+      break;
+    case SP1_OUT_RING:
+      drive ? StageBlock<SP1_OUT_RING, true>(f, out, g)
+            : StageBlock<SP1_OUT_RING, false>(f, out, g);
+      break;
+    default:
+      drive ? StageBlock<SP1_OUT_MAIN, true>(f, out, g)
+            : StageBlock<SP1_OUT_MAIN, false>(f, out, g);
+      break;
   }
 }
 
@@ -510,26 +618,24 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
     voice->Render(patch, mods, f, plaits::kBlockSize);
     const uint32_t prof_e1 = Now();
     prof_eng += prof_e1 - prof_e0;
-    for (size_t i = 0; i < plaits::kBlockSize; ++i) {
-      if (driving) {
-        drive_g += drive_inc;
-        if (drive_g > 1.0f) {
-          f[i].out = Drive1(f[i].out, drive_g);
-          f[i].aux = Drive1(f[i].aux, drive_g);
+    if (fade_left == 0 && drive_inc == 0.0f) {
+      StageBlockAny(omode, driving, f, out, drive_g);
+    } else {
+      for (size_t i = 0; i < plaits::kBlockSize; ++i) {
+        if (driving) {
+          drive_g += drive_inc;
         }
-      }
-      const bool need_sum = omode == SP1_OUT_SUM ||
-                            (fade_left > 0 && output_prev == SP1_OUT_SUM);
-      const int32_t sum = need_sum ? LimitedSum(f[i]) : 0;
-      const int32_t now = Mix(omode, f[i], sum);
-      if (fade_left > 0) {
-        // Changing the output mode cross-fades over one DMA block, so the switch
-        // never clicks.
-        const int32_t was = Mix(output_prev, f[i], sum);
-        out[i] = Sat16((was * fade_left + now * (fade_len - fade_left)) / fade_len);
-        --fade_left;
-      } else {
-        out[i] = static_cast<int16_t>(now);
+        const bool d = driving && drive_g > 1.0f;
+        const int32_t now = StageAny(omode, f[i], d, drive_g);
+        if (fade_left > 0) {
+          // Changing the output mode cross-fades over one DMA block, so the switch
+          // never clicks.
+          const int32_t was = StageAny(output_prev, f[i], d, drive_g);
+          out[i] = Sat16((was * fade_left + now * (fade_len - fade_left)) / fade_len);
+          --fade_left;
+        } else {
+          out[i] = static_cast<int16_t>(now);
+        }
       }
     }
     prof_post += Now() - prof_e1;
