@@ -224,11 +224,8 @@ BUILD_ASSERT(BLK_FRAMES % 4u == 0u, "fill_block's peak check steps by 4");
 BUILD_ASSERT(BLK_FRAMES % SP1_SYNTH_BLOCK == 0u, "block must be whole Plaits blocks");
 #endif
 
-#if !defined(CONFIG_SP1_PLAITS)
-/* Mono source for one block, before gain: the test tone. (The synth writes the DMA
- * block itself since issue #22.) */
+/* Mono source for one block, before gain: the synth's OUT, or the test tone. */
 static int16_t src[BLK_FRAMES];
-#endif
 
 #if !defined(CONFIG_SP1_PLAITS)
 static void tone_render(int16_t *out)
@@ -245,38 +242,18 @@ static void tone_render(int16_t *out)
 }
 #endif
 
-/* The output gain's slew for one block (M2b): returns the gain at the block's start and
- * moves gain_cur to its end, at most GAIN_SLEW away. Linear in between. */
-static int32_t gain_slew(int32_t target)
-{
-	const int32_t g0 = gain_cur;
-	int32_t d = target - g0;
-	if (d >  GAIN_SLEW) { d =  GAIN_SLEW; }
-	if (d < -GAIN_SLEW) { d = -GAIN_SLEW; }
-	gain_cur = g0 + d;
-	return g0;
-}
-
-/* Fill one block. */
+/* Fill one block. The meter's entire audio-path cost is the two lines marked METER. */
 static void fill_block(int16_t *b)
 {
 	/* Read the controls ONCE per block, so a change lands on a block boundary and
 	 * a half-updated value is never seen mid-block. */
 #if defined(CONFIG_SP1_PLAITS)
 	const int32_t target = TONE_AMP[tone_step];
-	const int32_t g0 = gain_slew(target);
 
 	/* The voice renders EVERY block, even at level 0: its envelopes, LPG and filters
 	 * keep running, so turning the level back up never lands mid-glitch, and the
-	 * cycle counter always measures the real cost.
-	 *
-	 * Issue #22: the synth writes the stereo DMA block itself, with the level ramp and
-	 * the meter's peak folded into its final 16-bit conversion. They used to be a
-	 * second pass over the block here (1.6 % of the budget). */
-	uint32_t pk = 0u;
-	sp1_synth_render_stereo(b, BLK_FRAMES, (float)g0 * (1.0f / 32768.0f),
-				(float)gain_cur * (1.0f / 32768.0f), &pk);
-	publish_peak(pk);
+	 * cycle counter always measures the real cost. */
+	sp1_synth_render(src, BLK_FRAMES);
 #else
 	const int32_t target = tone_on ? TONE_AMP[tone_step] : 0;
 
@@ -285,11 +262,15 @@ static void fill_block(int16_t *b)
 		return;          /* silence publishes nothing, so the meter falls to blank */
 	}
 	tone_render(src);
+#endif
 
 	/* Gain at the start and end of this block; linear in between, as a Q8
 	 * accumulator so the block size is free. |d| <= 8192, so d << 8 fits easily. */
-	const int32_t g0 = gain_slew(target);
-	const int32_t d = gain_cur - g0;
+	const int32_t g0 = gain_cur;
+	int32_t d = target - g0;
+	if (d >  GAIN_SLEW) { d =  GAIN_SLEW; }
+	if (d < -GAIN_SLEW) { d = -GAIN_SLEW; }
+	gain_cur = g0 + d;
 
 	int32_t       gq   = g0 << 8;
 	const int32_t step = (d << 8) / (int32_t)BLK_FRAMES;
@@ -311,7 +292,6 @@ static void fill_block(int16_t *b)
 		if (mag > pk) { pk = mag; }                             /* METER */
 	}
 	publish_peak(pk);
-#endif
 }
 
 static void prime(int n)

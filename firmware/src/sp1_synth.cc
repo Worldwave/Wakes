@@ -247,19 +247,11 @@ plaits::Voice::OutputMix MixLerp(const plaits::Voice::OutputMix& a,
 
 // One output sample after the gate: the drive, then the OUT+AUX limiter (Adara: the
 // limiter stays LAST, it bounds what leaves the device), saturated to 16 bits. `in` is
-// the voice's unclipped output in 16-bit scale (see the vendored voice.h).
-//
-// kLevel (issue #22): the output level (VOL, sp1_audio.c's slewed gain) is applied in
-// this same conversion, on the device. It used to be a second pass over the whole block
-// after the synth -- gain, stereo copy, meter -- which measured 1.6 % of the budget on
-// every engine. Without kLevel (the host tests' mono render) a sample is converted
-// exactly as Plaits' own output stage did.
-template <bool kLimit, bool kDrive, bool kLevel>
-inline int32_t Stage(float in, float g, float level) {
+// the voice's unclipped output in 16-bit scale (see the vendored voice.h); with both
+// stages off it is converted exactly as Plaits' own output stage did.
+template <bool kLimit, bool kDrive>
+inline int16_t Stage(float in, float g) {
   if (!kLimit && !kDrive) {
-    if (kLevel) {
-      return Sat16(static_cast<int32_t>(in * level));
-    }
     return Sat16(1 + static_cast<int32_t>(in));
   }
   float v = in * kQ15;
@@ -269,80 +261,34 @@ inline int32_t Stage(float in, float g, float level) {
   if (kLimit) {
     v = Limit(v);
   }
-  return Sat16(static_cast<int32_t>(v * (kLevel ? 32768.0f * level : 32768.0f)));
+  return Sat16(static_cast<int32_t>(v * 32768.0f));
 }
 
-// Where a block's samples go: mono int16 (the host tests), or -- the device -- the
-// interleaved stereo DMA block, both channels in ONE 32-bit store, with the meter's peak
-// taken on the way. The level ramps linearly across the whole DMA block, as the Q15
-// ramp in sp1_audio.c did.
-template <bool kStereo>
-struct Sink;
-
-template <>
-struct Sink<false> {
-  int16_t* out;
-  inline void Put(size_t i, int32_t s) { out[i] = static_cast<int16_t>(s); }
-  inline float Level() { return 1.0f; }
-  inline void Advance() { out += plaits::kBlockSize; }
-};
-
-template <>
-struct Sink<true> {
-  uint32_t* out;
-  float level;
-  float level_step;
-  uint32_t peak;
-  inline void Put(size_t i, int32_t s) {
-    out[i] = static_cast<uint32_t>(static_cast<uint16_t>(s)) * 0x00010001u;
-    const uint32_t a = static_cast<uint32_t>(s < 0 ? -s : s);
-    peak = a > peak ? a : peak;
+// The same with the drive state known only at run time: the one block in which the
+// drive gain ramps.
+inline int16_t StageAny(bool limit, bool drive, float in, float g) {
+  if (limit) {
+    return drive ? Stage<true, true>(in, g) : Stage<true, false>(in, g);
   }
-  inline float Level() {
-    const float l = level;
-    level += level_step;
-    return l;
-  }
-  inline void Advance() { out += plaits::kBlockSize; }
-};
+  return drive ? Stage<false, true>(in, g) : Stage<false, false>(in, g);
+}
 
 // A whole Plaits block in a steady state -- no drive ramp -- which is every block but
 // one per change. Both switches are template arguments, so the per-sample loop carries
 // no branch on either.
-template <bool kLimit, bool kDrive, bool kStereo>
-void StageBlock(const float* in, Sink<kStereo>& sink, float g) {
+template <bool kLimit, bool kDrive>
+void StageBlock(const float* in, int16_t* out, float g) {
   for (size_t i = 0; i < plaits::kBlockSize; ++i) {
-    sink.Put(i, Stage<kLimit, kDrive, kStereo>(in[i], g, sink.Level()));
+    out[i] = Stage<kLimit, kDrive>(in[i], g);
   }
 }
 
-template <bool kStereo>
-void StageBlockAny(bool limit, bool drive, const float* in, Sink<kStereo>& sink,
-                   float g) {
+inline void StageBlockAny(bool limit, bool drive, const float* in, int16_t* out,
+                          float g) {
   if (limit) {
-    drive ? StageBlock<true, true, kStereo>(in, sink, g)
-          : StageBlock<true, false, kStereo>(in, sink, g);
+    drive ? StageBlock<true, true>(in, out, g) : StageBlock<true, false>(in, out, g);
   } else {
-    drive ? StageBlock<false, true, kStereo>(in, sink, g)
-          : StageBlock<false, false, kStereo>(in, sink, g);
-  }
-}
-
-// The one block in which the drive gain ramps: its state per sample.
-template <bool kStereo>
-void StageBlockRamp(bool limit, const float* in, Sink<kStereo>& sink, float& g,
-                    float g_inc) {
-  for (size_t i = 0; i < plaits::kBlockSize; ++i) {
-    g += g_inc;
-    const bool d = g > 1.0f;
-    const float l = sink.Level();
-    int32_t s;
-    if (limit) {
-      s = d ? Stage<true, true, kStereo>(in[i], g, l) : Stage<true, false, kStereo>(in[i], g, l);
-    } else {
-      s = d ? Stage<false, true, kStereo>(in[i], g, l) : Stage<false, false, kStereo>(in[i], g, l);
-    }
-    sink.Put(i, s);
+    drive ? StageBlock<false, true>(in, out, g) : StageBlock<false, false>(in, out, g);
   }
 }
 
@@ -476,21 +422,14 @@ inline uint32_t Now() {
   return cyc_counter ? *cyc_counter : 0u;
 }
 
-namespace {
-
-template <bool kStereo>
-void RenderCore(Sink<kStereo>& sink, uint32_t frames) {
+extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
   const uint32_t prof_t0 = Now();
   uint32_t prof_eng = 0u;
   uint32_t prof_post = 0u;
   prof.total = prof.mrb = prof.eng = prof.post = 0u;
   if (!voice) {
-    while (frames >= plaits::kBlockSize) {
-      for (size_t i = 0; i < plaits::kBlockSize; ++i) {
-        sink.Put(i, 0);
-      }
-      sink.Advance();
-      frames -= plaits::kBlockSize;
+    for (uint32_t i = 0; i < frames; ++i) {
+      out[i] = 0;
     }
     return;
   }
@@ -547,6 +486,7 @@ void RenderCore(Sink<kStereo>& sink, uint32_t frames) {
   const uint8_t* const mrb_gates = sp1_marbles_gate_frames();
   const float* const mrb_volts = sp1_marbles_volt_frames();
   const float* const mrb_ramp = sp1_marbles_ramp_frames();
+
 
   // ---- the burst (M4e): phase-locked to Marbles' master ramp while it runs ----
   // Stopped there is nothing to lock to, so the free-running accumulator stands: fire at
@@ -729,39 +669,21 @@ void RenderCore(Sink<kStereo>& sink, uint32_t frames) {
     const uint32_t prof_e1 = Now();
     prof_eng += prof_e1 - prof_e0;
     if (drive_inc == 0.0f) {
-      StageBlockAny<kStereo>(limiting, driving, v, sink, drive_g);
+      StageBlockAny(limiting, driving, v, out, drive_g);
     } else {
-      StageBlockRamp<kStereo>(limiting, v, sink, drive_g, drive_inc);
+      for (size_t i = 0; i < plaits::kBlockSize; ++i) {
+        drive_g += drive_inc;
+        out[i] = StageAny(limiting, drive_g > 1.0f, v[i], drive_g);
+      }
     }
     prof_post += Now() - prof_e1;
-    sink.Advance();
+    out += plaits::kBlockSize;
     frames -= plaits::kBlockSize;
   }
   output_prev = omode;
   prof.eng = prof_eng;
   prof.post = prof_post;
   prof.total = Now() - prof_t0;
-}
-
-}  // namespace
-
-extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
-  Sink<false> sink = { out };
-  RenderCore<false>(sink, frames);
-}
-
-extern "C" void sp1_synth_render_stereo(int16_t* stereo, uint32_t frames,
-                                        float level_from, float level_to,
-                                        uint32_t* peak) {
-  Sink<true> sink;
-  // The DMA block is word-aligned (a k_mem_slab of 4-aligned blocks) and each frame is
-  // one 32-bit word, left in the low half, right in the high: the same value in both.
-  sink.out = reinterpret_cast<uint32_t*>(stereo);
-  sink.level = level_from;
-  sink.level_step = frames ? (level_to - level_from) / static_cast<float>(frames) : 0.0f;
-  sink.peak = 0u;
-  RenderCore<true>(sink, frames);
-  *peak = sink.peak;
 }
 
 extern "C" void sp1_synth_set_cycle_counter(const volatile uint32_t* counter) {
