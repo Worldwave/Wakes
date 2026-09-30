@@ -83,6 +83,14 @@ bool gate_buffer[kN * 2];
 float volt_buffer[kN * 4];
 stmlib::GateFlags no_clock[kN];          // no external clock, ever
 
+// ---- X / Y at 1 kHz (issue #22; sp1_marbles.h) ----
+const uint32_t kXYDecim = 4;                   // 4 kHz Plaits blocks per X/Y sample
+const uint32_t kXYN = kN / kXYDecim;
+float xy_ramp_buffer[kXYN * 4];                // every 4th ramp sample (+ Y's divider)
+float xy_volt_buffer[kXYN * 4];
+float xy_prev_volts[4];                        // last 1 kHz value of the previous group
+float xy_prev_src[3] = { 1.0f, 1.0f, 1.0f };   // last 4 kHz sample of master, t1, t3
+
 uint8_t frame_gates[kN];                 // audio thread
 float frame_volts[kN][4];
 // The master ramp, per frame. Exposed so the FFWD burst can be an exact subdivision of
@@ -239,7 +247,12 @@ namespace {
 void InitGenerators() {
   const float sr = 4000.0f;   // one Marbles sample per 12-sample Plaits block
   t_generator.Init(&random_stream, sr);
-  xy_generator.Init(&random_stream, sr);
+  // X/Y run at 1 kHz (RenderXY1k). The rate only reaches XYGenerator's external-clock
+  // extractor, which is never used; it is set to the truth anyway.
+  xy_generator.Init(&random_stream, sr / kXYDecim);
+  for (int k = 0; k < 4; ++k) {
+    xy_prev_volts[k] = 0.0f;               // OutputChannel::Init starts at 0 V too
+  }
   // XYGenerator::Init resets every quantizer to Marbles' empty default scale, so the
   // next render reloads whichever scale is selected.
   loaded_scale = -1;
@@ -260,6 +273,105 @@ void LoadScaleIfNeeded(int s) {
   }
   loaded_scale = s;
 }
+}  // namespace
+
+namespace {
+
+// X1-X3 and Y at 1 kHz (issue #22; sp1_marbles.h), written into volt_buffer at 4 kHz
+// exactly as XYGenerator::Process would have written it.
+//
+// Each output follows one of the three 4 kHz ramps (the X clock source decides which;
+// Y divides X2's). A STEPPED output only changes when its ramp wraps, so the new value
+// goes in on the very 4 kHz sample of that wrap -- known here because the whole block's
+// ramps exist before Plaits reads any of it -- and the result is bit-identical to 4 kHz.
+// A SMOOTH output is interpolated linearly across the four samples of its group.
+void RenderXY1k(marbles::ClockSource clk, const GroupSettings& x,
+                const GroupSettings& y, bool* reset, const marbles::Ramps& ramps,
+                uint32_t n) {
+  const uint32_t groups = n / kXYDecim;
+  const float* src[3] = { ramps.master, ramps.slave[0], ramps.slave[1] };
+
+  // Every fourth ramp sample: the LAST of each group, so a wrap anywhere in the group has
+  // happened by the time the 1 kHz generator sees it.
+  marbles::Ramps d;
+  d.master = &xy_ramp_buffer[0];
+  d.external = &xy_ramp_buffer[kXYN];
+  d.slave[0] = &xy_ramp_buffer[kXYN * 2];
+  d.slave[1] = &xy_ramp_buffer[kXYN * 3];
+  for (uint32_t g = 0; g < groups; ++g) {
+    const uint32_t k = g * kXYDecim + kXYDecim - 1u;
+    d.master[g] = ramps.master[k];
+    d.slave[0][g] = ramps.slave[0][k];
+    d.slave[1][g] = ramps.slave[1][k];
+  }
+  xy_generator.Process(clk, x, y, reset, no_clock, d, xy_volt_buffer, groups);
+
+  // Which 4 kHz ramp drives each output (XYGenerator::Process's channel_ramp; Y divides
+  // channel 1's): 0 master, 1 t1, 2 t3.
+  int ch_src[4];
+  switch (clk) {
+    case marbles::CLOCK_SOURCE_INTERNAL_T1: ch_src[0] = ch_src[1] = ch_src[2] = 1; break;
+    case marbles::CLOCK_SOURCE_INTERNAL_T2: ch_src[0] = ch_src[1] = ch_src[2] = 0; break;
+    case marbles::CLOCK_SOURCE_INTERNAL_T3: ch_src[0] = ch_src[1] = ch_src[2] = 2; break;
+    default: ch_src[0] = 1; ch_src[1] = 0; ch_src[2] = 2; break;
+  }
+  ch_src[3] = ch_src[1];
+
+  // Stepped or smooth, per output, as OutputChannel decides it: STEPS at or above its
+  // centre, after the X group's spread across channels (x_y_generator.cc).
+  bool stepped[4];
+  for (int ch = 0; ch < 3; ++ch) {
+    float amount = 1.0f;
+    if (x.control_mode == marbles::CONTROL_MODE_BUMP) {
+      amount = ch == 1 ? 1.0f : -1.0f;
+    } else if (x.control_mode == marbles::CONTROL_MODE_TILT) {
+      amount = static_cast<float>(ch) - 1.0f;
+    }
+    stepped[ch] = 0.5f + (x.steps - 0.5f) * amount >= 0.5f;
+  }
+  stepped[3] = y.steps >= 0.5f;
+
+  // Where each source ramp wraps inside each group (-1: it does not).
+  int8_t wrap_at[3][kXYN];
+  for (int s = 0; s < 3; ++s) {
+    float prev = xy_prev_src[s];
+    for (uint32_t g = 0; g < groups; ++g) {
+      wrap_at[s][g] = -1;
+      for (uint32_t i = 0; i < kXYDecim; ++i) {
+        const float ph = src[s][g * kXYDecim + i];
+        if (ph < prev && wrap_at[s][g] < 0) {
+          wrap_at[s][g] = static_cast<int8_t>(i);
+        }
+        prev = ph;
+      }
+    }
+    xy_prev_src[s] = prev;
+  }
+
+  for (int ch = 0; ch < 4; ++ch) {
+    float prev = xy_prev_volts[ch];
+    for (uint32_t g = 0; g < groups; ++g) {
+      const float now = xy_volt_buffer[g * 4 + ch];
+      float* o = &volt_buffer[(g * kXYDecim) * 4 + ch];
+      if (stepped[ch]) {
+        // A change with no wrap in the group (a reset, a range change) takes effect
+        // at the start of the group.
+        const int w = now != prev ? wrap_at[ch_src[ch]][g] : -1;
+        for (uint32_t i = 0; i < kXYDecim; ++i) {
+          o[i * 4] = static_cast<int>(i) < w ? prev : now;
+        }
+      } else {
+        const float step = (now - prev) * (1.0f / kXYDecim);
+        for (uint32_t i = 0; i < kXYDecim; ++i) {
+          o[i * 4] = prev + step * static_cast<float>(i + 1);
+        }
+      }
+      prev = now;
+    }
+    xy_prev_volts[ch] = prev;
+  }
+}
+
 }  // namespace
 
 // Called by the generated override of x_y_generator.cc, once per channel per block, from
@@ -353,6 +465,8 @@ extern "C" void sp1_marbles_render(uint32_t n) {
     }
     t2_was = false;
     last_gates = 0u;
+    // PLAY restarts on a beat: its first sample is a tick, so it must read as a wrap.
+    xy_prev_src[0] = xy_prev_src[1] = xy_prev_src[2] = 1.0f;
     return;
   }
 
@@ -451,8 +565,13 @@ extern "C" void sp1_marbles_render(uint32_t n) {
   y.ratio = kYDividerRatios[Clamp(c.y_divider, 0, 11)];
 
   bool xy_reset = reset;
-  xy_generator.Process(XClock(c.x_clock), x, y, &xy_reset, no_clock, ramps,
-                       volt_buffer, n);
+  const marbles::ClockSource xclk = XClock(c.x_clock);
+  if (n % kXYDecim != 0u) {
+    // Not whole groups of four (never, at 20 per block): the plain 4 kHz path.
+    xy_generator.Process(xclk, x, y, &xy_reset, no_clock, ramps, volt_buffer, n);
+  } else {
+    RenderXY1k(xclk, x, y, &xy_reset, ramps, n);
+  }
 
   // ---- per Plaits block: t1 / t2 / t3 and X1..X3, Y (marbles.cc's DAC order) ----
   uint32_t b = beats;
