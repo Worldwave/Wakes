@@ -153,6 +153,11 @@ int  sp1_pui_engine(void);                     /* Plaits engine index (voice.cc)
  * Marbles' INTELLIGENT voltage range reads it (M4c) and so does the rip's neutral state. */
 uint8_t sp1_pui_engine_centre(void);
 int  sp1_pui_slot(void);                       /* 0-based position in the list   */
+/* The slot actually PLAYING: sp1_pui_slot() moved by MIDI's MODEL CC (M5a). Equal to the
+ * selection while no MODEL CC is applied. */
+int  sp1_pui_eslot(void);
+/* A slot's glyph as LED levels (any slot; out of range = the selection). */
+void sp1_pui_slot_leds(int slot, uint8_t out[4]);
 
 /* "••" + PLAY held 3 s ("rip out the cables"): a **FULL PATCH WIPE** on PLAITS
  * (Adara, M4d — docs/DEFAULTS.md is the spec).

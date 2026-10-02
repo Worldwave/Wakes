@@ -26,6 +26,22 @@ uint32_t sp1_resetreas_take(void);
  * not charge while plugged in. */
 void sp1_charger_init(void);
 
+/* ---- no charging while ON (M5a, Adara, from the OP-XY test) ----
+ * A USB host that runs on its own battery -- the OP-XY -- was charging the SP-1 from that
+ * battery for the whole session, and the SP-1 got warm doing it. So ON turns charging OFF
+ * (nCE high) and every way out of ON turns it back on: sp1_quiesce_peripherals(), which both
+ * STANDBY and SYSTEM_OFF go through, and sp1_charger_init() at every boot.
+ *
+ * The BQ24232 is a power-path charger: nCE high disables BATTERY CHARGING only ("connect CE
+ * to a high logic level to disable battery charging", datasheet rev. H), and the system keeps
+ * running from USB while it is plugged in. So ON on USB neither charges nor drains the
+ * battery; STANDBY still charges, as it always has.
+ *
+ * ⚠️ Fail-safe direction: charging ON. Boot, a watchdog reset, a fault and every power-off path
+ * all leave nCE LOW. Only the ON loop ever raises it. */
+void sp1_charger_enable(bool on);
+bool sp1_charger_enabled(void);
+
 /* True when USB power is present (nPGOOD low). */
 bool sp1_usb_present(void);
 

@@ -26,6 +26,15 @@
  * blocks. Latency is therefore CONSTANT -- one audio block plus the I2S queue -- and the
  * timing jitter is USB's own (~1 ms), not the 5 ms of the audio block.
  *
+ * ---- how a CC reads: by the parameter's polarity (Adara's M5a test notes) ----
+ * The rule Marbles' INTELLIGENT range uses (M4c), applied to CCs: a BIPOLAR parameter -- one
+ * whose centre is its neutral point -- takes a CENTRED CC (64 = no change, 0 / 127 = a whole
+ * fader's travel down / up); a UNIPOLAR one takes a ONE-SIDED CC (0 = no change, 127 = a whole
+ * travel up). Which is which is tools/gen_midi.py's POLARITY table; for TIMBRE, MORPH and
+ * HARMONICS it is the playing engine's detent bits (SP1_ENGINE_TABLE[].centre), exactly as
+ * INTELLIGENT reads them. Both readings are kept, and the reader picks at the moment it
+ * applies the offset, so an engine change re-reads the CC the right way at once.
+ *
  * ---- three states (M5 plan, B6) ----
  *   port up      the host has enabled our MIDI interface. Drives the plug/unplug prompt.
  *   active       a valid message has arrived on our channel since the port came up, or a
@@ -99,13 +108,15 @@ struct sp1_midi_frame {
 /* Start of an audio block of `blocks` Plaits blocks; `cycles` = the cycle counter now
  * (0 on the host, which then places every message at the start of the block).
  *
+ * `engine_centre` = the playing engine's SP1_ENGINE_TABLE[].centre bits (polarity, above).
  * Fills `off` with this audio block's CC offsets for the Plaits parameters, in fader-travel
  * units, SMOOTHED ONCE PER AUDIO BLOCK (5 ms): constant across the block, so the synth applies
  * them once, not per Plaits block. Returns false when MIDI has nothing at all to do this
  * block -- nothing queued, no key held or sounding, every offset at zero -- and then `off` is
  * all zeros and sp1_midi_audio_block() / _lpg() need not be called: idle MIDI costs one call
  * per audio block. Returns true otherwise, and from then on every block costs the same. */
-bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, float off[SP1_MIDI_AUDIO_DESTS]);
+bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t engine_centre,
+			  float off[SP1_MIDI_AUDIO_DESTS]);
 /* Plaits block `j` of this audio block (only when sp1_midi_audio_begin returned true). */
 void sp1_midi_audio_block(uint32_t j, struct sp1_midi_frame *out);
 /* After Plaits rendered that block: its low-pass gate. Ends MIDI's hold on LEVEL once the

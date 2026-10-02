@@ -66,6 +66,39 @@ DESTS = [
     ('marbles', 'y_divider',             'Y divider',              'step',  'MARBLES SETTINGS F4'),
 ]
 KIND = {'audio': 0, 'main': 1, 'step': 2}
+
+# ---- which way each CC reads: the INTELLIGENT rule (M4c), applied to MIDI (M5a test notes) ----
+# Same policy as Marbles' INTELLIGENT [J] range (sp1_marbles.cc, IntelligentRange): a BIPOLAR
+# parameter -- one whose centre is its neutral point -- takes a centred CC (64 = no change,
+# 0 / 127 = a whole fader's travel down / up); a UNIPOLAR one takes a one-sided CC (0 = no
+# change, 127 = a whole travel up), so the whole CC range is usable and a host knob at 0 leaves
+# the fader alone. 'engine:<bit>' = decided per engine by the detent table, exactly as
+# INTELLIGENT decides it for TIMBRE / MORPH / HARMONICS (SP1_ENGINE_TABLE[].centre bits:
+# 0x1 HARMONICS, 0x2 TIMBRE, 0x4 MORPH). Not a new table: the bipolar faders are the ones with
+# a centre detent (docs/PLAITS-ENGINES.md, sp1_plaits_ui.c, sp1_marbles_ui.c is_bipolar).
+#   FREQUENCY, the attenuverters, RATE: bipolar by nature -- transpose, depth either way, and
+#   Marbles' own RATE CV is +-5 V around 120 BPM.
+#   MODEL, OCTAVE range, LENGTH, Y divider: selectors, one-sided like Plaits' own MODEL CV.
+POLARITY = {
+    'frequency': 'bi', 'timbre': 'engine:0x2', 'morph': 'engine:0x4', 'harmonics': 'engine:0x1',
+    'fm_attenuverter': 'bi', 'timbre_attenuverter': 'bi', 'morph_attenuverter': 'bi',
+    'harmonics_attenuverter': 'bi', 'lpg_colour': 'uni', 'lpg_decay': 'uni', 'level': 'uni',
+    'octave_range': 'uni', 'model': 'uni',
+    'rate': 'bi', 't_bias': 'bi', 'jitter': 'uni', 'deja_vu': 'bi', 'gate_length': 'uni',
+    'gate_length_random': 'uni', 'length': 'uni', 'spread': 'uni', 'x_bias': 'bi',
+    'steps': 'bi', 'y_spread': 'uni', 'y_bias': 'bi', 'y_steps': 'bi', 'y_divider': 'uni',
+}
+assert set(POLARITY) == {k for (_s, k, *_r) in DESTS}, 'POLARITY must cover every destination'
+
+
+def polarity_code(k):
+    """0 unipolar, 1 bipolar, 0x10 | centre bit = decided by the engine's detents."""
+    v = POLARITY[k]
+    if v == 'uni':
+        return 0
+    if v == 'bi':
+        return 1
+    return 0x10 | int(v.split(':')[1], 16)
 RESERVED = {
     0: 'bank select', 32: 'bank select (fine)',
     6: 'data entry', 38: 'data entry (fine)',
@@ -262,6 +295,10 @@ def generate(ini, out, chart_dir):
     L += ['', '#ifdef SP1_MIDI_GEN_TABLES',
           'static const uint8_t SP1_MIDI_KIND[SP1_MIDI_DESTS] = {']
     L += ['\t%d,   /* %s */' % (KIND[kind], enum[i]) for i, (_s, _k, _l, kind, _p) in enumerate(DESTS)]
+    L += ['};', '/* 0 unipolar, 1 bipolar, 0x10 | SP1_ENGINE_TABLE[].centre bit = per engine. */',
+          'static const uint8_t SP1_MIDI_POLARITY[SP1_MIDI_DESTS] = {']
+    L += ['\t0x%02x,   /* %s: %s */' % (polarity_code(k), enum[i], POLARITY[k])
+          for i, (_s, k, *_r) in enumerate(DESTS)]
     L += ['};', 'static const char *const SP1_MIDI_NAME[SP1_MIDI_DESTS] = {']
     L += ['\t"%s %s",' % (s, k) for (s, k, *_r) in DESTS]
     L += ['};', '/* CC number (the coarse half, for 0-31) -> destination, or -1. */',
@@ -293,13 +330,18 @@ def write_charts(d, cfg, ccs, binds):
           '- Notes play Plaits; pitch bend ±%d semitones until the host sends RPN 0'
           % cfg['bend_range'],
           '- Sustain pedal: %s' % ('CC %d' % cfg['sustain'] if cfg['sustain'] >= 0 else 'off'),
-          '- Every CC is an **offset**: centre (64) = no change, the ends move the parameter',
-          '  by its whole travel either way. CC 0–31 are 14-bit (fine half on CC N+32).', '',
-          '| CC | fine | parameter | where |', '|---|---|---|---|']
+          '- Every CC is an **offset** on its fader. **centred** parameters: 64 = no change,',
+          '  0 / 127 = a whole travel down / up. **one-sided** parameters: 0 = no change,',
+          '  127 = a whole travel up. **per engine**: centred when that engine gives the',
+          '  fader a centre detent, one-sided otherwise. CC 0–31 are 14-bit (fine half on N+32).',
+          '',
+          '| CC | fine | parameter | reads | where |', '|---|---|---|---|---|']
     rows = sorted((n, i) for i, n in enumerate(ccs) if n >= 0)
     for n, i in rows:
         _s, _k, label, kind, page = DESTS[i]
-        md.append('| %d | %s | %s | %s |' % (n, str(n + 32) if n < 32 else '', label, page))
+        reads = {'uni': 'one-sided', 'bi': 'centred'}.get(POLARITY[_k], 'per engine')
+        md.append('| %d | %s | %s | %s | %s |' % (n, str(n + 32) if n < 32 else '', label,
+                                                  reads, page))
     unbound = [DESTS[i][2] for i, n in enumerate(ccs) if n < 0]
     if unbound:
         md += ['', 'No CC: ' + ', '.join(unbound)]
@@ -320,10 +362,16 @@ def write_charts(d, cfg, ccs, binds):
     for n, i in rows:
         s, _k, label, kind, page = DESTS[i]
         stepped = kind == 'step'
+        pol = POLARITY[_k]
+        centred = pol == 'bi'
+        note = ('64 = no offset' if centred else
+                '0 = no offset' if pol == 'uni' else
+                '64 = no offset on engines where this fader has a centre detent; 0 otherwise')
         w.writerow(['Worldwave', 'Wakes', s.capitalize(), label,
                     'Offset on %s (%s)' % (label, page), n, (n + 32) if n < 32 else '',
-                    0, 127, 64, '', '', '', '', '', 'centered',
-                    'Community firmware for the SP-1. 64 = no offset; offsets add to the fader.',
+                    0, 127, 64 if centred else 0, '', '', '', '', '',
+                    'centered' if centred else '0-based',
+                    'Community firmware for the SP-1. %s; offsets add to the fader.' % note,
                     '0~127: %s offset' % ('Stepped' if stepped else 'Continuous')])
     if cfg['sustain'] >= 0:
         w.writerow(['Worldwave', 'Wakes', 'Notes', 'Sustain pedal', 'Holds released notes',

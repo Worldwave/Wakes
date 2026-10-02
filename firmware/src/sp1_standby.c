@@ -17,6 +17,9 @@ static void draw_bar(uint8_t level, int brightness)
 
 void sp1_standby_run(void)
 {
+	/* STANDBY charges. Already true by every route in (sp1_quiesce_peripherals); said again
+	 * here because charging is what STANDBY is for (sp1_power.h, "no charging while ON"). */
+	sp1_charger_enable(true);
 	uint32_t poll_ms   = SP1_STANDBY_POLL_MS;   /* force a sample on entry */
 	uint32_t breath_ms = 0u;
 

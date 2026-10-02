@@ -410,6 +410,7 @@ extern "C" void sp1_synth_init(void) {
   d.level = 0.0f;
   d.level_patched = 0;
   d.level_pos = 0.0f;
+  d.engine_centre = 0u;
   d.freq_per_travel = 96.0f;
   d.engine = SP1_SYNTH_ENGINE_INITIAL;
   for (int k = 0; k < 3; ++k) {
@@ -540,7 +541,8 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
   // here: the offsets are constant across the audio block. With MIDI idle -- nothing plugged
   // in, or nothing ever sent -- `midi` is false and nothing below runs per Plaits block.
   float moff[SP1_MIDI_AUDIO_DESTS];
-  const bool midi = sp1_midi_audio_begin(Now(), frames / plaits::kBlockSize, moff);
+  const bool midi = sp1_midi_audio_begin(Now(), frames / plaits::kBlockSize, c.engine_centre,
+                                         moff);
   if (midi) {
     patch.timbre = Clamp01(c.timbre + moff[SP1_MIDI_D_TIMBRE]);
     patch.morph = Clamp01(c.morph + moff[SP1_MIDI_D_MORPH]);

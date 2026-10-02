@@ -282,6 +282,8 @@ static int      midi_anim;             /* +1 plugged in (reversed), -1 unplugged
 static uint32_t midi_anim_ms;
 static bool     midi_port_was;
 static bool     midi_active_was;
+static int      midi_eslot_was;        /* the engine PLAYING at the last tick */
+static int      midi_sel_was;          /* ...and the one T2/T3 selected        */
 static uint32_t midi_drop0;            /* queue drops before this ON (device was off) */
 
 /* The prompt's state on entry to ON. (MIDI itself was reset before audio started.) */
@@ -292,6 +294,8 @@ static void midi_enter(void)
 	midi_anim = 0;
 	midi_port_was = sp1_midi_port_up();
 	midi_active_was = false;
+	midi_eslot_was = sp1_pui_eslot();
+	midi_sel_was = sp1_pui_slot();
 	{
 		struct sp1_midi_stats ms;
 		sp1_midi_get_stats(&ms);
@@ -314,6 +318,23 @@ static void midi_tick(uint32_t dt, bool busy)
 		       ? "active: notes and CCs reach Wakes, FREQUENCY quantizer bypassed"
 		       : "neutral: notes released, offsets back to zero");
 	}
+
+	/* ---- MODEL moved by MIDI: flash the new engine's glyph, quickly (Adara) ----
+	 * Only when the engine PLAYING changed while the selection did not: a T2/T3 press has
+	 * its own, longer engine flash. Any module, so a change made by the host is seen even
+	 * from the Marbles pages. Stands down while something else owns the row. */
+	const int es = sp1_pui_eslot();
+	const int sel = sp1_pui_slot();
+	if (es != midi_eslot_was && sel == midi_sel_was) {
+		printk("MODEL %s (MIDI)\n", sp1_pui_engine_name());
+		if (!busy) {
+			uint8_t g[4];
+			sp1_pui_slot_leds(es, g);
+			sp1_display_flash(g, SP1_MODEL_FLASH_HOLD_MS, SP1_MODEL_FLASH_FADE_MS);
+		}
+	}
+	midi_eslot_was = es;
+	midi_sel_was = sel;
 
 	if (up) {
 		if (midi_up_ms < SP1_MIDI_PROMPT_SETTLE_MS) {
@@ -880,6 +901,10 @@ int main(void)
 		 * way to SYSTEM_OFF and this loop cannot read a single fader or button
 		 * without it -- the one omission that broke all of M1d-a. Idempotent. */
 		sp1_controls_rail_on();
+		/* No charging while ON (M5a, from the OP-XY test): a battery-powered USB host was
+		 * charging the SP-1 from its own battery. The BQ24232 keeps the SP-1 running from
+		 * USB with charging off; every way out of ON turns it back on (sp1_power.h). */
+		sp1_charger_enable(false);
 		/* Diagnostics are slowed right down in ON. Not for the average cost
 		 * (~0.07 % at 1 Hz) but because a ~400 us ADC read or an unbounded
 		 * printk inside a 5 ms audio block is a dropout, not a percentage. */

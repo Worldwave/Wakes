@@ -93,9 +93,15 @@ bool nrpn_selected;
 uint8_t cc_msb[SP1_MIDI_DESTS];
 uint8_t cc_lsb[SP1_MIDI_DESTS];
 bool cc_has_lsb[SP1_MIDI_DESTS];
+bool cc_present[SP1_MIDI_DESTS];             // a CC has arrived since the last neutral
 
 // Published to the main thread (single words).
-volatile float target[SP1_MIDI_DESTS];       // offsets, fader-travel units
+// Offsets in fader-travel units, BOTH ways a CC can read (sp1_midi.h, "polarity"): the
+// consumer picks by the parameter's polarity at the moment it applies it, because for TIMBRE,
+// MORPH and HARMONICS that depends on the engine playing.
+volatile float target_bi[SP1_MIDI_DESTS];    // centred: 64 = 0, 0 = -1, 127 = +1
+volatile float target_uni[SP1_MIDI_DESTS];   // one-sided: 0 = 0, 127 = +1
+volatile uint8_t engine_centre_now;          // last engine centre bits the audio thread saw
 volatile uint32_t pub_active;
 volatile uint32_t st_notes, st_ccs, st_ignored;
 volatile uint8_t pub_held, pub_bend_range;
@@ -267,29 +273,58 @@ void AllNotesOff() {
 }
 
 // ---- CC offsets ---------------------------------------------------------------------------
-// A CC is a second hand on its fader: centre = no offset, the ends a whole fader's travel
-// either way. 7-bit: 64 is centre, 0 is -1, 127 is +1 (63 steps up, 64 down). 14-bit (CC
-// 0-31 with their fine half on N+32): 8192 is centre, 0 is -1, 16383 is +1.
-float CcOffset(int d) {
+// A CC is a second hand on its fader, read the way Marbles' INTELLIGENT range reads its
+// destination (M4c; Adara's M5a test notes): a BIPOLAR parameter takes a CENTRED CC -- 64 =
+// no offset, 0 = a whole travel down, 127 = a whole travel up -- and a UNIPOLAR one a
+// ONE-SIDED CC -- 0 = no offset, 127 = a whole travel up -- so the whole CC range does
+// something, and a host knob resting at 0 leaves the fader in charge.
+//   centred, 7-bit: 64 -> 0, 0 -> -1, 127 -> +1 (63 steps up, 64 down);
+//            14-bit (CC 0-31 + fine half on N+32): 8192 -> 0, 0 -> -1, 16383 -> +1.
+//   one-sided, 7-bit: v / 127; 14-bit: v / 16383.
+// A CC that has not arrived since the last neutral is no offset either way.
+float CcOffset(int d, bool centred) {
+  if (!cc_present[d]) {
+    return 0.0f;
+  }
   if (!cc_has_lsb[d]) {
+    if (!centred) {
+      return static_cast<float>(cc_msb[d]) / 127.0f;
+    }
     const int v = cc_msb[d] - 64;
     return v >= 0 ? static_cast<float>(v) / 63.0f : static_cast<float>(v) / 64.0f;
   }
-  const int v = ((cc_msb[d] << 7) | cc_lsb[d]) - 8192;
+  const int raw = (cc_msb[d] << 7) | cc_lsb[d];
+  if (!centred) {
+    return static_cast<float>(raw) / 16383.0f;
+  }
+  const int v = raw - 8192;
   return v >= 0 ? static_cast<float>(v) / 8191.0f : static_cast<float>(v) / 8192.0f;
 }
 
 void Publish(int d) {
-  float t = CcOffset(d);
   // Bound sources (the MIDI script's [bind]) push the parameter up from where it is, by
-  // their depth. Aimed at LEVEL they shape the gate height instead (Gate()).
+  // their depth, whichever way the CC reads. Aimed at LEVEL they shape the gate height
+  // instead (GateHeight()).
+  float bound = 0.0f;
   if (SP1_MIDI_VELOCITY_DEST == d && d != SP1_MIDI_D_LEVEL) {
-    t += SP1_MIDI_VELOCITY_DEPTH * static_cast<float>(velocity) / 127.0f;
+    bound += SP1_MIDI_VELOCITY_DEPTH * static_cast<float>(velocity) / 127.0f;
   }
   if (SP1_MIDI_AFTERTOUCH_DEST == d && d != SP1_MIDI_D_LEVEL) {
-    t += SP1_MIDI_AFTERTOUCH_DEPTH * static_cast<float>(aftertouch) / 127.0f;
+    bound += SP1_MIDI_AFTERTOUCH_DEPTH * static_cast<float>(aftertouch) / 127.0f;
   }
-  target[d] = Clamp(t, -1.0f, 1.0f);
+  target_bi[d] = Clamp(CcOffset(d, true) + bound, -1.0f, 1.0f);
+  target_uni[d] = Clamp(CcOffset(d, false) + bound, -1.0f, 1.0f);
+}
+
+// Is destination `d` bipolar right now? Fixed for most; for TIMBRE / MORPH / HARMONICS it is
+// the playing engine's detent bit -- the same test INTELLIGENT makes (sp1_marbles.cc).
+inline bool Bipolar(int d, uint8_t centre) {
+  const uint8_t p = SP1_MIDI_POLARITY[d];
+  return p == 1u || ((p & 0x10u) != 0u && (centre & (p & 0x0Fu)) != 0u);
+}
+
+inline float Target(int d, uint8_t centre) {
+  return Bipolar(d, centre) ? target_bi[d] : target_uni[d];
 }
 
 void PublishAll() {
@@ -303,6 +338,7 @@ void ResetControllers() {
     cc_msb[d] = 64;
     cc_lsb[d] = 0;
     cc_has_lsb[d] = false;
+    cc_present[d] = false;
   }
   aftertouch = 0;
   bend = 8192;
@@ -388,6 +424,7 @@ void ControlChange(uint8_t cc, uint8_t v) {
     }
     cc_lsb[d] = v;
     cc_has_lsb[d] = true;
+    cc_present[d] = true;
   } else {
     d = SP1_MIDI_CC_DEST[cc];
     if (d < 0) {
@@ -399,6 +436,7 @@ void ControlChange(uint8_t cc, uint8_t v) {
     cc_msb[d] = v;
     cc_lsb[d] = 0;
     cc_has_lsb[d] = false;
+    cc_present[d] = true;
   }
   st_ccs = st_ccs + 1u;
   Publish(d);
@@ -511,8 +549,9 @@ extern "C" void sp1_midi_main_tick(uint32_t elapsed_ms) {
   const float k = tau <= 0.0f ? 1.0f : 1.0f - expf(-static_cast<float>(elapsed_ms) / tau);
   for (int d = 0; d < SP1_MIDI_DESTS; ++d) {
     if (SP1_MIDI_KIND[d] == SP1_MIDI_K_MAIN) {
-      main_smooth[d] += (target[d] - main_smooth[d]) * k;
-      if (fabsf(main_smooth[d]) < 1e-6f && target[d] == 0.0f) {
+      const float t = Target(d, engine_centre_now);
+      main_smooth[d] += (t - main_smooth[d]) * k;
+      if (fabsf(main_smooth[d]) < 1e-6f && t == 0.0f) {
         main_smooth[d] = 0.0f;
       }
     }
@@ -523,7 +562,7 @@ extern "C" float sp1_midi_offset(int d) {
   if (d < 0 || d >= SP1_MIDI_DESTS) {
     return 0.0f;
   }
-  return SP1_MIDI_KIND[d] == SP1_MIDI_K_MAIN ? main_smooth[d] : target[d];
+  return SP1_MIDI_KIND[d] == SP1_MIDI_K_MAIN ? main_smooth[d] : Target(d, engine_centre_now);
 }
 
 extern "C" bool sp1_midi_active(void) { return pub_active != 0u; }
@@ -540,8 +579,9 @@ extern "C" void sp1_midi_get_stats(struct sp1_midi_stats* out) {
 }
 
 // ==== audio thread ========================================================================
-extern "C" bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks,
+extern "C" bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t engine_centre,
                                      float off[SP1_MIDI_AUDIO_DESTS]) {
+  engine_centre_now = engine_centre;
   static bool once;
   if (!once) {
     once = true;
@@ -611,7 +651,7 @@ extern "C" bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks,
   }
   bool zero = true;
   for (int d = 0; d < SP1_MIDI_AUDIO_DESTS; ++d) {
-    const float t = target[d];
+    const float t = Target(d, engine_centre);
     float v = smooth[d] + (t - smooth[d]) * smooth_coef;
     if (fabsf(v - t) < 1e-6f) {
       v = t;

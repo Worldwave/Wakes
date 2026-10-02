@@ -54,6 +54,20 @@ void sp1_charger_init(void)
 	SP1_BQ_PORT->OUTCLR = (1u << SP1_BQ_NCE_PIN);
 }
 
+void sp1_charger_enable(bool on)
+{
+	if (on) {
+		SP1_BQ_PORT->OUTCLR = (1u << SP1_BQ_NCE_PIN);   /* nCE low: charging */
+	} else {
+		SP1_BQ_PORT->OUTSET = (1u << SP1_BQ_NCE_PIN);   /* nCE high: not charging */
+	}
+}
+
+bool sp1_charger_enabled(void)
+{
+	return (SP1_BQ_PORT->OUT & (1u << SP1_BQ_NCE_PIN)) == 0u;
+}
+
 bool sp1_usb_present(void)
 {
 	/* ---- USB power present: the charger's view OR the nRF's own VBUS detector ----
@@ -126,6 +140,11 @@ void sp1_quiesce_peripherals(void)
 	drive_low(SP1_TAS_RST_PORT,   SP1_TAS_RST_PIN);    /* amp in reset      */
 	drive_low(SP1_EMMC_VCCQ_PORT, SP1_EMMC_VCCQ_PIN);  /* eMMC rail off     */
 	drive_low(SP1_OSC_EN_PORT,    SP1_OSC_EN_PIN);     /* 3.072 MHz osc off */
+
+	/* Leaving ON: charging back on (sp1_power.h, "no charging while ON"). STANDBY charges,
+	 * and SYSTEM_OFF retains GPIO levels, so a device switched off on battery must not keep
+	 * nCE high into the next plug-in. */
+	sp1_charger_enable(true);
 }
 
 void sp1_power_off(void)

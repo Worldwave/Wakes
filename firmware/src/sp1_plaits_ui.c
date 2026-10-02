@@ -37,6 +37,11 @@
 #define CATCH_MATCH       0.005f   /* pot_controller.h: close enough to track       */
 #define DETENT_BIPOLAR    0.10f    /* Adara: 10 % of travel                          */
 #define DETENT_FREQ       0.05f    /* Adara: 5 % for FREQUENCY                       */
+/* ...and 10 % while MIDI is active (Adara, M5a test notes): with a keyboard playing through
+ * FREQUENCY, F1's centre IS the keyboard's tuning -- C4 = note 60 -- and 5 % of travel was too
+ * narrow to land on reliably. Only while MIDI is active, so the fader's feel without MIDI is
+ * unchanged. Outside the detent the travel is re-stretched, so the ends are still reached. */
+#define DETENT_FREQ_MIDI  0.10f
 #define LEVEL_OFF         0.05f    /* UI-SPEC: SETTINGS F4 below 5 % = disconnected  */
 #define TAP_MAX_MS        300u     /* a "••" press this short, untouched, is a tap   */
 #define DOUBLE_TAP_MS     400u     /* second tap must START within this of the 1st   */
@@ -402,7 +407,8 @@ void sp1_pui_params(struct sp1_synth_params *p)
 		oct_q = q;
 		note = 53.0f + 0.5f * 14.0f + 12.0f * (float)(q - 4);   /* fine at centre */
 	} else {
-		const float t = 2.0f * detent(b[0], DETENT_FREQ) - 1.0f;
+		const float t = 2.0f * detent(b[0], sp1_midi_active() ? DETENT_FREQ_MIDI
+								      : DETENT_FREQ) - 1.0f;
 		note = (oct == 10) ? 60.0f + t * 48.0f : t * 7.0f + (float)oct * 12.0f;
 		if (n_deg > 0) {
 			/* Modes 1-8 and 10: the range decides the SPAN, the scale decides
@@ -447,6 +453,7 @@ void sp1_pui_params(struct sp1_synth_params *p)
 	p->lpg_colour = clamp01(st[1]);
 	p->decay      = clamp01(st[2]);
 	p->engine     = SP1_ENGINE_TABLE[es].plaits;
+	p->engine_centre = c;          /* how a MIDI CC on F2-F4 reads (sp1_midi.h) */
 }
 
 static void leds_of(enum sp1_pui_layer l, uint8_t out[4])
@@ -542,6 +549,19 @@ void sp1_pui_engine_leds(uint8_t out[4])
 	}
 }
 const char *sp1_pui_engine_name(void)   { return SP1_ENGINE_TABLE[eslot()].name; }
+int  sp1_pui_eslot(void)                { return eslot(); }
+
+void sp1_pui_slot_leds(int s, uint8_t out[4])
+{
+	static const uint8_t L[3] = { 0u, SP1_ENGINE_LED_HALF, SP1_ENGINE_LED_FULL };
+	if (s < 0 || s >= SP1_ENGINE_SLOTS) {
+		s = slot;
+	}
+	for (int i = 0; i < 4; i++) {
+		const uint8_t k = SP1_ENGINE_TABLE[s].led[i];
+		out[i] = L[k < 3u ? k : 0u];
+	}
+}
 
 /* ---- engine select (T2 / T3), in SLOT order from config/engines.csv ----
  * A slot with no engine in the CSV is empty: it keeps its place and glyph, and is

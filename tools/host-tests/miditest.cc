@@ -22,6 +22,7 @@ static const uint32_t kBlocks = 20;          // Plaits blocks per audio block
 static sp1_midi_frame fr[kBlocks];
 static float moff[SP1_MIDI_AUDIO_DESTS];      // this audio block's smoothed CC offsets
 static bool work;                            // sp1_midi_audio_begin: anything to do
+static uint8_t centre;                       // the "engine's" detent bits (0x2 = TIMBRE bipolar)
 static float lpg_gain = 1.0f;                // what "Plaits" reports after each block
 
 static void send(uint8_t s, uint8_t a, uint8_t b = 0, uint32_t cyc = 0) {
@@ -36,7 +37,7 @@ static void off(uint8_t n) { send(0x80, n, 0); }
 // One audio block of the MIDI core, as sp1_synth_render drives it: nothing per Plaits
 // block when sp1_midi_audio_begin says there is nothing to do.
 static void block(uint32_t cyc = 0) {
-  work = sp1_midi_audio_begin(cyc, kBlocks, moff);
+  work = sp1_midi_audio_begin(cyc, kBlocks, centre, moff);
   for (uint32_t j = 0; j < kBlocks; ++j) {
     fr[j] = sp1_midi_frame{ false, false, 0.0f, 0.0f };
     if (work) {
@@ -133,26 +134,29 @@ int main() {
   CHECK(last().gate == 0.0f, "pedal up: the held note should end");
   reset();
 
-  // ---- §5 CCs: 7-bit, 14-bit pairs, the second hand on the fader ----
-  printf("§5 CC offsets, 7- and 14-bit\n");
+  // ---- §5 CCs read by polarity, the INTELLIGENT rule (Adara, M5a test notes) ----
+  // TIMBRE is per engine: centred where the engine gives F2 a centre detent, one-sided
+  // where it does not. `centre` stands in for the engine's detent bits.
+  printf("§5 CC offsets: centred / one-sided, 7- and 14-bit\n");
+  centre = 0x2;                                // an engine where TIMBRE is bipolar
   cc(3, 127);                                  // TIMBRE, coarse only: 7-bit
   for (int i = 0; i < 100; ++i) block();
-  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] - 1.0f) < 1e-3f, "CC 3 = 127 should be +1, %.4f",
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] - 1.0f) < 1e-3f, "centred 127 -> +1, %.4f",
         moff[SP1_MIDI_D_TIMBRE]);
   cc(3, 0);
   for (int i = 0; i < 100; ++i) block();
-  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] + 1.0f) < 1e-3f, "CC 3 = 0 should be -1");
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] + 1.0f) < 1e-3f, "centred 0 -> -1");
   cc(3, 64);
   for (int i = 0; i < 100; ++i) block();
-  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE]) < 1e-4f, "CC 3 = 64 should be 0 (neutral)");
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE]) < 1e-4f, "centred 64 -> 0 (neutral)");
   cc(3, 96);
   block();
   CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) - 32.0f / 63.0f) < 1e-4f,
-        "7-bit 96 -> %.4f", sp1_midi_offset(SP1_MIDI_D_TIMBRE));
+        "centred 7-bit 96 -> %.4f", sp1_midi_offset(SP1_MIDI_D_TIMBRE));
   cc(35, 0);                                   // its fine half: now 14-bit, 96 << 7
   block();
   CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) - 4096.0f / 8191.0f) < 1e-4f,
-        "14-bit 12288 -> %.4f", sp1_midi_offset(SP1_MIDI_D_TIMBRE));
+        "centred 14-bit 12288 -> %.4f", sp1_midi_offset(SP1_MIDI_D_TIMBRE));
   cc(35, 127);
   cc(3, 127);                                  // a new coarse half resets the fine half
   block();
@@ -163,6 +167,35 @@ int main() {
   cc(3, 0); cc(35, 0);
   block();
   CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) + 1.0f) < 1e-4f, "0 -> -1");
+
+  centre = 0;                                  // an engine where TIMBRE is unipolar
+  block();
+  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE)) < 1e-4f,
+        "the same CC 0 on a unipolar engine is NO offset, %.4f",
+        sp1_midi_offset(SP1_MIDI_D_TIMBRE));
+  cc(3, 64);
+  block();
+  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) - 64.0f / 127.0f) < 1e-4f,
+        "one-sided 7-bit 64 -> %.4f", sp1_midi_offset(SP1_MIDI_D_TIMBRE));
+  cc(35, 0);
+  block();
+  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) - 8192.0f / 16383.0f) < 1e-4f,
+        "one-sided 14-bit 8192 -> %.4f", sp1_midi_offset(SP1_MIDI_D_TIMBRE));
+  cc(3, 127); cc(35, 127);
+  for (int i = 0; i < 100; ++i) block();
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] - 1.0f) < 1e-3f, "one-sided 16383 -> +1");
+  // Fixed polarities: LPG colour is one-sided, FREQUENCY centred, whatever the engine.
+  cc(24, 0);
+  block();
+  CHECK(sp1_midi_offset(SP1_MIDI_D_LPG_COLOUR) == 0.0f, "LPG colour CC 0 -> no offset");
+  cc(15, 0);
+  block();
+  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_FREQUENCY) + 1.0f) < 1e-4f, "FREQUENCY CC 0 -> -1");
+  cc(15, 64);
+  block();
+  CHECK(sp1_midi_offset(SP1_MIDI_D_FREQUENCY) == 0.0f, "FREQUENCY CC 64 -> 0");
+  // Nothing sent = no offset, either way.
+  CHECK(sp1_midi_offset(SP1_MIDI_D_MORPH) == 0.0f, "an unsent CC is no offset");
   reset();
 
   // ---- §6 smoothing: cc_smoothing = 10 ms, a one-pole once per audio block ----
@@ -311,33 +344,44 @@ int main() {
   off(60);
   sp1_pui_set_scale(SP1_PUI_SCALE_OFF);
 
-  // ---- §14 stepped targets and LEVEL, in the control loop ----
-  printf("§14 OCTAVE range, MODEL, LEVEL, FREQUENCY\n");
+  // ---- §14 stepped targets, LEVEL and FREQUENCY, in the control loop ----
+  printf("§14 OCTAVE range, MODEL, LEVEL, FREQUENCY detent\n");
   sp1_pui_params(&sp);
   CHECK(sp1_pui_octave_mode() == 10 && sp.freq_per_travel == 96.0f, "full range: 96 st/travel");
-  cc(102, 0);                                  // OCTAVE range all the way down
-  render_rms(1);
-  CHECK(sp1_pui_octave_mode() == 0, "OCTAVE CC 0 -> LFO mode, got %d", sp1_pui_octave_mode());
+  // OCTAVE range is one-sided: from the fader's mode, up only. Put the fader at LFO first.
+  {
+    const float sh[4] = { 0.5f, 0.5f, 0.5f, 0.5f };
+    const float st[4] = { 0.0f, 0.0f, 0.5f, 0.0f };
+    sp1_pui_load_mods(sh, st);
+  }
+  CHECK(sp1_pui_octave_mode() == 0, "fader at LFO mode, got %d", sp1_pui_octave_mode());
   sp1_pui_params(&sp);
   CHECK(sp.freq_per_travel == 120.0f, "LFO: 120 st/travel");
-  cc(102, 64);
+  cc(102, 127);                                // a whole travel up
   render_rms(1);
-  CHECK(sp1_pui_octave_mode() == 10, "OCTAVE CC 64 -> back to the fader's mode");
-  int first = -1, lastf = -1;
+  CHECK(sp1_pui_octave_mode() == 10, "OCTAVE CC 127 -> full range, got %d",
+        sp1_pui_octave_mode());
+  cc(102, 0);
+  render_rms(1);
+  CHECK(sp1_pui_octave_mode() == 0, "OCTAVE CC 0 -> the fader's own mode, got %d",
+        sp1_pui_octave_mode());
+  sp1_pui_default_mods();
+  // MODEL is one-sided too: 0 = the selection, 127 = the last filled slot.
+  int lastf = -1;
   for (int i = 0; i < SP1_ENGINE_SLOTS; ++i) {
-    if (SP1_ENGINE_TABLE[i].on) { if (first < 0) first = i; lastf = i; }
+    if (SP1_ENGINE_TABLE[i].on) lastf = i;
   }
   const int sel = sp1_pui_engine();
+  const int sel_slot = sp1_pui_slot();
   cc(105, 127);
   render_rms(1);
   CHECK(sp1_pui_engine() == SP1_ENGINE_TABLE[lastf].plaits,
         "MODEL 127 -> last filled slot (%d), got engine %d", lastf, sp1_pui_engine());
+  CHECK(sp1_pui_eslot() == lastf && sp1_pui_slot() == sel_slot,
+        "the PLAYING slot moves (the flash's cue), the selection does not");
   cc(105, 0);
   render_rms(1);
-  CHECK(sp1_pui_engine() == SP1_ENGINE_TABLE[first].plaits, "MODEL 0 -> first filled slot");
-  cc(105, 64);
-  render_rms(1);
-  CHECK(sp1_pui_engine() == sel, "MODEL 64 -> the selection");
+  CHECK(sp1_pui_engine() == sel, "MODEL 0 -> the selection");
   sp1_pui_params(&sp);
   CHECK(sp.level_patched == 0, "LEVEL fader at 0 is disconnected");
   cc(26, 127);                                 // LEVEL CC pushes the fader up
@@ -345,11 +389,35 @@ int main() {
   sp1_pui_params(&sp);
   CHECK(sp.level_patched == 1 && sp.level_pos == 0.0f,
         "LEVEL CC should connect LEVEL: patched %d pos %.2f", sp.level_patched, sp.level_pos);
-  cc(26, 64);
+  cc(26, 0);                                   // one-sided: 0 is no offset
   render_rms(1);
+  sp1_pui_params(&sp);
+  CHECK(sp.level_patched == 0, "LEVEL CC 0 -> back to the fader (disconnected)");
+  // FREQUENCY's detent: 5 % without MIDI, 10 % with (Adara). F1 at 4 % of travel above
+  // centre: outside a 5 % band (+-2.5 %), inside a 10 % one (+-5 %).
+  {
+    const uint16_t f1 = (uint16_t)(0.54f * 3701.0f + 0.5f);
+    const uint16_t r2[4] = { f1, 1850, 1850, 0 };
+    for (int i = 0; i < 200; ++i) sp1_pui_tick(8, r2, true, false, false);
+    CHECK(sp1_midi_active(), "MIDI should be active for this check");
+    sp1_pui_params(&sp);
+    CHECK(sp.note == 60.0f, "MIDI active: F1 4 %% off centre is inside the 10 %% detent -> C4, "
+          "got %.3f", sp.note);
+    sp1_midi_port(false);
+    render_rms(800);                           // 4 s: the release ends, MIDI goes neutral
+    sp1_pui_params(&sp);
+    CHECK(!sp1_midi_active(), "MIDI should be neutral 4 s after the port went");
+    CHECK(sp.note > 60.5f,
+          "MIDI gone: the 5 %% detent again, F1 4 %% off centre is above C4, got %.3f", sp.note);
+    sp1_midi_port(true);
+    const uint16_t r3[4] = { 1850, 1850, 1850, 0 };
+    for (int i = 0; i < 200; ++i) sp1_pui_tick(8, r3, true, false, false);
+    on(60); off(60);
+    render_rms(2);
+  }
 
   // ---- §15 Marbles, smoothed in the control loop ----
-  printf("§15 Marbles RATE, LENGTH\n");
+  printf("§15 Marbles RATE (centred), LENGTH (one-sided)\n");
   sp1_marbles_params mp;
   sp1_mui_params(&mp);
   const float rate0 = mp.rate;
@@ -362,12 +430,18 @@ int main() {
   sp1_mui_params(&mp);
   CHECK(fabsf(mp.rate - 60.0f) < 0.1f, "RATE +1 travel from centre -> +60 st (clamped), %.2f",
         mp.rate);
-  cc(103, 0);                                  // LENGTH: stepped, no glide
+  const int len0 = mp.length;
+  cc(103, 0);                                  // LENGTH: one-sided, 0 = no offset
   render_rms(1);
   sp1_midi_main_tick(8);
   sp1_mui_params(&mp);
-  CHECK(mp.length == 1, "LENGTH CC 0 -> one step at once, got %d", mp.length);
-  cc(27, 64); cc(103, 64);
+  CHECK(mp.length == len0, "LENGTH CC 0 -> the fader's length (%d), got %d", len0, mp.length);
+  cc(103, 127);                                // stepped: at once, no glide
+  render_rms(1);
+  sp1_midi_main_tick(8);
+  sp1_mui_params(&mp);
+  CHECK(mp.length == 16, "LENGTH CC 127 -> 16 steps at once, got %d", mp.length);
+  cc(27, 64); cc(103, 0);
   render_rms(1);
 
   printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "all checks passed", fails,

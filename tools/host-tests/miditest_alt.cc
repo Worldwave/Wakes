@@ -22,7 +22,7 @@ static void send(uint8_t s, uint8_t a, uint8_t b = 0) {
   sp1_midi_push(m, (t == 0xC0 || t == 0xD0) ? 2 : 3, 0);
 }
 static void block() {
-  const bool work = sp1_midi_audio_begin(0, kBlocks, off);
+  const bool work = sp1_midi_audio_begin(0, kBlocks, 0u, off);
   for (uint32_t j = 0; j < kBlocks; ++j) {
     fr[j] = sp1_midi_frame{ false, false, 0.0f, 0.0f };
     if (work) {

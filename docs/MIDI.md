@@ -13,13 +13,32 @@ Plaits straight away, and everything deeper is set in the MIDI script,
 |---|---|
 | **Notes** | play Plaits. A note-on strikes **TRIG** and holds **LEVEL** open; a note-off lets LEVEL close through Plaits' own low-pass gate, so the release is the LPG's. |
 | **Several keys** | Plaits is one voice: you hear the **newest** key. Let it go and you hear the previous one if it is still held (Yarns-style note priority). |
-| **Pitch** | added to FREQUENCY like a V/Oct cable, with **note 60 (C4) adding nothing**. F1 on its centre detent is exactly C4, so a centred F1 plays the keyboard at its real pitch, and moving F1 transposes. |
+| **Pitch** | added to FREQUENCY like a V/Oct cable, with **note 60 (C4) adding nothing**. F1 on its centre detent is exactly C4, so a centred F1 plays the keyboard at its real pitch, and moving F1 transposes. While MIDI is in use the FREQUENCY detent is **10 %** of the fader's travel (5 % otherwise), so C4 is easy to land on. |
 | **Pitch bend** | ±2 semitones, or whatever range the host sends (RPN 0, "pitch bend sensitivity"). |
 | **Sustain pedal** | CC 64 holds released notes until it lifts. |
-| **CCs** | each fader parameter on both modules, and Plaits' MODEL, has a CC (chart below). A CC is a **second hand on that fader**: it adds to where the fader is, as an offset. CC centre (64) adds nothing; the ends move the parameter by its whole travel either way. Stepped parameters (OCTAVE range, LENGTH, Y divider, MODEL) move in whole steps. |
+| **CCs** | each fader parameter on both modules, and Plaits' MODEL, has a CC (chart below). A CC is a **second hand on that fader**: it adds to where the fader is, as an offset, and the fader keeps working. How the CC reads depends on the parameter (below). Stepped parameters (OCTAVE range, LENGTH, Y divider, MODEL) move in whole steps; a MODEL change flashes the new engine's glyph. |
 
 The faders, the shift layers, the attenuverters, Marbles and its routing all keep working while
 MIDI plays. MIDI adds to them; it does not take anything over.
+
+### How a CC reads: centred or one-sided
+
+Each CC reads the way its parameter works -- the same rule Marbles' INTELLIGENT voltage range
+uses for its outputs:
+
+- **centred** parameters, whose middle is "nothing happening" (FREQUENCY, the attenuverters,
+  RATE, BIAS, DEJA VU, STEPS): **64 = no change**, 0 = a whole fader's travel down, 127 = a whole
+  travel up.
+- **one-sided** parameters (LPG colour and decay, LEVEL, JITTER, gate length, SPREAD, and the
+  stepped ones): **0 = no change**, 127 = a whole travel up. A controller knob resting at 0
+  leaves the fader in charge.
+- **TIMBRE, MORPH, HARMONICS: per engine.** Centred on an engine where that fader has a centre
+  detent, one-sided where it doesn't (`docs/PLAITS-ENGINES.md` has the detents). Change engine
+  and the CC is re-read the new way at once.
+
+The fader and the CC add, and the result stops at the parameter's ends -- as a knob and a CV do
+on the module. So a CC that has pushed a parameter all the way to an end leaves the fader
+nothing to move until the CC comes back.
 
 ### LEVEL, while a key is down — and only then
 
@@ -45,7 +64,17 @@ host still thinks its knobs are where it left them.
 
 A charger never enumerates, so it never prompts and never turns MIDI on.
 
+### Charging
+
+While Wakes is **ON** it does **not charge**, whatever it is plugged into. It runs from USB power
+instead, so the battery neither charges nor drains. This is for battery-powered hosts like the
+OP-XY, which would otherwise spend their own battery charging the SP-1 for the whole session.
+Turned off while plugged in, it goes to STANDBY and charges as before.
+
 ## The CC chart (the shipped script)
+
+"reads" in the generated chart says, for each CC, whether it is centred, one-sided or per
+engine (above).
 
 Every number here is a CC that keyboards and DAWs **do not send on their own**, so out of the box
 nothing moves until you point something at it — map a knob on your controller, or a DAW
@@ -64,7 +93,7 @@ half still works.
 | 25 | 57 | LPG decay |
 | 26 | 58 | LEVEL (PLAITS SETTINGS F4 — can connect it, like the fader) |
 | 102 | | OCTAVE range |
-| 105 | | MODEL: the engine, as an offset through your filled slots in `config/engines.csv` |
+| 105 | | MODEL: the engine, as an offset up through your filled slots in `config/engines.csv` |
 | 27 | 59 | RATE |
 | 16 | 48 | t BIAS |
 | 85 | | JITTER |

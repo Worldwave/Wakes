@@ -69,6 +69,9 @@ struct sp1_synth_params {
 	 * range: 96 in the full range, 14 in modes 1-8, 120 in LFO mode, and 0 in mode 9,
 	 * where F1 is a switch and the control loop applies the CC before quantizing. */
 	float level_pos;               /* SETTINGS F4, 0..1, as stored               */
+	/* The playing engine's bipolar parameters, SP1_ENGINE_TABLE[].centre (0x1 HARMONICS,
+	 * 0x2 TIMBRE, 0x4 MORPH): decides how a MIDI CC on those three reads (sp1_midi.h). */
+	uint8_t engine_centre;
 	float freq_per_travel;         /* semitones per whole fader travel           */
 	int   engine;                  /* Plaits engine index                         */
 	/* Marbles -> Plaits (M4). Applied ONLY while Marbles' clock runs
