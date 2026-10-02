@@ -74,6 +74,7 @@
 #include "sp1_ui_timing.h"
 #include "sp1_batt.h"
 #include "sp1_standby.h"
+#include "sp1_usbd.h"
 #include "sp1_console.h"
 #include "sp1_controls.h"
 #include "sp1_display.h"
@@ -901,10 +902,7 @@ int main(void)
 		 * way to SYSTEM_OFF and this loop cannot read a single fader or button
 		 * without it -- the one omission that broke all of M1d-a. Idempotent. */
 		sp1_controls_rail_on();
-		/* No charging while ON (M5a, from the OP-XY test): a battery-powered USB host was
-		 * charging the SP-1 from its own battery. The BQ24232 keeps the SP-1 running from
-		 * USB with charging off; every way out of ON turns it back on (sp1_power.h). */
-		sp1_charger_enable(false);
+		bool charge_held = false;      /* charging switched off for a USB host (below) */
 		/* Diagnostics are slowed right down in ON. Not for the average cost
 		 * (~0.07 % at 1 Hz) but because a ~400 us ADC read or an unbounded
 		 * printk inside a 5 ms audio block is a dropout, not a percentage. */
@@ -1213,6 +1211,22 @@ int main(void)
 			}
 
 			sp1_console_poll(dt, "ON");
+
+			/* ---- no charging while a USB HOST is attached (M5a, Adara) ----
+			 * A battery-powered host -- the OP-XY -- was charging the SP-1 from its own
+			 * battery all session. ON + a host that configured us = charging off; a plain
+			 * charger still charges, and STANDBY always does (sp1_power.h). Re-checked
+			 * every tick, so plugging and unplugging while ON both follow. */
+			{
+				const bool host = sp1_usbd_host();
+				if (host != charge_held) {
+					charge_held = host;
+					sp1_charger_enable(!host);
+					printk("CHARGE %s\n", host
+					       ? "off: a USB host is attached (the SP-1 runs from USB)"
+					       : "on");
+				}
+			}
 
 #if defined(CONFIG_SP1_PLAITS)
 			/* ---- M3b / M4: the two modules (docs/UI-SPEC.md v0.9) ----

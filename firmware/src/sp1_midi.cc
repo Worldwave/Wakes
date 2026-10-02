@@ -118,6 +118,16 @@ float env_expo[257];
 // ... and in the control loop (Marbles).
 float main_smooth[SP1_MIDI_DESTS];
 
+// ---- MODEL: at most one change every 50 ms (Adara, M5a test round 1) ----
+// Every engine change costs one over-budget audio block -- the engine's own initialisation,
+// the same as a T2/T3 press -- and a swept MODEL CC changed engine many times a second (the
+// round-1 log: up to 16 overruns per 5 s, a 160 % block). So the MODEL offset the UI sees moves
+// at most every kModelStepMs: a sweep still lands on the right engine, with a twentieth of a
+// second between engines at most.
+const uint32_t kModelStepMs = 50;
+float model_held;                            // the MODEL offset the UI sees
+uint32_t model_since_ms = kModelStepMs;      // since model_held last moved
+
 // This audio block's events, each placed at a Plaits block.
 Event block_ev[kQueue];
 uint8_t block_at[kQueue];
@@ -545,6 +555,14 @@ extern "C" void sp1_midi_on_enter(void) {
 }
 
 extern "C" void sp1_midi_main_tick(uint32_t elapsed_ms) {
+  if (model_since_ms < kModelStepMs) {
+    model_since_ms += elapsed_ms;
+  }
+  const float mt = Target(SP1_MIDI_D_MODEL, engine_centre_now);
+  if (mt != model_held && model_since_ms >= kModelStepMs) {
+    model_held = mt;
+    model_since_ms = 0;
+  }
   const float tau = static_cast<float>(SP1_MIDI_SMOOTH_MS);
   const float k = tau <= 0.0f ? 1.0f : 1.0f - expf(-static_cast<float>(elapsed_ms) / tau);
   for (int d = 0; d < SP1_MIDI_DESTS; ++d) {
@@ -561,6 +579,9 @@ extern "C" void sp1_midi_main_tick(uint32_t elapsed_ms) {
 extern "C" float sp1_midi_offset(int d) {
   if (d < 0 || d >= SP1_MIDI_DESTS) {
     return 0.0f;
+  }
+  if (d == SP1_MIDI_D_MODEL) {
+    return model_held;
   }
   return SP1_MIDI_KIND[d] == SP1_MIDI_K_MAIN ? main_smooth[d] : Target(d, engine_centre_now);
 }

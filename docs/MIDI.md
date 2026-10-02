@@ -16,7 +16,7 @@ Plaits straight away, and everything deeper is set in the MIDI script,
 | **Pitch** | added to FREQUENCY like a V/Oct cable, with **note 60 (C4) adding nothing**. F1 on its centre detent is exactly C4, so a centred F1 plays the keyboard at its real pitch, and moving F1 transposes. While MIDI is in use the FREQUENCY detent is **10 %** of the fader's travel (5 % otherwise), so C4 is easy to land on. |
 | **Pitch bend** | ±2 semitones, or whatever range the host sends (RPN 0, "pitch bend sensitivity"). |
 | **Sustain pedal** | CC 64 holds released notes until it lifts. |
-| **CCs** | each fader parameter on both modules, and Plaits' MODEL, has a CC (chart below). A CC is a **second hand on that fader**: it adds to where the fader is, as an offset, and the fader keeps working. How the CC reads depends on the parameter (below). Stepped parameters (OCTAVE range, LENGTH, Y divider, MODEL) move in whole steps; a MODEL change flashes the new engine's glyph. |
+| **CCs** | each fader parameter on both modules, and Plaits' MODEL, has a CC (chart below). A CC is a **second hand on that fader**: it adds to where the fader is, as an offset, and the fader keeps working. How the CC reads depends on the parameter (below). Stepped parameters (OCTAVE range, LENGTH, Y divider, MODEL) move in whole steps; a MODEL change flashes the new engine's glyph, and MIDI changes the engine at most every 50 ms (each change costs the audio a moment, as a T2/T3 press does). |
 
 The faders, the shift layers, the attenuverters, Marbles and its routing all keep working while
 MIDI plays. MIDI adds to them; it does not take anything over.
@@ -66,10 +66,12 @@ A charger never enumerates, so it never prompts and never turns MIDI on.
 
 ### Charging
 
-While Wakes is **ON** it does **not charge**, whatever it is plugged into. It runs from USB power
-instead, so the battery neither charges nor drains. This is for battery-powered hosts like the
-OP-XY, which would otherwise spend their own battery charging the SP-1 for the whole session.
-Turned off while plugged in, it goes to STANDBY and charges as before.
+While Wakes is **ON with a USB host attached** -- a computer, a phone, the OP-XY -- it does
+**not charge**. It runs from USB power instead, so the battery neither charges nor drains. This
+is for battery-powered hosts like the OP-XY, which would otherwise spend their own battery
+charging the SP-1 for the whole session. Everything else charges as it always has: ON on a plain
+charger, and STANDBY with anything -- plug in while off, or power off while plugged into a host,
+and Wakes goes to STANDBY and charges.
 
 ## The CC chart (the shipped script)
 

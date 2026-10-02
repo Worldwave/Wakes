@@ -375,13 +375,18 @@ int main() {
   const int sel_slot = sp1_pui_slot();
   cc(105, 127);
   render_rms(1);
+  sp1_midi_main_tick(8);                       // first change: at once
   CHECK(sp1_pui_engine() == SP1_ENGINE_TABLE[lastf].plaits,
         "MODEL 127 -> last filled slot (%d), got engine %d", lastf, sp1_pui_engine());
   CHECK(sp1_pui_eslot() == lastf && sp1_pui_slot() == sel_slot,
         "the PLAYING slot moves (the flash's cue), the selection does not");
   cc(105, 0);
   render_rms(1);
-  CHECK(sp1_pui_engine() == sel, "MODEL 0 -> the selection");
+  sp1_midi_main_tick(8);
+  CHECK(sp1_pui_engine() == SP1_ENGINE_TABLE[lastf].plaits,
+        "MODEL may change at most every 50 ms: 8 ms after the last change it must hold");
+  sp1_midi_main_tick(48);
+  CHECK(sp1_pui_engine() == sel, "MODEL 0 -> the selection, once 50 ms have passed");
   sp1_pui_params(&sp);
   CHECK(sp.level_patched == 0, "LEVEL fader at 0 is disconnected");
   cc(26, 127);                                 // LEVEL CC pushes the fader up

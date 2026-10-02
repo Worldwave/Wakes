@@ -19,7 +19,15 @@
 #ifndef SP1_USBD_H
 #define SP1_USBD_H
 
+#include <stdbool.h>
+
 /* Bring up the USB device and enable it. Returns 0 on success. Never waits for a host. */
 int sp1_usbd_init(void);
+
+/* A USB HOST has configured the device -- a computer, a phone, the OP-XY -- as opposed to
+ * USB power alone (a wall charger never configures anything). From the host's SET_CONFIGURATION
+ * until a bus reset, a configuration of 0, or the cable coming out. Stays true while the host
+ * is asleep (suspended): it is still attached. Read from the control loop. */
+bool sp1_usbd_host(void);
 
 #endif /* SP1_USBD_H */

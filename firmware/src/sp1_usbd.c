@@ -35,6 +35,13 @@ USBD_DESC_CONFIG_DEFINE(sp1_fs_cfg_desc, "FS Configuration");
 USBD_CONFIGURATION_DEFINE(sp1_fs_config, USB_SCD_SELF_POWERED,
 			  CONFIG_SP1_USB_MAX_POWER, &sp1_fs_cfg_desc);
 
+static volatile bool host_configured;
+
+bool sp1_usbd_host(void)
+{
+	return host_configured;
+}
+
 /* ---- bus events ----
  * The class callbacks report enable / disable / suspend / resume. A pulled cable and a bus
  * reset are reported here instead; both mean every MIDI controller should go back to
@@ -42,6 +49,18 @@ USBD_CONFIGURATION_DEFINE(sp1_fs_config, USB_SCD_SELF_POWERED,
 static void msg_cb(struct usbd_context *const ctx, const struct usbd_msg *const msg)
 {
 	ARG_UNUSED(ctx);
+	/* A host is attached once it has CONFIGURED us (sp1_usbd_host). */
+	switch (msg->type) {
+	case USBD_MSG_CONFIGURATION:
+		host_configured = (msg->status != 0);
+		break;
+	case USBD_MSG_VBUS_REMOVED:
+	case USBD_MSG_RESET:
+		host_configured = false;
+		break;
+	default:
+		break;
+	}
 #if defined(CONFIG_SP1_MIDI)
 	switch (msg->type) {
 	case USBD_MSG_VBUS_REMOVED:
@@ -52,8 +71,6 @@ static void msg_cb(struct usbd_context *const ctx, const struct usbd_msg *const 
 	default:
 		break;
 	}
-#else
-	ARG_UNUSED(msg);
 #endif
 }
 
