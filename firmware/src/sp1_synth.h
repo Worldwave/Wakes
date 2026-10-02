@@ -60,6 +60,16 @@ struct sp1_synth_params {
 	float decay, lpg_colour;                 /* 0..1 (settings page)            */
 	float level;                   /* 0..1, only meaningful if level_patched      */
 	int   level_patched;           /* 0: LPG triggered by PLAY; 1: VCA held open  */
+	/* ---- what MIDI needs to apply its offsets in the audio thread (M5a) ----
+	 * A MIDI CC moves a parameter like a second hand on its fader (sp1_midi.h), smoothed
+	 * per Plaits block. LEVEL's CC acts on the fader POSITION -- below 5 % is
+	 * "disconnected" -- so the raw position is passed alongside; level_patched above has
+	 * already counted the CC (the control loop decides the connect threshold). And
+	 * FREQUENCY's CC moves F1, whose semitones per unit of travel depend on the octave
+	 * range: 96 in the full range, 14 in modes 1-8, 120 in LFO mode, and 0 in mode 9,
+	 * where F1 is a switch and the control loop applies the CC before quantizing. */
+	float level_pos;               /* SETTINGS F4, 0..1, as stored               */
+	float freq_per_travel;         /* semitones per whole fader travel           */
 	int   engine;                  /* Plaits engine index                         */
 	/* Marbles -> Plaits (M4). Applied ONLY while Marbles' clock runs
 	 * (sp1_marbles_running); stopped, every one of these inputs is unpatched. */

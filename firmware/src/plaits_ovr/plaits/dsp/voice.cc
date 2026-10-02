@@ -1,6 +1,7 @@
 // wakes-sp1 (issue #22): a full replacement of Plaits' voice.cc (Emilie Gillet, MIT,
 // notice below), shadowing third_party/eurorack/plaits/dsp/voice.cc through the include
-// path. It carries M4a's HARMONICS attenuverter unchanged, and replaces the two output
+// path. It carries M4a's HARMONICS attenuverter unchanged, exposes the low-pass gate's
+// state for MIDI (M5a: sp1_lpg_gain / sp1_lpg_bypassed), and replaces the two output
 // channels' post-processing with ONE low-pass gate on a mix of OUT and AUX:
 //
 //   The SP-1 plays OUT, AUX, OUT+AUX or OUTxAUX through a single output -- never OUT and
@@ -63,6 +64,7 @@ using namespace std;
 using namespace stmlib;
 
 void Voice::Init(BufferAllocator* allocator) {
+  sp1_lpg_bypassed_ = true;                // wakes-sp1 (M5a)
   engines_.Init();
 
   engines_.RegisterInstance(&virtual_analog_vcf_engine_, false, 1.0f, 1.0f);
@@ -271,7 +273,8 @@ void Voice::Render(
   
   bool lpg_bypass = already_enveloped || \
       (!modulations.level_patched && !modulations.trigger_patched);
-  
+  sp1_lpg_bypassed_ = lpg_bypass;          // wakes-sp1 (M5a), see voice.h
+
   // Compute LPG parameters.
   if (!lpg_bypass) {
     const float hf = patch.lpg_colour;

@@ -1,0 +1,80 @@
+--- a/usb_midi1.c
++++ b/usb_midi1.c
+@@ -41,13 +41,11 @@
+ #include <zephyr/logging/log.h>
+ LOG_MODULE_REGISTER(usb_midi1, LOG_LEVEL_INF);
+ 
+-/* MIDI clock feature: host->device real-time bytes (clock/transport) are no longer
+- * discarded - they are parsed out of the USB-MIDI packets and handed to the clock
+- * router (forward to TRS + external-master detection for the GEN/THRU selector). */
+-#include "usb_rt_parse.h"
+-#include "clock_router.h"
+-#include "librarian.h"   /* librarian_midi_thru(): global MIDI-thru switch */
+-#include "midi_out.h"    /* midi_out_thru(): forward voice to the TRS jack */
++/* wakes-sp1 (M5a): received MIDI goes to the Wakes MIDI layer (firmware/src/sp1_usbd.c),
++ * which validates each packet with usb_rt_parse.c and queues it for the audio thread.
++ * feldd's clock router, MIDI-thru and librarian are not part of Wakes, and the port
++ * state is reported so Wakes knows when MIDI is plugged in or unplugged. */
++#include "sp1_midi_usb.h"
+ 
+ /* USB Device Class Definition for MIDI Devices 1.0 constants. */
+ /* B.4.1 MS Class-Specific Interface Descriptor Subtypes */
+@@ -465,25 +463,9 @@
+ 		 * default - feldd is a control surface, not a sink). SysEx is always
+ 		 * dropped. Then re-arm the read (unless aborted on disable/suspend). */
+ 		if (err != -ECONNABORTED) {
+-			const uint8_t *d = buf->data;
+ 			/* Bound the scan to the pooled buffer (MPS 64 -> <=16 events), so a
+ 			 * future net_buf resize can never widen the parse past the payload. */
+-			size_t n = MIN(buf->len, buf->size);
+-			/* Read the global thru switch once for this buffer (a single-byte
+-			 * RAM copy; the config thread's writer is atomic on Cortex-M). */
+-			bool thru = librarian_midi_thru();
+-			for (size_t i = 0; i + 4 <= n; i += 4) {
+-				uint8_t rt = usb_midi_extract_rt(&d[i]);
+-				if (rt) {
+-					clock_router_ext_rt(rt);
+-				} else if (thru) {
+-					uint8_t vb[3];
+-					uint8_t vlen = usb_midi_extract_voice(&d[i], vb);
+-					if (vlen) {
+-						midi_out_thru(vb, vlen);
+-					}
+-				}
+-			}
++			sp1_midi_usb_rx(buf->data, MIN(buf->len, buf->size));
+ 		}
+ 		(void)usbd_ep_buf_free(uds_ctx, buf);
+ 		if (err != -ECONNABORTED && data->enabled) {
+@@ -504,6 +486,7 @@
+ 	struct usb_midi1_data *data = usbd_class_get_private(class_data);
+ 
+ 	data->enabled = true;
++	sp1_midi_usb_port(true);
+ 	LOG_DBG("USB-MIDI 1.0 enabled");
+ 
+ 	/* Open the host->device read sink so the host has somewhere to send. */
+@@ -520,6 +503,7 @@
+ 	struct usb_midi1_data *data = usbd_class_get_private(class_data);
+ 
+ 	data->enabled = false;
++	sp1_midi_usb_port(false);
+ 	LOG_DBG("USB-MIDI 1.0 disabled");
+ }
+ 
+@@ -528,6 +512,7 @@
+ 	struct usb_midi1_data *data = usbd_class_get_private(class_data);
+ 
+ 	data->enabled = false;
++	sp1_midi_usb_port(false);
+ 	LOG_DBG("USB-MIDI 1.0 suspended");
+ }
+ 
+@@ -536,6 +521,7 @@
+ 	struct usb_midi1_data *data = usbd_class_get_private(class_data);
+ 
+ 	data->enabled = true;
++	sp1_midi_usb_port(true);
+ 	LOG_DBG("USB-MIDI 1.0 resumed");
+ }
+ 

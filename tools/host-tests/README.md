@@ -8,14 +8,19 @@ proved on a laptop, and because there is exactly one SP-1 (`docs/SAFETY.md`).
 |---|---|---|
 | `uitest.c` | `sp1_plaits_ui.c` + `sp1_marbles_ui.c`, with stubs | pages, layers, pickup, detents, rings, glyph uniqueness, scale stepping, the DEJA VU toggles, the V/Oct interlock, both rip wipes, `[J]`, Unpatch eating its own release (`sp1_release_guard.h`) |
 | `routetest.cc` | all of Plaits and Marbles (with the overrides applied) + `sp1_synth.cc` + `sp1_marbles.cc` + both UI objects | routing, TRIG edges, the summing clamp, the HARMONICS attenuverter, the FREQUENCY quantizer's note sets, the soft-clip drive, the deferred re-seed, INTELLIGENT's per-channel ranges |
+| `miditest.cc` | the same + `sp1_midi.cc`, against the shipped `config/midi.ini` | MIDI in (M5a): note priority and legato off, the LEVEL hand-back through a real LPG, sustain, 7- and 14-bit CCs, smoothing, pitch bend and RPN 0, channel filter, placement inside the audio block, queue overflow, disconnect to neutral, the quantizer bypass, stepped targets, Marbles offsets |
+| `miditest_alt.cc` | the same, built against `midi-alt.ini` | omni, legato on, Yarns' portamento curve, velocity -> LEVEL, aftertouch -> TIMBRE, no sustain pedal, bend range |
+| `third_party/feldd/test/test_usb_rt_parse.c` | feldd's packet validator | feldd's own test, unmodified |
 
 ```sh
-tools/host-tests/hostbuild.sh routetest.cc uitest.c   # prints each binary's path
-/tmp/wakes-sp1-host/routetest && /tmp/wakes-sp1-host/uitest
+tools/host-tests/hostbuild.sh routetest.cc uitest.c miditest.cc miditest_alt.cc \
+    ../../third_party/feldd/test/test_usb_rt_parse.c          # prints each binary's path
+cd /tmp/wakes-sp1-host && ./routetest && ./uitest && ./miditest && ./miditest_alt \
+    && ./test_usb_rt_parse
 ```
 
 Builds go to `$TMPDIR/wakes-sp1-host` (override with `SP1_HOST_BUILD_DIR`); nothing is written
-into the repo. Both programs exit non-zero on the first failure count, so they chain with `&&`.
+into the repo. Every program exits non-zero on a failure, so they chain with `&&`.
 
 ## ⚠️ The harness must not be able to drift from the firmware
 
@@ -34,7 +39,8 @@ apart. So:
 
 - do not hand-copy an override into this directory;
 - do not skip the archive's staleness check in `hostbuild.sh` (it watches every vendored source,
-  our replacements, `CMakeLists.txt` and `mkovr.py`) — a cached archive built from old overrides is
+  our replacements -- headers included, since M5a changed `voice.h`'s layout -- `CMakeLists.txt`
+  and `mkovr.py`) — a cached archive built from old overrides is
   the same failure by another route;
 - `SP1_HOST_REBUILD=1` forces a full rebuild if you ever doubt it.
 

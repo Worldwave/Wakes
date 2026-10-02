@@ -13,10 +13,8 @@ set(USE_CCACHE 0 CACHE STRING "Never ccache: it cannot see the Plaits header ove
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wakes-sp1)
 
-# Pulls in the samples' usbd bring-up helper (sample_usbd_init_device) and its
-# CONFIG_SAMPLE_USBD_* options. Same approach as sp1-tape-looper. If this path is
-# unavailable on your Zephyr, see docs/BUILD.md -> "USB console fallback".
-include(${ZEPHYR_BASE}/samples/subsys/usb/common/common.cmake)
+# The USB device is ours since M5a (src/sp1_usbd.c, CONFIG_SP1_USB_* in Kconfig): Zephyr's
+# sample helper, included here through M4e, hard-codes Zephyr's test vendor ID.
 
 # ---- the engine list: generated from config/engines.csv ----
 # The CSV is the USER's choice of engines, slots and glyphs; the facts about each engine
@@ -35,6 +33,30 @@ add_custom_target(sp1_engines_gen DEPENDS ${SP1_ENGINES_H})
 add_dependencies(app sp1_engines_gen)
 target_include_directories(app PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated)
 
+# ---- the MIDI script (M5a): generated from config/midi.ini ----
+# Like the engine list: tools/gen_midi.py fails the build, naming the line, on anything
+# invalid. Generated in EVERY configuration, because the UI files read its enum even where
+# MIDI is compiled out (sp1_midi.h then stubs the calls). With MIDI in, it also writes this
+# build's CC chart next to the firmware: wakes-sp1-midi.md and .csv.
+set(SP1_MIDI_INI ${CMAKE_CURRENT_SOURCE_DIR}/../config/midi.ini)
+set(SP1_MIDI_GEN ${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_midi.py)
+set(SP1_MIDI_H   ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated/sp1_midi_gen.h)
+set(SP1_MIDI_OUT ${SP1_MIDI_H})
+set(SP1_MIDI_CHART "")
+if(CONFIG_SP1_MIDI)
+	set(SP1_CHART_DIR ${CMAKE_BINARY_DIR}/zephyr)
+	set(SP1_MIDI_CHART --chart ${SP1_CHART_DIR})
+	list(APPEND SP1_MIDI_OUT ${SP1_CHART_DIR}/wakes-sp1-midi.md ${SP1_CHART_DIR}/wakes-sp1-midi.csv)
+endif()
+add_custom_command(
+	OUTPUT  ${SP1_MIDI_OUT}
+	COMMAND ${Python3_EXECUTABLE} ${SP1_MIDI_GEN} ${SP1_MIDI_INI} ${SP1_MIDI_H} ${SP1_MIDI_CHART}
+	DEPENDS ${SP1_MIDI_INI} ${SP1_MIDI_GEN}
+	COMMENT "Generating the MIDI tables from config/midi.ini"
+)
+add_custom_target(sp1_midi_gen DEPENDS ${SP1_MIDI_OUT})
+add_dependencies(app sp1_midi_gen)
+
 target_sources(app PRIVATE
 	src/main.c
 	src/sp1_led.c
@@ -42,6 +64,7 @@ target_sources(app PRIVATE
 	src/sp1_batt.c
 	src/sp1_standby.c
 	src/sp1_console.c
+	src/sp1_usbd.c
 	src/sp1_controls.c
 	src/sp1_display.c
 	src/sp1_calib.c
@@ -318,4 +341,33 @@ if(CONFIG_SP1_PLAITS)
 	target_link_libraries(app PRIVATE sp1_plaits)
 	target_sources(app PRIVATE src/sp1_marbles_ui.c)
 	target_include_directories(app PRIVATE src)
+
+	# ---- M5a: USB-MIDI in (the MIDI script is generated above, with the engines) ----
+	add_dependencies(sp1_plaits sp1_midi_gen)
+	zephyr_library_include_directories(${CMAKE_CURRENT_BINARY_DIR}/sp1_generated)
+
+	if(CONFIG_SP1_MIDI)
+		# The MIDI core runs in the audio thread: same library, same -O2, as the synth.
+		zephyr_library_sources(src/sp1_midi.cc)
+
+		# feldd's USB-MIDI 1.0 class, vendored unmodified in third_party/feldd. Our
+		# changes are a patch applied to a copy in the build directory, STRICTLY: if
+		# upstream text has moved under it, configuring stops (tools/apply_patch.py) --
+		# the same rule as sp1_plaits_override(). third_party/feldd/README.md.
+		set(FELDD ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/feldd)
+		set(FELDD_OUT ${CMAKE_CURRENT_BINARY_DIR}/feldd/usb_midi1.c)
+		execute_process(
+			COMMAND ${Python3_EXECUTABLE}
+				${CMAKE_CURRENT_SOURCE_DIR}/../tools/apply_patch.py
+				${FELDD}/src/usb_midi1.c ${FELDD}/patches/usb_midi1.patch ${FELDD_OUT}
+			RESULT_VARIABLE feldd_rc)
+		if(NOT feldd_rc EQUAL 0)
+			message(FATAL_ERROR "third_party/feldd/patches/usb_midi1.patch does not apply")
+		endif()
+		set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+			${FELDD}/src/usb_midi1.c ${FELDD}/patches/usb_midi1.patch
+			${CMAKE_CURRENT_SOURCE_DIR}/../tools/apply_patch.py)
+		target_sources(app PRIVATE ${FELDD_OUT} ${FELDD}/src/usb_rt_parse.c)
+		target_include_directories(app PRIVATE ${FELDD}/src)
+	endif()
 endif()

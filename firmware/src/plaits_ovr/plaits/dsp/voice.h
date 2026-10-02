@@ -1,6 +1,7 @@
 // wakes-sp1 (issue #22): a full replacement of Plaits' voice.h (Emilie Gillet, MIT,
 // notice below), shadowing third_party/eurorack/plaits/dsp/voice.h through the include
-// path. It carries M4a's HARMONICS attenuverter unchanged, and replaces the two output
+// path. It carries M4a's HARMONICS attenuverter unchanged, exposes the low-pass gate's
+// state for MIDI (M5a: sp1_lpg_gain / sp1_lpg_bypassed), and replaces the two output
 // channels' post-processing with ONE low-pass gate on a mix of OUT and AUX:
 //
 //   The SP-1 plays OUT, AUX, OUT+AUX or OUTxAUX through a single output -- never OUT and
@@ -268,6 +269,12 @@ class Voice {
       float* out,
       size_t size);
   inline int active_engine() const { return previous_engine_index_; }
+  // wakes-sp1 (M5a): the low-pass gate as the last Render() left it, so MIDI can tell
+  // when a released note has finished closing and hand LEVEL back (firmware/src/sp1_midi.h).
+  // `bypassed` = the engine envelopes itself, or nothing is patched: the gate did not run.
+  static const bool kSp1LpgState = true;    // checked in sp1_synth.cc
+  inline float sp1_lpg_gain() const { return lpg_envelope_.gain(); }
+  inline bool sp1_lpg_bypassed() const { return sp1_lpg_bypassed_; }
     
  private:
   void ComputeDecayParameters(const Patch& settings);
@@ -338,6 +345,7 @@ class Voice {
   // per-channel limiters kept.
   Sp1Limiter out_limiter_;
   Sp1Limiter aux_limiter_;
+  bool sp1_lpg_bypassed_;                 // wakes-sp1 (M5a), see sp1_lpg_gain()
   LowPassGate lpg_;
   float mix_buffer_[kMaxBlockSize];
   

@@ -221,6 +221,16 @@
 #define SP1_UNPATCH_LATCH_MS    120u    /* 0 -> 100 %, the third blink, and held    */
 #define SP1_UNPATCH_SWEEP_MS    240u    /* 100 % -> dark, middle outwards           */
 #define SP1_UNPATCH_BLINK_LEVEL 204u    /* 80 % of 255 (Adara)                      */
+
+/* ---- the MIDI prompt (M5a, Adara; M5 plan B9) ----
+ * MIDI plugged in -> the Unpatch animation REVERSED (the cable going in); unplugged -> the
+ * Unpatch animation as it is. Same SP1_UNPATCH_ANIM_MS, same fade back to the page.
+ * "Plugged in" is the host enabling the MIDI port, held this long, because hosts often reset
+ * the bus two or three times while enumerating; "unplugged" is only shown after a "plugged
+ * in" was. Also shown once on entry to ON when a host is already attached (C10). Cosmetic:
+ * the shutdown animation and the backstop warning always win, and an Unpatch or rip hold on
+ * the same row makes it stand down. */
+#define SP1_MIDI_PROMPT_SETTLE_MS 250u
 #define SP1_DISP_ENGINE_HOLD_MS  700u   /* pattern shown solid (Adara: 0.7 s)      */
 #define SP1_DISP_ENGINE_FADE_MS  350u   /* then cross-fades into the page         */
 /* M3c: glyphs are drawn by hand (SLOT_GLYPHS) -- each LED off, half or full. */

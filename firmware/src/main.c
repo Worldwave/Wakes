@@ -87,6 +87,7 @@
 #include "sp1_marbles.h"
 #include "sp1_marbles_ui.h"
 #include "sp1_release_guard.h"
+#include "sp1_midi.h"
 #endif
 
 #define WDT_NODE DT_ALIAS(watchdog0)
@@ -257,6 +258,100 @@ static void unpatch_levels(uint32_t t, uint8_t lv[4])
 	lv[2] = (uint8_t)mid;
 	lv[3] = (uint8_t)out;
 }
+
+/* ================= the MIDI prompt (M5a, Adara; M5 plan B9) =================
+ * MIDI plugged in: the Unpatch animation REVERSED -- light gathers from T1/T4 inwards, drops,
+ * blinks, and rises to full: the cable going in. Unplugged: the Unpatch animation as it is,
+ * because a disconnect really is every MIDI cable coming out (everything MIDI did goes back
+ * to neutral). The picture is unpatch_levels() run backwards or forwards, so the two can never
+ * drift apart.
+ *
+ * "Plugged in" = the HOST ENABLED the MIDI port, not the first message: the first note would
+ * otherwise fire a 750 ms animation over the playing, and a charger never enumerates so it
+ * never prompts. Held SP1_MIDI_PROMPT_SETTLE_MS first, because hosts reset the bus while
+ * enumerating; and "unplugged" is only shown after "plugged in" was, so a flap cannot play it
+ * alone. Entering ON with a host attached shows "plugged in" once (C10).
+ *
+ * ⚠️ Cosmetic and nothing else: it draws through sp1_display_flash like every other overlay,
+ * so the shutdown animation and the backstop warning always win (rule 5a), and a rip or an
+ * Unpatch hold on the same row makes it stand down. */
+#if defined(CONFIG_SP1_MIDI)
+static uint32_t midi_up_ms;            /* how long the port has been up, capped      */
+static bool     midi_prompted;         /* "plugged in" shown for this connection     */
+static int      midi_anim;             /* +1 plugged in (reversed), -1 unplugged, 0  */
+static uint32_t midi_anim_ms;
+static bool     midi_port_was;
+static bool     midi_active_was;
+static uint32_t midi_drop0;            /* queue drops before this ON (device was off) */
+
+/* The prompt's state on entry to ON. (MIDI itself was reset before audio started.) */
+static void midi_enter(void)
+{
+	midi_up_ms = 0u;
+	midi_prompted = false;
+	midi_anim = 0;
+	midi_port_was = sp1_midi_port_up();
+	midi_active_was = false;
+	{
+		struct sp1_midi_stats ms;
+		sp1_midi_get_stats(&ms);
+		midi_drop0 = ms.dropped;
+	}
+}
+
+/* One control tick. `busy` = something else owns the track row (shutdown, rip, Unpatch). */
+static void midi_tick(uint32_t dt, bool busy)
+{
+	const bool up = sp1_midi_port_up();
+	if (up != midi_port_was) {
+		midi_port_was = up;
+		printk("MIDI port %s\n", up ? "enabled by the host" : "gone");
+	}
+	const bool active = sp1_midi_active();
+	if (active != midi_active_was) {
+		midi_active_was = active;
+		printk("MIDI %s\n", active
+		       ? "active: notes and CCs reach Wakes, FREQUENCY quantizer bypassed"
+		       : "neutral: notes released, offsets back to zero");
+	}
+
+	if (up) {
+		if (midi_up_ms < SP1_MIDI_PROMPT_SETTLE_MS) {
+			midi_up_ms += dt;
+		}
+	} else {
+		midi_up_ms = 0u;
+	}
+	if (up && !midi_prompted && midi_up_ms >= SP1_MIDI_PROMPT_SETTLE_MS) {
+		midi_prompted = true;
+		midi_anim = busy ? 0 : 1;
+		midi_anim_ms = 0u;
+	} else if (!up && midi_prompted) {
+		midi_prompted = false;
+		midi_anim = busy ? 0 : -1;
+		midi_anim_ms = 0u;
+	}
+	if (midi_anim == 0) {
+		return;
+	}
+	if (busy) {
+		midi_anim = 0;                 /* the hold owns the row: drop, not queue */
+		return;
+	}
+	uint8_t lv[4];
+	midi_anim_ms += dt;
+	if (midi_anim_ms >= SP1_UNPATCH_ANIM_MS) {
+		/* Ends where its last frame is -- full for "plugged in", dark for
+		 * "unplugged" -- and fades back to the page from there. */
+		unpatch_levels(midi_anim > 0 ? 0u : SP1_UNPATCH_ANIM_MS, lv);
+		sp1_display_flash(lv, 0u, SP1_UNPATCH_FADEBACK_MS);
+		midi_anim = 0;
+		return;
+	}
+	unpatch_levels(midi_anim > 0 ? SP1_UNPATCH_ANIM_MS - midi_anim_ms : midi_anim_ms, lv);
+	sp1_display_flash(lv, 100u, SP1_UNPATCH_CANCEL_MS);
+}
+#endif
 
 /* Which T1-T4 is held with "••", or -1. Only ONE at a time: the ladder decodes single
  * presses only (a chord reads as nothing pressed), so this cannot be ambiguous. */
@@ -805,6 +900,12 @@ int main(void)
 		 * time, not once at boot. Bounded: sp1_audio_start() cannot hang ON.
 		 * The tone always starts OFF -- nothing makes a sound until PLAY. */
 		sp1_audio_tone_set(false);
+#if defined(CONFIG_SP1_MIDI)
+		/* ⚠️ BEFORE the audio thread starts: anything a host sent while the device was
+		 * off is still in the queue, and the first audio block would play it. The audio
+		 * thread honours this request at the top of that first block (sp1_midi.h). */
+		sp1_midi_on_enter();
+#endif
 		{
 			const int arc = sp1_audio_start();
 			struct sp1_audio_stats as;
@@ -828,6 +929,11 @@ int main(void)
 		rip_show_page = false;
 		sp1_synth_set_burst_div(1u << g_burst_div);
 		sp1_synth_set_output((enum sp1_synth_output)g_out_mode);
+#if defined(CONFIG_SP1_MIDI)
+		/* A host already attached gets its "plugged in" prompt after the power-on fill
+		 * (C10). */
+		midi_enter();
+#endif
 		sp1_synth_burst(0);
 		sp1_marbles_run(false);
 		beats_seen = sp1_marbles_beats();
@@ -1434,6 +1540,14 @@ int main(void)
 					}
 				}
 
+#if defined(CONFIG_SP1_MIDI)
+				/* ---- MIDI (M5a): the prompt, and the control-loop smoothing of
+				 * the offsets the two UIs are about to read ---- */
+				midi_tick(dt, shutdown_active || rip_ms > 0u ||
+					  unpatch_ms >= SP1_UNPATCH_START_MS);
+				sp1_midi_main_tick(dt);
+#endif
+
 				/* ---- publish: Plaits, the routing, Marbles, the tempo ---- */
 				struct sp1_synth_params sp;
 				sp1_pui_params(&sp);
@@ -1645,6 +1759,26 @@ int main(void)
 				       a10[SP1_SEC_OUT] / 10u, a10[SP1_SEC_OUT] % 10u,
 				       m10[SP1_SEC_OUT] / 10u, m10[SP1_SEC_OUT] % 10u,
 				       sc.over, sc.over_run);
+#endif
+#if defined(CONFIG_SP1_MIDI)
+				/* MIDI health, only while a host has the port or something
+				 * arrived (M5a). Totals since boot, except drop: messages lost
+				 * to a full queue since this ON began. While the device is off
+				 * nothing drains the queue, so drops then mean nothing. */
+				{
+					static uint32_t rx_seen;
+					struct sp1_midi_stats ms;
+					sp1_midi_get_stats(&ms);
+					if (sp1_midi_port_up() || ms.received != rx_seen) {
+						rx_seen = ms.received;
+						printk("MIDI port=%d act=%d rx=%u drop=%u notes=%u cc=%u"
+						       " ign=%u held=%u bend=%u\n",
+						       sp1_midi_port_up() ? 1 : 0,
+						       sp1_midi_active() ? 1 : 0, ms.received,
+						       ms.dropped - midi_drop0, ms.notes, ms.ccs, ms.ignored,
+						       ms.held, ms.bend_range);
+					}
+				}
 #endif
 			}
 

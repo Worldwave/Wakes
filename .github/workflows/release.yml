@@ -80,6 +80,9 @@ jobs:
           mkdir dist
           cp in/wakes-sp1-plaits/build/zephyr/wakes-sp1.bin   "dist/wakes-sp1-$t.bin"
           cp in/wakes-sp1-fallback/build/zephyr/wakes-sp1.bin "dist/wakes-sp1-$t-fallback.bin"
+          # The MIDI CC chart for exactly this build's script (M5a, tools/gen_midi.py).
+          cp in/wakes-sp1-plaits/build/zephyr/wakes-sp1-midi.md  "dist/wakes-sp1-$t-midi.md"
+          cp in/wakes-sp1-plaits/build/zephyr/wakes-sp1-midi.csv "dist/wakes-sp1-$t-midi.csv"
           (cd dist && sha256sum -- *.bin > SHA256SUMS)
 
           src="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$t"

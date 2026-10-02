@@ -40,6 +40,13 @@ does for the generators; the six preset scales are copied from `settings.cc` int
 `firmware/src/sp1_marbles_scales.inc`. `ramp_extractor.cc` (the external clock) is compiled
 but never called.
 
+**MIDI (M5a):** `stmlib/algorithms/note_stack.h`, from the same stmlib commit — the note
+stack Yarns uses for monophonic note priority. Nothing from `yarns/` is vendored: its `Part`
+and `Voice` are entangled with its settings, sequencer, arpeggiator, DAC and UI, so the ~100
+lines Wakes needs (the 1M mono branch of `Part::InternalNoteOn/Off`, and `Voice::Refresh`'s
+portamento and pitch bend) are PORTED into `firmware/src/sp1_midi.cc`, attributed there and
+in NOTICE, from `yarns/part.cc` and `yarns/voice.cc` at the eurorack commit above.
+
 ⚠️ **`plaits/user_data.h` is deliberately absent.** Upstream's version includes STM32
 headers and reads a raw flash address (`0x08007000`) that does not exist on the nRF52840 —
 reading it would be a bus fault. `firmware/src/plaits_shim/plaits/user_data.h` replaces it

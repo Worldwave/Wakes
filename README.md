@@ -57,13 +57,17 @@ Output: `build/zephyr/wakes-sp1.bin`. The Zephyr patch is required and is lost o
 | [`docs/PLAITS-ENGINES.md`](docs/PLAITS-ENGINES.md) | every engine, its faders and its CPU cost |
 | [`docs/MARBLES-SETTINGS.md`](docs/MARBLES-SETTINGS.md) | Marbles models, ranges and scales |
 | [`docs/DEFAULTS.md`](docs/DEFAULTS.md) | every default, and what a reset restores |
+| [`docs/MIDI.md`](docs/MIDI.md) | MIDI over USB: what it does, and how to change it |
+| [`config/midi.ini`](config/midi.ini) | the MIDI script: channel, legato, CC numbers (editable) |
 | [`docs/SAFETY.md`](docs/SAFETY.md) | rules for anyone changing the firmware |
 
 ## Licence
 
-MIT, Copyright (c) 2026 Worldwave | Adara Barami. See [`LICENSE`](LICENSE).
+MIT, Copyright (c) 2026 Worldwave | Adara Barami. See [`LICENSE`](LICENSE). A few files are
+Apache-2.0 instead, because they derive from Zephyr (Apache-2.0); [`NOTICE`](NOTICE) lists them.
 
 Plaits, Marbles and stmlib are by Émilie Gillet (MIT), included unmodified in
-`third_party/eurorack/`. The board support builds on chattock/sp1-tape-looper,
-timknapen/SP-1-dev and ericlewis/sp1-midi (all MIT). Details in [`NOTICE`](NOTICE) and
-[`LICENSES/`](LICENSES/).
+`third_party/eurorack/`; the MIDI note handling is ported from her Yarns. The USB-MIDI class
+is feldd's (bnjreece/feldd-sp1-firmware, MIT), included unmodified in `third_party/feldd/`.
+The board support builds on chattock/sp1-tape-looper, timknapen/SP-1-dev and
+ericlewis/sp1-midi (all MIT). Details in [`NOTICE`](NOTICE) and [`LICENSES/`](LICENSES/).

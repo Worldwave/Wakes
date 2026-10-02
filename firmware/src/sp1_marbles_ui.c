@@ -7,6 +7,7 @@
 #include "sp1_marbles_ui.h"
 
 #include "sp1_ui_timing.h"
+#include "sp1_midi.h"         /* MIDI CC offsets (M5a) */
 
 #include <math.h>
 #include <stddef.h>
@@ -574,6 +575,24 @@ bool sp1_mui_scale_step(int dir)
 	}
 }
 
+/* ---- MIDI CCs (M5a) ----
+ * A CC is a second hand on its fader (sp1_midi.h): an offset in fader-travel units, added
+ * to the value the fader gives -- after the centre detent, so a CC near centre is not
+ * flattened by it -- and clamped as the fader would be. Stepped parameters take it on the
+ * fader position before it is cut into steps. Smoothed by the control loop: Marbles reads
+ * its parameters once per audio block, so smoothing any faster would buy nothing. */
+static float mo(int dest)
+{
+	return sp1_midi_offset(dest);
+}
+
+/* RATE in semitones: the fader spans 120 (Marbles' +-5 octaves), and so does a CC. */
+static float rate_of(float pos)
+{
+	const float r = (clamp01(pos) - 0.5f) * 120.0f + mo(SP1_MIDI_D_RATE) * 120.0f;
+	return r < -60.0f ? -60.0f : (r > 60.0f ? 60.0f : r);
+}
+
 /* ---- outputs ---------------------------------------------------------------------- */
 void sp1_mui_params(struct sp1_marbles_params *p)
 {
@@ -583,22 +602,25 @@ void sp1_mui_params(struct sp1_marbles_params *p)
 	const float *y  = stored[SP1_MUI_Y];
 	/* X SHIFT holds only LENGTH now, and LENGTH is mirrored into the t SHIFT layer. */
 
-	p->rate = (clamp01(tb[0]) - 0.5f) * 120.0f;   /* Marbles: 120 BPM at centre, +-5 oct */
+	p->rate = rate_of(tb[0]);                     /* Marbles: 120 BPM at centre, +-5 oct */
 	p->t_range = t_range;
 	p->t_model = model;
-	p->t_bias = detent(tb[1], DETENT_BIPOLAR);
-	p->t_jitter = clamp01(tb[2]);
+	p->t_bias = clamp01(detent(tb[1], DETENT_BIPOLAR) + mo(SP1_MIDI_D_T_BIAS));
+	p->t_jitter = clamp01(tb[2] + mo(SP1_MIDI_D_JITTER));
 	/* ONE knob (t BASE F4, shared with the X page), gated by [F] and [G]. Off means
 	 * that side ignores it and runs free, which is Marbles' own behaviour. */
-	const float deja_vu = detent(tb[3], DETENT_BIPOLAR);   /* centre = locked loop */
+	const float deja_vu = clamp01(detent(tb[3], DETENT_BIPOLAR) +   /* centre = locked */
+				      mo(SP1_MIDI_D_DEJA_VU));
 	p->t_deja_vu = dv_t ? deja_vu : 0.0f;
-	p->gate_length = clamp01(ts[1]);
-	p->gate_length_rand = clamp01(ts[2]);
-	p->length = loop_length[zone(ts[3], LOOP_STEPS, 0.25f, &q_length)];
+	p->gate_length = clamp01(ts[1] + mo(SP1_MIDI_D_GATE_LENGTH));
+	p->gate_length_rand = clamp01(ts[2] + mo(SP1_MIDI_D_GATE_LENGTH_RANDOM));
+	p->length = loop_length[zone(ts[3] + mo(SP1_MIDI_D_LENGTH), LOOP_STEPS, 0.25f,
+				     &q_length)];
 
-	p->x_spread = clamp01(xb[0]);
-	p->x_bias = detent(xb[1], DETENT_BIPOLAR);
-	p->x_steps = detent(xb[2], DETENT_BIPOLAR);    /* centre = raw, unquantized */
+	p->x_spread = clamp01(xb[0] + mo(SP1_MIDI_D_SPREAD));
+	p->x_bias = clamp01(detent(xb[1], DETENT_BIPOLAR) + mo(SP1_MIDI_D_X_BIAS));
+	p->x_steps = clamp01(detent(xb[2], DETENT_BIPOLAR) +           /* centre = raw */
+			     mo(SP1_MIDI_D_STEPS));
 	p->x_deja_vu = dv_x ? deja_vu : 0.0f;
 	p->x_diversity = diversity;
 	p->x_range = range;
@@ -613,10 +635,10 @@ void sp1_mui_params(struct sp1_marbles_params *p)
 	 * to change it (Adara, M4a: X SHIFT F2 unbound, X's clock source left alone). */
 	p->x_clock = SP1_MRB_XCLK_EACH;
 
-	p->y_spread = clamp01(y[0]);
-	p->y_bias = detent(y[1], DETENT_BIPOLAR);
-	p->y_steps = detent(y[2], DETENT_BIPOLAR);
-	p->y_divider = zone(y[3], 12, 0.1f, &q_ydiv);
+	p->y_spread = clamp01(y[0] + mo(SP1_MIDI_D_Y_SPREAD));
+	p->y_bias = clamp01(detent(y[1], DETENT_BIPOLAR) + mo(SP1_MIDI_D_Y_BIAS));
+	p->y_steps = clamp01(detent(y[2], DETENT_BIPOLAR) + mo(SP1_MIDI_D_Y_STEPS));
+	p->y_divider = zone(y[3] + mo(SP1_MIDI_D_Y_DIVIDER), 12, 0.1f, &q_ydiv);
 	p->y_range = range;   /* one [J] (M4e) */
 }
 
@@ -627,7 +649,7 @@ void sp1_mui_routing(struct sp1_mui_routing *out)
 
 float sp1_mui_bpm(void)
 {
-	return sp1_marbles_bpm((clamp01(stored[SP1_MUI_T_BASE][0]) - 0.5f) * 120.0f, t_range);
+	return sp1_marbles_bpm(rate_of(stored[SP1_MUI_T_BASE][0]), t_range);
 }
 
 static uint8_t volt_led(float v, int range)

@@ -82,8 +82,28 @@ third_party/eurorack/
   has its per-group voltage-range switch redirected so the range can be
   chosen per output channel (M4c) -- the policy behind that is ours, in
   firmware/src/sp1_marbles.cc.
+  MIDI (M5a): firmware/src/sp1_midi.cc ports the monophonic note handling of
+  Mutable Instruments Yarns from the same eurorack commit -- the mono branches
+  of yarns/part.cc (Part::InternalNoteOn/Off, its legato modes and hold
+  pedal) and yarns/voice.cc (Voice::NoteOn/Refresh: portamento, with Yarns'
+  portamento table in closed form, and pitch bend). Nothing from yarns/ is
+  vendored. It uses stmlib/algorithms/note_stack.h, vendored unmodified from
+  the stmlib commit above. firmware/src/plaits_ovr/plaits/dsp/voice.{h,cc}
+  also expose the low-pass gate's state for MIDI (M5a).
   Per upstream's guidelines the name "Mutable Instruments" is not used for
   this derivative work other than as attribution.
+
+USB-MIDI 1.0 device class (M5a) — vendored unmodified in third_party/feldd/
+  bnjreece/feldd-sp1-firmware — Copyright (c) 2026 Benjamin Reece — MIT
+  https://github.com/bnjreece/feldd-sp1-firmware
+  Licence text: LICENSES/MIT-feldd.txt (it covers only feldd's own code; none
+  of feldd's third-party components are included here).
+  Source of: third_party/feldd/src/usb_midi1.{c,h} (the class, with feldd's
+  fixes for strict USB-MIDI hosts) and usb_rt_parse.{c,h} (the packet
+  validator), and its host test. third_party/feldd/patches/usb_midi1.patch is
+  ours: applied at build time to a copy, it hands received MIDI to Wakes
+  instead of feldd's clock router and MIDI-thru. Commit and file list:
+  third_party/feldd/README.md.
 
 Zephyr RTOS — Apache-2.0 — https://github.com/zephyrproject-rtos/zephyr
   Licence text: LICENSES/Apache-2.0.txt
@@ -92,6 +112,10 @@ Zephyr RTOS — Apache-2.0 — https://github.com/zephyrproject-rtos/zephyr
   inherited from Zephyr's board template; they remain Apache-2.0.
   zephyr-patches/nordic-cmsis-system-core-clock.patch is a change to Zephyr
   itself and is Apache-2.0 like the file it patches.
+  firmware/src/sp1_usbd.c (M5a) is derived from Zephyr's
+  samples/subsys/usb/common/sample_usbd_init.c, Copyright (c) 2023 Nordic
+  Semiconductor ASA, and is Apache-2.0: changed to set Wakes' own USB
+  vendor/product IDs, full speed only, and to report bus events to MIDI.
   Every firmware image links Zephyr (Apache-2.0) and the Zephyr modules pinned
   in west.yml (cmsis, cmsis_6, hal_nordic), each under its own licence.
   Firmware release archives will include LICENSES/, this NOTICE and a generated

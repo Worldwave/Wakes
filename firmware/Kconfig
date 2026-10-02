@@ -1,10 +1,49 @@
 # wakes-sp1 application Kconfig.
-#
-# Pulls in the common USB sample options (CONFIG_SAMPLE_USBD_VID/PID/PRODUCT/...)
-# consumed by the vendored sample_usbd_init helper, then the standard Zephyr tree.
-source "samples/subsys/usb/common/Kconfig.sample_usbd"
 
 menu "wakes-sp1"
+
+# ---- the USB device's identity (M5a, src/sp1_usbd.c) ----
+# Through M4e the console came up through Zephyr's sample helper, which hard-codes Zephyr's
+# shared test vendor ID. These are ours. ⚠️ Change the PID whenever the set of USB functions
+# changes (M5a added MIDI): hosts cache descriptors by VID/PID.
+config SP1_USB_VID
+	hex "USB vendor ID"
+	default 0x2fe3
+	help
+	  0x2fe3 is Zephyr's test vendor ID, kept only until pid.codes (VID 0x1209,
+	  free product IDs for open-source projects) grants Wakes a PID of its own.
+
+config SP1_USB_PID
+	hex "USB product ID"
+	default 0x5212
+	help
+	  0x5211 through M4e (console only); 0x5212 from M5a (console + MIDI).
+
+config SP1_USB_MANUFACTURER
+	string "USB manufacturer string"
+	default "worldwave"
+
+config SP1_USB_PRODUCT
+	string "USB product string (the name hosts show for the device and its MIDI port)"
+	default "wakes-sp1"
+
+config SP1_USB_MAX_POWER
+	int "bMaxPower, in units of 2 mA"
+	default 50
+	range 0 250
+	help
+	  iOS rejects accessories claiming more than 100 mA over the camera adapter, and
+	  the SP-1 runs from its own battery.
+
+config SP1_MIDI
+	bool "USB-MIDI in: notes into Plaits, CCs onto both modules (M5a)"
+	default y
+	depends on SP1_PLAITS
+	help
+	  A USB-MIDI 1.0 port (feldd's class, third_party/feldd) next to the console.
+	  Notes play Plaits, CCs offset parameters on both modules, all configured by
+	  config/midi.ini at build time. Costs nothing until a host sends something.
+	  n: no MIDI function on the USB device at all.
 
 config SP1_PLAITS
 	bool "Plaits voice as the audio source (M3)"
