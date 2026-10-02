@@ -66,6 +66,11 @@ volatile uint32_t reset_req;                 // main thread: entry to ON
 
 // ---- audio-thread state ------------------------------------------------------------------
 stmlib::NoteStack<kStackSize> stack;
+// Note-ons not yet matched by a note-off, per pitch. The stack holds a pitch ONCE, so without
+// this a sequencer's overlapping notes of the same pitch -- the next step's ON before the last
+// step's OFF, which is what lengthening notes past the step does -- lost the second note: its
+// ON changed nothing, and the FIRST note's OFF then ended it (Adara, M5a, from the OP-XY).
+uint8_t on_count[128];
 bool sustained[128];                         // released while the pedal was down
 bool sustain_down;
 uint32_t port_downs_seen, reset_seen;
@@ -264,7 +269,24 @@ uint8_t Top() {
 
 // ---- Yarns part.cc, the 1M (mono) branches ------------------------------------------------
 void NoteOn(uint8_t note, uint8_t vel) {
+  // Playing: held by a note-on, or by the pedal after its note-off.
+  const bool again = (on_count[note] > 0u || sustained[note]) && stack.size() > 0u &&
+                     Top() == note;
   sustained[note] = false;
+  if (on_count[note] < 255u) {
+    ++on_count[note];
+  }
+  if (again) {
+    // The pitch that is playing, played again before its note-off (ours, not Yarns'):
+    // legato off strikes it again, as any new note; legato on / auto ties it -- an overlap of
+    // the same pitch is one long note. Either way the note-off of the first one will not end
+    // it (on_count).
+    stack.NoteOn(note, vel);
+    if (SP1_MIDI_LEGATO == 0) {
+      Glide(note, vel, SP1_MIDI_PORTAMENTO, true);
+    }
+    return;
+  }
   const uint8_t before = Top();
   stack.NoteOn(note, vel);
   const stmlib::NoteEntry& after = stack.note_by_priority(kPriority);
@@ -295,6 +317,14 @@ void InternalNoteOff(uint8_t note) {
 }
 
 void NoteOff(uint8_t note) {
+  // Only the LAST outstanding note-on of a pitch releases it. A note-off with none
+  // outstanding is a stray (the stack would not hold it either).
+  if (on_count[note] == 0u) {
+    return;
+  }
+  if (--on_count[note] > 0u) {
+    return;
+  }
   if (sustain_down) {
     // Yarns: flagged, and removed once the pedal is released.
     for (uint8_t i = 1; i <= stack.max_size(); ++i) {
@@ -325,6 +355,7 @@ void AllNotesOff() {
   stack.Clear();
   for (int n = 0; n < 128; ++n) {
     sustained[n] = false;
+    on_count[n] = 0u;
   }
   if (gate) {
     gate = false;
@@ -826,13 +857,22 @@ extern "C" bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t e
     port_downs_seen = downs;
     reset_seen = rr;
     q_tail = q_head;
+    block_n = block_next = 0;                  // nothing deferred survives it either
     Neutral();
   }
 
   // Take this block's messages and place each at its Plaits block (sp1_midi.h, "timing").
+  // Anything the last audio block deferred (the minimum gate, sp1_midi_audio_block) goes
+  // first, at its first Plaits block.
   const uint32_t span = cycles - prev_begin;
   const bool timed = prev_begin_valid && cycles != 0u && span != 0u;
-  block_n = 0;
+  uint32_t carried = 0;
+  for (uint32_t i = block_next; i < block_n; ++i) {
+    block_ev[carried] = block_ev[i];
+    block_at[carried] = 0u;
+    ++carried;
+  }
+  block_n = carried;
   block_next = 0;
   while (q_tail != q_head && block_n < kQueue) {
     const Event e = queue[q_tail % kQueue];
@@ -902,7 +942,14 @@ extern "C" bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t e
 }
 
 extern "C" void sp1_midi_audio_block(uint32_t j, sp1_midi_frame* f) {
-  while (block_next < block_n && block_at[block_next] <= j) {
+  // ---- the minimum gate: one Plaits block (0.25 ms) ----
+  // A strike ends this block's messages; the rest wait for the next block. Otherwise a
+  // note-off landing in the same block as its note-on -- a very short note, or one that
+  // shares a USB packet (one timestamp) with its own note-off -- struck TRIG with LEVEL
+  // already back at 0, and Plaits' gate never opened: a missed note (Adara, from the OP-XY).
+  // One block at full LEVEL opens the gate most of the way (envelope.h, ProcessLP: 0.6 per
+  // block). Deferred messages carry over into the next audio block if need be.
+  while (block_next < block_n && block_at[block_next] <= j && !trig_pending) {
     Process(block_ev[block_next++]);
   }
   // Every MIDI block costs the same from here on, whether anything moves or not.

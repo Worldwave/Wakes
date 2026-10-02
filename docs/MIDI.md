@@ -12,7 +12,7 @@ Plaits straight away, and everything deeper is set in the MIDI script,
 | | |
 |---|---|
 | **Notes** | play Plaits. A note-on strikes **TRIG** and holds **LEVEL** open; a note-off lets LEVEL close through Plaits' own low-pass gate, so the release is the LPG's. |
-| **Several keys** | Plaits is one voice: you hear the **newest** key. Let it go and you hear the previous one if it is still held (Yarns-style note priority). |
+| **Several keys** | Plaits is one voice: you hear the **newest** key. Let it go and you hear the previous one if it is still held (Yarns-style note priority). The same pitch played again before its note-off -- a sequencer's notes longer than its step -- strikes again with `legato = off` and is tied into one long note with `on` / `auto`; it ends at its **last** note-off. Even a note shorter than a quarter of a millisecond opens the gate. |
 | **Pitch** | added to FREQUENCY like a V/Oct cable, with **note 60 (C4) adding nothing**. F1 on its centre detent is exactly C4, so a centred F1 plays the keyboard at its real pitch, and moving F1 transposes. While MIDI is in use the FREQUENCY detent is **10 %** of the fader's travel (5 % otherwise), so C4 is easy to land on. |
 | **Pitch bend** | ±2 semitones, or whatever range the host sends (RPN 0, "pitch bend sensitivity"). |
 | **Sustain pedal** | CC 64 holds released notes until it lifts. |

@@ -28,6 +28,10 @@ pickup_ini() {
   grep -Eq "^pickup = $1\$" "$2" || { echo "hostbuild: no pickup line in config/midi.ini" >&2; exit 1; }
 }
 pickup_ini sum "$GEN/midi-sum.ini"
+# ...and its legato forced to `off`, Yarns' default, whatever the shipped script is set to for
+# a hardware test: miditest.cc checks legato off; miditest_alt.cc checks legato on.
+sed -i -E 's/^legato[[:space:]]*=.*/legato = off/' "$GEN/midi-sum.ini"
+grep -Eq '^legato = off$' "$GEN/midi-sum.ini" || { echo "hostbuild: no legato line in config/midi.ini" >&2; exit 1; }
 python3 "$ROOT/tools/gen_midi.py" "$GEN/midi-sum.ini" "$GEN/sp1_midi_gen.h" >/dev/null
 
 INC="-I$OVR -I$SRC/plaits_ovr -I$SRC/plaits_shim -I$ER -I$SRC -I$GEN"

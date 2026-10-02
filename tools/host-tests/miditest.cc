@@ -125,6 +125,46 @@ int main() {
   CHECK(fabsf(last().note - 4.0f) < 1e-4f, "pitch should stay on the last note");
   lpg_gain = 1.0f;
 
+  // ---- §3b a sequencer's notes longer than its step (Adara, from the OP-XY) ----
+  // The same pitch again before its note-off: legato off strikes it again, and the FIRST
+  // note's note-off must not end the second one.
+  printf("§3b overlapping notes of one pitch, and the minimum gate\n");
+  on(60);
+  block();
+  CHECK(any_trig(), "first C4 strikes");
+  on(60);                                      // the next step, before the last one's off
+  block();
+  CHECK(any_trig(), "C4 again before its note-off: legato off must strike again");
+  off(60);                                     // the FIRST note's off
+  block();
+  CHECK(last().gate > 0.0f, "the first note's off must not end the second note");
+  off(60);
+  block();
+  CHECK(last().gate == 0.0f, "the second note's off ends it");
+  off(60);                                     // a stray off: nothing to end, no harm
+  block();
+  CHECK(last().gate == 0.0f && !any_trig(), "a stray note-off does nothing");
+  // A note-on and its own note-off in ONE Plaits block (a very short note, or one USB
+  // packet): the gate must be open in the strike's block, and close in the next.
+  lpg_gain = 0.0f;
+  for (int i = 0; i < 4; ++i) block();
+  lpg_gain = 1.0f;
+  on(62);
+  off(62);
+  block();
+  CHECK(fr[0].trig && fr[0].gate > 0.0f, "ON + OFF in one block: struck with the gate open "
+        "(trig %d gate %.2f)", fr[0].trig, fr[0].gate);
+  CHECK(fr[1].gate == 0.0f, "...and the gate closes one Plaits block later (%.2f)", fr[1].gate);
+  // Deferred messages carry over from the LAST Plaits block into the next audio block.
+  block(1000);
+  send(0x90, 64, 100, 1999);                   // stamped at the end: the last Plaits block
+  send(0x80, 64, 0, 1999);
+  block(2000);
+  CHECK(fr[kBlocks - 1].trig && fr[kBlocks - 1].gate > 0.0f, "struck in the last block");
+  block(3000);
+  CHECK(fr[0].gate == 0.0f, "its off carried into the next audio block, first Plaits block");
+  reset();
+
   // ---- §4 sustain pedal (CC 64) ----
   printf("§4 sustain pedal\n");
   on(60);

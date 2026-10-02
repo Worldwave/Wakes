@@ -92,6 +92,14 @@ int main() {
   send(0x90, 72, 100);
   block();
   CHECK(any_trig(), "legato: a note from silence strikes");
+  // The same pitch again before its note-off (a sequencer's notes longer than the step): tied
+  // in legato, and the first note's off does not end it. (§4's note-off ends it.)
+  send(0x90, 72, 100);
+  block();
+  CHECK(!any_trig() && last().gate > 0.0f, "legato: the same pitch overlapping is a tie");
+  send(0x80, 72, 0);
+  block();
+  CHECK(last().gate > 0.0f, "legato: the first note's off must not end the tied note");
 
   // ---- §4 no sustain pedal: CC 64 is just an unbound CC ----
   printf("§4 sustain off\n");
