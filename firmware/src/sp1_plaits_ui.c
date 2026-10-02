@@ -79,6 +79,17 @@ static int      deg_q;                    /* ... and for its degree sweep (M4b) 
 static int      scale = SP1_PUI_SCALE_OFF;
 static bool     level_was;
 
+/* The MIDI destination behind each fader of each layer, for pickup shared / takeover
+ * (sp1_midi.h): there the CC moves the stored value itself, as a second hand on the fader. */
+static const int8_t midi_dest[SP1_PUI_LAYERS][4] = {
+	[SP1_PUI_BASE]     = { SP1_MIDI_D_FREQUENCY, SP1_MIDI_D_TIMBRE, SP1_MIDI_D_MORPH,
+			       SP1_MIDI_D_HARMONICS },
+	[SP1_PUI_SHIFT]    = { SP1_MIDI_D_FM_ATTENUVERTER, SP1_MIDI_D_TIMBRE_ATTENUVERTER,
+			       SP1_MIDI_D_MORPH_ATTENUVERTER, SP1_MIDI_D_HARMONICS_ATTENUVERTER },
+	[SP1_PUI_SETTINGS] = { SP1_MIDI_D_OCTAVE_RANGE, SP1_MIDI_D_LPG_COLOUR,
+			       SP1_MIDI_D_LPG_DECAY, SP1_MIDI_D_LEVEL },
+};
+
 /* ---- helpers ---------------------------------------------------------------- */
 static float clamp01(float x)
 {
@@ -296,6 +307,14 @@ uint32_t sp1_pui_tick(uint32_t elapsed_ms, const uint16_t raw[4], bool valid,
 	if (valid) {
 		for (int i = 0; i < 4; i++) {
 			float *const s = &stored[active][i];
+			if (sp1_midi_fader_held(midi_dest[active][i])) {
+				/* Pickup takeover, MIDI plugged in: the CC has this parameter and
+				 * the fader rests. Kept as a reference, so after the port goes it
+				 * catches up from where it is rather than from where it was. */
+				prev[i] = pos[i];
+				catching[active][i] = fabsf(*s - pos[i]) >= CATCH_MATCH;
+				continue;
+			}
 			if (!catching[active][i]) {
 				*s = pos[i];
 				prev[i] = pos[i];
@@ -333,6 +352,22 @@ uint32_t sp1_pui_tick(uint32_t elapsed_ms, const uint16_t raw[4], bool valid,
 
 	breath_ms = (breath_ms + elapsed_ms) % BREATH_MS;
 	return ev;
+}
+
+void sp1_pui_midi(void)
+{
+	/* Every layer, not just the one on show: a host can move a SETTINGS value while you
+	 * stand on BASE. A value MIDI moved on the active layer re-checks that fader's pickup,
+	 * so the fader catches up with it rather than snapping it back. Other layers re-check
+	 * when they are activated (activate()). */
+	for (int l = 0; l < SP1_PUI_LAYERS; l++) {
+		for (int i = 0; i < 4; i++) {
+			float *const s = &stored[l][i];
+			if (sp1_midi_drive(midi_dest[l][i], s) && l == (int)active) {
+				catching[l][i] = fabsf(*s - pos[i]) >= CATCH_MATCH;
+			}
+		}
+	}
 }
 
 int sp1_pui_octave_mode(void)

@@ -110,6 +110,8 @@ for n in range(120, 128):
     RESERVED[n] = 'channel mode message'
 PRIORITY = {'last': 0, 'low': 1, 'high': 2}          # stmlib NoteStackFlags
 LEGATO = {'off': 0, 'auto': 1, 'on': 2}              # Yarns' legato_mode
+# How a CC and its fader share a parameter (Adara, M5a round 4). sp1_midi.h, "pickup".
+PICKUP = {'sum': 0, 'shared': 1, 'takeover': 2}
 SOURCES = ('velocity', 'aftertouch')
 
 
@@ -157,10 +159,10 @@ def parse(path):
                  % (sec, ', '.join('[%s]' % s for s in sorted(allowed))))
 
     cfg = {'channel': 0, 'priority': 0, 'legato': 0, 'portamento': 0, 'bend_range': 2,
-           'sustain': 64, 'smooth_ms': 10}
+           'sustain': 64, 'smooth_ms': 10, 'pickup': PICKUP['shared']}
     m = cp['midi'] if cp.has_section('midi') else {}
     known = {'channel', 'note_priority', 'legato', 'portamento', 'bend_range', 'sustain',
-             'cc_smoothing'}
+             'cc_smoothing', 'pickup'}
     for k in m:
         if k not in known:
             err('midi', k, 'unknown setting "%s" in [midi]' % k)
@@ -198,6 +200,10 @@ def parse(path):
     if not (v.isdigit() and 0 <= int(v) <= 200):
         err('midi', 'cc_smoothing', 'cc_smoothing must be 0-200 ms')
     cfg['smooth_ms'] = int(v)
+    v = m.get('pickup', 'shared').strip().lower()
+    if v not in PICKUP:
+        err('midi', 'pickup', 'pickup must be sum, shared or takeover, not "%s"' % v)
+    cfg['pickup'] = PICKUP[v]
 
     def cc_value(sec, key, raw, allow_none):
         raw = raw.strip().lower()
@@ -281,7 +287,11 @@ def generate(ini, out, chart_dir):
          '#define SP1_MIDI_BEND_RANGE  %d   /* semitones, until RPN 0 says otherwise */'
          % cfg['bend_range'],
          '#define SP1_MIDI_SUSTAIN_CC  (%d)   /* -1 = no sustain pedal */' % cfg['sustain'],
-         '#define SP1_MIDI_SMOOTH_MS   %d' % cfg['smooth_ms'], '',
+         '#define SP1_MIDI_SMOOTH_MS   %d' % cfg['smooth_ms'],
+         '#define SP1_MIDI_PICKUP_SUM      0   /* CC = an offset on top of the fader */',
+         '#define SP1_MIDI_PICKUP_SHARED   1   /* CC and fader move ONE value, both catch up */',
+         '#define SP1_MIDI_PICKUP_TAKEOVER 2   /* port up: the CC moves it, its fader rests */',
+         '#define SP1_MIDI_PICKUP      %d' % cfg['pickup'], '',
          'enum sp1_midi_dest {']
     L += ['\t%s,' % e for e in enum]
     L += ['\tSP1_MIDI_DESTS', '};', '',
@@ -302,6 +312,9 @@ def generate(ini, out, chart_dir):
           for i, (_s, k, *_r) in enumerate(DESTS)]
     L += ['};', 'static const char *const SP1_MIDI_NAME[SP1_MIDI_DESTS] = {']
     L += ['\t"%s %s",' % (s, k) for (s, k, *_r) in DESTS]
+    L += ['};', '/* destination -> its CC number (the coarse half), or -1 = none. */',
+          'static const int8_t SP1_MIDI_DEST_CC[SP1_MIDI_DESTS] = {']
+    L += ['\t%d,   /* %s */' % (n, enum[i]) for i, n in enumerate(ccs)]
     L += ['};', '/* CC number (the coarse half, for 0-31) -> destination, or -1. */',
           'static const int8_t SP1_MIDI_CC_DEST[128] = {']
     for r in range(0, 128, 16):
@@ -325,25 +338,44 @@ def write_if_changed(path, text):
 
 def write_charts(d, cfg, ccs, binds):
     ch = 'omni' if cfg['channel'] == 16 else str(cfg['channel'] + 1)
+    summing = cfg['pickup'] == PICKUP['sum']
+    how = {
+        PICKUP['sum']: [
+            '- Pickup **sum**: every CC is an **offset** on its fader. **centred** parameters:',
+            '  64 = no change, 0 / 127 = half a travel down / up (from a centred fader: the two',
+            '  ends). **one-sided** parameters: 0 = no change, 127 = a whole travel up (from a',
+            '  fader at 0: the top). **per engine**: centred when that engine gives the fader a',
+            '  centre detent, one-sided otherwise.'],
+        PICKUP['shared']: [
+            '- Pickup **shared**: a CC moves its parameter exactly as its fader does, 0 = the',
+            '  bottom, 127 = the top. Fader and CC share the one value: whichever you move takes',
+            "  it from where it is and catches up with your hand, as Plaits' knobs do."],
+        PICKUP['takeover']: [
+            '- Pickup **takeover**: while MIDI is plugged in, the faders that have a CC below',
+            '  rest and the CC moves the parameter, 0 = the bottom, 127 = the top, catching up',
+            '  with the value the fader left. Unplug and the fader catches up in turn.'],
+    }[cfg['pickup']]
     md = ['# Wakes — MIDI CC chart', '',
           'Generated from `config/midi.ini` by the build that produced this firmware.', '',
           '- Channel: **%s**' % ch,
           '- Notes play Plaits; pitch bend ±%d semitones until the host sends RPN 0'
           % cfg['bend_range'],
-          '- Sustain pedal: %s' % ('CC %d' % cfg['sustain'] if cfg['sustain'] >= 0 else 'off'),
-          '- Every CC is an **offset** on its fader. **centred** parameters: 64 = no change,',
-          '  0 / 127 = half a travel down / up (from a centred fader: the two ends).',
-          '  **one-sided** parameters: 0 = no change, 127 = a whole travel up (from a fader at',
-          '  0: the top). **per engine**: centred when that engine gives the fader a centre',
-          '  detent, one-sided otherwise. CC 0–31 are 14-bit (fine half on N+32).',
-          '',
-          '| CC | fine | parameter | reads | where |', '|---|---|---|---|---|']
+          '- Sustain pedal: %s' % ('CC %d' % cfg['sustain'] if cfg['sustain'] >= 0 else 'off')]
+    md += how
+    md += ['- MODEL is always an offset from the engine T2/T3 selected (it has no fader).',
+           '- CC 0–31 are 14-bit (fine half on N+32).', '']
+    md += (['| CC | fine | parameter | reads | where |', '|---|---|---|---|---|'] if summing
+           else ['| CC | fine | parameter | where |', '|---|---|---|---|'])
     rows = sorted((n, i) for i, n in enumerate(ccs) if n >= 0)
     for n, i in rows:
         _s, _k, label, kind, page = DESTS[i]
-        reads = {'uni': 'one-sided', 'bi': 'centred'}.get(POLARITY[_k], 'per engine')
-        md.append('| %d | %s | %s | %s | %s |' % (n, str(n + 32) if n < 32 else '', label,
-                                                  reads, page))
+        fine = str(n + 32) if n < 32 else ''
+        if summing:
+            reads = {'uni': 'one-sided', 'bi': 'centred'}.get(POLARITY[_k], 'per engine')
+            md.append('| %d | %s | %s | %s | %s |' % (n, fine, label, reads, page))
+        else:
+            md.append('| %d | %s | %s | %s |' % (n, fine, label,
+                                                 page + (' (offset)' if _k == 'model' else '')))
     unbound = [DESTS[i][2] for i, n in enumerate(ccs) if n < 0]
     if unbound:
         md += ['', 'No CC: ' + ', '.join(unbound)]
@@ -366,15 +398,24 @@ def write_charts(d, cfg, ccs, binds):
         stepped = kind == 'step'
         pol = POLARITY[_k]
         centred = pol == 'bi'
-        note = ('64 = no offset' if centred else
-                '0 = no offset' if pol == 'uni' else
-                '64 = no offset on engines where this fader has a centre detent; 0 otherwise')
-        w.writerow(['Worldwave', 'Wakes', s.capitalize(), label,
-                    'Offset on %s (%s)' % (label, page), n, (n + 32) if n < 32 else '',
+        if summing or _k == 'model':
+            note = ('64 = no offset' if centred else
+                    '0 = no offset' if pol == 'uni' else
+                    '64 = no offset on engines where this fader has a centre detent; 0 otherwise')
+            note += '; offsets add to the fader' if _k != 'model' else \
+                '; an offset from the engine T2/T3 selected'
+            desc = 'Offset on %s (%s)' % (label, page)
+            usage = '0~127: %s offset' % ('Stepped' if stepped else 'Continuous')
+        else:
+            note = ('Moves %s as its fader does; fader and CC share the value (pickup %s)'
+                    % (label, 'shared' if cfg['pickup'] == PICKUP['shared'] else 'takeover'))
+            desc = '%s (%s)' % (label, page)
+            usage = '0~127: %s' % ('Stepped' if stepped else 'Continuous')
+        w.writerow(['Worldwave', 'Wakes', s.capitalize(), label, desc,
+                    n, (n + 32) if n < 32 else '',
                     0, 127, 64 if centred else 0, '', '', '', '', '',
                     'centered' if centred else '0-based',
-                    'Community firmware for the SP-1. %s; offsets add to the fader.' % note,
-                    '0~127: %s offset' % ('Stepped' if stepped else 'Continuous')])
+                    'Community firmware for the SP-1. %s.' % note, usage])
     if cfg['sustain'] >= 0:
         w.writerow(['Worldwave', 'Wakes', 'Notes', 'Sustain pedal', 'Holds released notes',
                     cfg['sustain'], '', 0, 127, 0, '', '', '', '', '', '0-based', '',

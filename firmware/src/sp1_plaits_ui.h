@@ -100,6 +100,10 @@ void sp1_pui_resume(const uint16_t raw[4], bool fnc);
 #define SP1_PUI_EV_LEVEL   0x100u    /* LEVEL connected/disconnected                 */
 uint32_t sp1_pui_tick(uint32_t elapsed_ms, const uint16_t raw[4], bool valid,
 		      bool fnc, bool activity);
+/* Every tick, whichever module is on show, after sp1_midi_main_tick: MIDI CCs move the
+ * stored values themselves when the script's pickup is shared or takeover (sp1_midi.h).
+ * Does nothing in sum. */
+void sp1_pui_midi(void);
 
 /* What the synth should play, from all three layers. */
 void sp1_pui_params(struct sp1_synth_params *out);

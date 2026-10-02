@@ -133,6 +133,20 @@ static enum sp1_mui_layer canon(enum sp1_mui_layer l, int i)
 #define VAL(l, i) (stored[canon((l), (i))][(i)])
 #define CAT(l, i) (catching[canon((l), (i))][(i)])
 
+/* The MIDI destination behind each fader slot, for pickup shared / takeover (sp1_midi.h):
+ * there the CC moves the stored value itself, as a second hand on the fader. Indexed by the
+ * CANONICAL slot, so the X pages' F4 (-1 here) are the t pages' DEJA VU and LENGTH. */
+static const int8_t midi_dest[SP1_MUI_LAYERS][4] = {
+	[SP1_MUI_T_BASE]  = { SP1_MIDI_D_RATE, SP1_MIDI_D_T_BIAS, SP1_MIDI_D_JITTER,
+			      SP1_MIDI_D_DEJA_VU },
+	[SP1_MUI_T_SHIFT] = { -1, SP1_MIDI_D_GATE_LENGTH, SP1_MIDI_D_GATE_LENGTH_RANDOM,
+			      SP1_MIDI_D_LENGTH },
+	[SP1_MUI_X_BASE]  = { SP1_MIDI_D_SPREAD, SP1_MIDI_D_X_BIAS, SP1_MIDI_D_STEPS, -1 },
+	[SP1_MUI_X_SHIFT] = { -1, -1, -1, -1 },
+	[SP1_MUI_Y]       = { SP1_MIDI_D_Y_SPREAD, SP1_MIDI_D_Y_BIAS, SP1_MIDI_D_Y_STEPS,
+			      SP1_MIDI_D_Y_DIVIDER },
+};
+
 /* The order a tap cycles the destinations, per side. BOTH rings start at NONE (Adara's
  * correction to docs/UI-PAGES.md, M4b), so the two sides read the same way round and
  * "disconnect this output" is always one step back from the first real destination. */
@@ -383,7 +397,12 @@ uint32_t sp1_mui_tick(uint32_t elapsed_ms, const uint16_t raw[4], bool valid,
 	if (valid) {
 		for (int i = 0; i < 4; i++) {
 			float *const s = &VAL(active, i);
-			if (!CAT(active, i)) {
+			if (sp1_midi_fader_held(midi_dest[canon(active, i)][i])) {
+				/* Pickup takeover, MIDI plugged in: the CC has it, the fader
+				 * rests, and catches up after the port goes (sp1_plaits_ui.c). */
+				prev[i] = pos[i];
+				CAT(active, i) = fabsf(*s - pos[i]) >= CATCH_MATCH;
+			} else if (!CAT(active, i)) {
 				*s = pos[i];
 				prev[i] = pos[i];
 			} else {
@@ -415,6 +434,21 @@ uint32_t sp1_mui_tick(uint32_t elapsed_ms, const uint16_t raw[4], bool valid,
 	show_ms = show_ms > elapsed_ms ? show_ms - elapsed_ms : 0u;
 	breath_ms = (breath_ms + elapsed_ms) % BREATH_MS;
 	return ev;
+}
+
+void sp1_mui_midi(void)
+{
+	/* Every layer, as on PLAITS (sp1_pui_midi). A value MIDI moved under the active layer's
+	 * fader re-checks that fader's pickup; the others re-check when activated. */
+	for (int l = 0; l < SP1_MUI_LAYERS; l++) {
+		for (int i = 0; i < 4; i++) {
+			float *const s = &stored[l][i];
+			if (sp1_midi_drive(midi_dest[l][i], s) &&
+			    canon(active, i) == (enum sp1_mui_layer)l) {
+				catching[l][i] = fabsf(*s - pos[i]) >= CATCH_MATCH;
+			}
+		}
+	}
 }
 
 /* ---- buttons ---------------------------------------------------------------------- */
@@ -580,7 +614,9 @@ bool sp1_mui_scale_step(int dir)
  * to the value the fader gives -- after the centre detent, so a CC near centre is not
  * flattened by it -- and clamped as the fader would be. Stepped parameters take it on the
  * fader position before it is cut into steps. Smoothed by the control loop: Marbles reads
- * its parameters once per audio block, so smoothing any faster would buy nothing. */
+ * its parameters once per audio block, so smoothing any faster would buy nothing.
+ * That is pickup SUM. In shared / takeover the CC moves the stored value itself
+ * (sp1_mui_midi) and this is zero, apart from a [bind] source. */
 static float mo(int dest)
 {
 	return sp1_midi_offset(dest);

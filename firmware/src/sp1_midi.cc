@@ -8,7 +8,8 @@
 //   - Glide and Refresh are yarns/voice.cc Voice::NoteOn and Voice::Refresh: the portamento
 //     (both of Yarns' shapes, and its table, in closed form) and the pitch bend.
 // The note stack is stmlib's (third_party/eurorack/stmlib/algorithms/note_stack.h), as Yarns
-// uses it. Attributed in NOTICE. Everything else -- the CC offsets, 14-bit pairs, RPN 0, the
+// uses it. The CC pickup is Plaits' pot catch-up (plaits/pot_controller.h, CatchUp below).
+// Attributed in NOTICE. Everything else -- the CC offsets, 14-bit pairs, RPN 0, the
 // smoothing, the threading -- is ours.
 //
 // Deliberately includes NO Zephyr headers (sp1_midi.h).
@@ -101,6 +102,9 @@ bool cc_present[SP1_MIDI_DESTS];             // a CC has arrived since the last 
 // MORPH and HARMONICS that depends on the engine playing.
 volatile float target_bi[SP1_MIDI_DESTS];    // centred: 64 = 0, 0 = -1, 127 = +1
 volatile float target_uni[SP1_MIDI_DESTS];   // one-sided: 0 = 0, 127 = +1
+// ...and, for pickup shared / takeover, where the CC IS: 0 = the bottom, 1 = the top.
+volatile float pub_pos[SP1_MIDI_DESTS];
+volatile uint8_t pub_has[SP1_MIDI_DESTS];    // pub_pos is valid (written after it)
 volatile uint8_t engine_centre_now;          // last engine centre bits the audio thread saw
 volatile uint32_t pub_active;
 volatile uint32_t st_notes, st_ccs, st_ignored;
@@ -117,6 +121,19 @@ bool settled = true;                         // every smoothed offset is exactly
 float env_expo[257];
 // ... and in the control loop (Marbles).
 float main_smooth[SP1_MIDI_DESTS];
+
+// ---- pickup shared / takeover: the CC as a second hand on the fader's value (main thread) ----
+// cc_pos is the CC's position smoothed in the control loop (stepped kinds not smoothed), and
+// each destination keeps its own catch-up state against the value the UI hands
+// sp1_midi_drive(), exactly as each fader keeps one against its stored value.
+float cc_pos[SP1_MIDI_DESTS];
+bool cc_on[SP1_MIDI_DESTS];                  // cc_pos is valid: the CC has arrived
+struct Drive {
+  bool have;                                 // prev is valid
+  bool catching;                             // the value and the CC do not match yet
+  float prev;                                // the CC's position at its last counted movement
+};
+Drive drive[SP1_MIDI_DESTS];
 
 // ---- MODEL: at most one change every 50 ms (Adara, M5a test round 1) ----
 // Every engine change costs one over-budget audio block -- the engine's own initialisation,
@@ -136,6 +153,39 @@ uint32_t prev_begin;
 bool prev_begin_valid;
 
 inline float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+// ---- the pickup setting (config/midi.ini `pickup`, Adara, M5a round 4) ----
+// sum: a CC is an OFFSET on its fader. shared / takeover: a CC is a POSITION on the fader's
+// own value, which the UI moves through sp1_midi_drive() -- so there it is no offset at all.
+// MODEL has no fader and is an offset in every setting.
+constexpr bool CcIsOffset(int d) {
+  return SP1_MIDI_PICKUP == SP1_MIDI_PICKUP_SUM || d == SP1_MIDI_D_MODEL;
+}
+
+// ---- Plaits' catch-up: plaits/pot_controller.h, POT_STATE_CATCHING_UP (Emilie Gillet, MIT) ----
+// The one the faders already use (sp1_plaits_ui.c), here for the CCs. A control that does not
+// match its value moves the value THE SAME WAY from where it is, skewed so the two meet at the
+// end the hand is heading for; once they meet, the control just follows. One step: the value
+// `s`, the control's reading at its last counted movement `prev`, and its reading `now`, on a
+// range lo..hi. A value outside that range (an offset held from the other reading, below)
+// widens it, so the two still meet at the far end.
+const float kCatchMove = 0.005f;             // pot_controller.h: movement that counts
+const float kCatchMatch = 0.005f;            // pot_controller.h: close enough to follow
+float CatchUp(float s, float prev, float now, float lo, float hi) {
+  lo = fminf(fminf(lo, s), fminf(prev, now));
+  hi = fmaxf(fmaxf(hi, s), fmaxf(prev, now));
+  const float w = hi - lo;
+  if (w <= 0.0f) {
+    return now;
+  }
+  const float inv = 1.0f / w;
+  const float sn = (s - lo) * inv;
+  const float pn = (prev - lo) * inv;
+  const float dn = (now - prev) * inv;
+  const float skew = Clamp(dn > 0.0f ? (1.001f - sn) / (1.001f - pn)
+                                     : (0.001f + sn) / (0.001f + pn), 0.1f, 10.0f);
+  return lo + w * Clamp(sn + skew * dn, 0.0f, 1.0f);
+}
 
 // ---- Yarns' portamento, voice.cc Voice::NoteOn, in closed form ----------------------------
 // yarns/resources/lookup_tables.py builds lut_portamento_increments as 128 values of an
@@ -329,8 +379,17 @@ void Publish(int d) {
   if (SP1_MIDI_AFTERTOUCH_DEST == d && d != SP1_MIDI_D_LEVEL) {
     bound += SP1_MIDI_AFTERTOUCH_DEPTH * static_cast<float>(aftertouch) / 127.0f;
   }
-  target_bi[d] = Clamp(CcOffset(d, true) + bound, -1.0f, 1.0f);
-  target_uni[d] = Clamp(CcOffset(d, false) + bound, -1.0f, 1.0f);
+  const bool offset = CcIsOffset(d);
+  target_bi[d] = Clamp((offset ? CcOffset(d, true) : 0.0f) + bound, -1.0f, 1.0f);
+  target_uni[d] = Clamp((offset ? CcOffset(d, false) : 0.0f) + bound, -1.0f, 1.0f);
+  // The position is the one-sided reading: 0 = the bottom, 127 / 16383 = the top.
+  if (cc_present[d]) {
+    pub_pos[d] = CcOffset(d, false);
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    pub_has[d] = 1u;
+  } else {
+    pub_has[d] = 0u;
+  }
 }
 
 // Is destination `d` bipolar right now? Fixed for most; for TIMBRE / MORPH / HARMONICS it is
@@ -344,22 +403,22 @@ inline float Target(int d, uint8_t centre) {
   return Bipolar(d, centre) ? target_bi[d] : target_uni[d];
 }
 
-// ---- pickup when an engine change re-reads a CC (Adara, M5a round 3) ----
+// ---- pickup sum: when an engine change re-reads a CC (Adara, M5a rounds 3 and 4) ----
 // TIMBRE, MORPH and HARMONICS read their CC centred or one-sided depending on the engine, so an
 // engine change can give the SAME host knob position a different meaning -- a jump. Instead, on
-// that flip the offset is HELD where it was, and the CC is CATCHING: the host knob does nothing
-// until its new reading crosses the held offset, then it tracks again. The faders' own pickup
-// (sp1_plaits_ui.c), applied to a CC; the host is never asked to move anything.
-//   - A held offset the new reading cannot reach (a centred -0.25 under a one-sided reading,
-//     which bottoms out at 0) is caught when the knob reaches that end instead.
+// that flip the offset stays where it was and the CC CATCHES UP with it, Plaits' way
+// (CatchUp): moving the host knob moves the offset the same way from where it is, until the two
+// meet. Round 3 HELD the offset until the knob crossed it, and the knob felt dead for most of
+// its travel (Adara: "too unresponsive"); now every movement does something at once.
 //   - Only a CC that has arrived can catch; a reset or a disconnect clears every catch.
 //   - The other destinations' readings never flip, so they never catch.
-const float kCatch = 0.01f;                  // close enough to count as met, fader travel
+//   - Only in sum: in shared / takeover the CC is a position, which reads the same on every
+//     engine, so there is nothing to flip.
 bool pk_known[SP1_MIDI_AUDIO_DESTS];         // pk_bi is valid
 bool pk_bi[SP1_MIDI_AUDIO_DESTS];            // the reading at the last block
 volatile bool pk_catch[SP1_MIDI_AUDIO_DESTS];
-volatile float pk_held[SP1_MIDI_AUDIO_DESTS];
-bool pk_above[SP1_MIDI_AUDIO_DESTS];         // the reading started above the held offset
+volatile float pk_val[SP1_MIDI_AUDIO_DESTS]; // the offset while it catches up
+float pk_prev[SP1_MIDI_AUDIO_DESTS];         // the reading at the last counted movement
 
 // AUDIO THREAD, once per audio block: destination d's offset with pickup applied.
 float PickupTarget(int d, uint8_t centre) {
@@ -373,27 +432,31 @@ float PickupTarget(int d, uint8_t centre) {
     pk_bi[d] = bi;
   } else if (bi != pk_bi[d]) {
     // What the knob means RIGHT NOW under the reading being left -- not the offset applied
-    // at the last block, which lags a CC that arrived during it. Already catching: the
-    // held offset stays as it is.
+    // at the last block, which lags a CC that arrived during it.
     const float was = pk_bi[d] ? target_bi[d] : target_uni[d];
     pk_bi[d] = bi;
-    if (cc_present[d] && !pk_catch[d] && fabsf(r - was) >= kCatch) {
-      pk_held[d] = was;
-      pk_above[d] = r > was;
+    if (pk_catch[d]) {
+      pk_prev[d] = r;                          // keep the value; measure from the new reading
+    } else if (cc_present[d] && fabsf(r - was) >= kCatchMatch) {
+      pk_val[d] = was;
+      pk_prev[d] = r;
       pk_catch[d] = true;
     }
   }
   if (pk_catch[d]) {
-    const float held = pk_held[d];
-    const float lo = bi ? -kCentredSpan : 0.0f;
-    const float hi = bi ? kCentredSpan : 1.0f;
-    const bool met = fabsf(r - held) < kCatch || (r > held) != pk_above[d];
-    const bool at_end = (held < lo && r <= lo + kCatch) || (held > hi && r >= hi - kCatch);
-    if (met || at_end || !cc_present[d]) {
+    if (!cc_present[d]) {
       pk_catch[d] = false;
+    } else if (fabsf(r - pk_prev[d]) > kCatchMove) {
+      const float v = CatchUp(pk_val[d], pk_prev[d], r, bi ? -kCentredSpan : 0.0f,
+                              bi ? kCentredSpan : 1.0f);
+      pk_val[d] = v;
+      pk_prev[d] = r;
+      if (fabsf(v - r) < kCatchMatch) {
+        pk_catch[d] = false;
+      }
     }
   }
-  return pk_catch[d] ? pk_held[d] : r;
+  return pk_catch[d] ? pk_val[d] : r;
 }
 
 void PublishAll() {
@@ -636,6 +699,80 @@ extern "C" void sp1_midi_main_tick(uint32_t elapsed_ms) {
       }
     }
   }
+  if (SP1_MIDI_PICKUP != SP1_MIDI_PICKUP_SUM) {
+    // The positions sp1_midi_drive() reads. A CC that has just arrived starts AT its
+    // position: smoothing it up from 0 would be a movement the hand never made.
+    for (int d = 0; d < SP1_MIDI_DESTS; ++d) {
+      if (pub_has[d] == 0u) {
+        cc_on[d] = false;
+        continue;
+      }
+      std::atomic_signal_fence(std::memory_order_seq_cst);
+      const float t = pub_pos[d];
+      if (!cc_on[d] || SP1_MIDI_KIND[d] == SP1_MIDI_K_STEP) {
+        cc_on[d] = true;
+        cc_pos[d] = t;
+        continue;
+      }
+      float v = cc_pos[d] + (t - cc_pos[d]) * k;
+      if (fabsf(v - t) < 1e-6f) {
+        v = t;
+      }
+      cc_pos[d] = v;
+    }
+  }
+}
+
+// ---- pickup shared / takeover: one step of the CC's catch-up on the value `*s` ----
+// The fader's own pickup (sp1_plaits_ui.c), with the CC as the pot:
+//   - The CC's first position after it arrives is only a reference: nothing moves until the
+//     host knob does, so a host that sends its knobs' positions when it connects moves nothing.
+//   - While the CC matches the value, it follows: the value goes where the CC goes.
+//   - When something else moves the value -- the fader, a rip, a SHIFT reset -- the CC no
+//     longer matches it and catches up again, Plaits' way (CatchUp).
+// The UI tells its fader the value moved; the fader then catches up with it the same way.
+extern "C" bool sp1_midi_drive(int d, float* s) {
+  if (SP1_MIDI_PICKUP == SP1_MIDI_PICKUP_SUM || d < 0 || d >= SP1_MIDI_DESTS || CcIsOffset(d)) {
+    return false;
+  }
+  Drive& k = drive[d];
+  if (!cc_on[d]) {
+    k.have = false;
+    return false;
+  }
+  const float c = cc_pos[d];
+  if (!k.have) {
+    k.have = true;
+    k.prev = c;
+    k.catching = fabsf(*s - c) >= kCatchMatch;
+    return false;
+  }
+  if (!k.catching && fabsf(*s - k.prev) >= kCatchMatch) {
+    k.catching = true;                         // moved by something else since
+  }
+  if (!k.catching) {
+    if (c == k.prev) {
+      return false;
+    }
+    *s = c;
+    k.prev = c;
+    return true;
+  }
+  if (fabsf(c - k.prev) <= kCatchMove) {
+    return false;                              // not a movement yet (it accumulates)
+  }
+  *s = CatchUp(*s, k.prev, c, 0.0f, 1.0f);
+  k.prev = c;
+  if (fabsf(*s - c) < kCatchMatch) {
+    k.catching = false;
+  }
+  return true;
+}
+
+// pickup takeover: while the port is up, a fader whose parameter has a CC rests.
+extern "C" bool sp1_midi_fader_held(int d) {
+  return SP1_MIDI_PICKUP == SP1_MIDI_PICKUP_TAKEOVER && d >= 0 && d < SP1_MIDI_DESTS &&
+         !CcIsOffset(d) && SP1_MIDI_DEST_CC[d] >= 0 && port_up != 0u;
 }
 
 extern "C" float sp1_midi_offset(int d) {
@@ -646,7 +783,7 @@ extern "C" float sp1_midi_offset(int d) {
     return model_held;
   }
   if (d < SP1_MIDI_AUDIO_DESTS && pk_catch[d]) {
-    return pk_held[d];                         // held while the CC catches up
+    return pk_val[d];                          // while the CC catches up
   }
   return SP1_MIDI_KIND[d] == SP1_MIDI_K_MAIN ? main_smooth[d] : Target(d, engine_centre_now);
 }

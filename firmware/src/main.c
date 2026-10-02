@@ -310,7 +310,18 @@ static void midi_tick(uint32_t dt, bool busy)
 	const bool up = sp1_midi_port_up();
 	if (up != midi_port_was) {
 		midi_port_was = up;
-		printk("MIDI port %s\n", up ? "enabled by the host" : "gone");
+		/* The script's pickup (config/midi.ini), so a log says which one was flashed. */
+		static const char *const pickup[] = {
+			[SP1_MIDI_PICKUP_SUM]      = "sum: CCs offset the faders",
+			[SP1_MIDI_PICKUP_SHARED]   = "shared: CCs and faders share each value",
+			[SP1_MIDI_PICKUP_TAKEOVER] = "takeover: faders with a CC rest until unplugged",
+		};
+		if (up) {
+			printk("MIDI port enabled by the host (pickup %s)\n",
+			       pickup[SP1_MIDI_PICKUP]);
+		} else {
+			printk("MIDI port gone\n");
+		}
 	}
 	const bool active = sp1_midi_active();
 	if (active != midi_active_was) {
@@ -1593,6 +1604,10 @@ int main(void)
 				midi_tick(dt, shutdown_active || rip_ms > 0u ||
 					  unpatch_ms >= SP1_UNPATCH_START_MS);
 				sp1_midi_main_tick(dt);
+				/* Pickup shared / takeover: the CCs move the stored values of
+				 * BOTH modules, whichever is on show (nothing in sum). */
+				sp1_pui_midi();
+				sp1_mui_midi();
 #endif
 
 				/* ---- publish: Plaits, the routing, Marbles, the tempo ---- */

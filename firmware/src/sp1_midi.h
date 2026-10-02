@@ -26,7 +26,22 @@
  * blocks. Latency is therefore CONSTANT -- one audio block plus the I2S queue -- and the
  * timing jitter is USB's own (~1 ms), not the 5 ms of the audio block.
  *
- * ---- how a CC reads: by the parameter's polarity (Adara's M5a test notes) ----
+ * ---- pickup: how a CC and its fader share a parameter (Adara, M5a round 4) ----
+ * The MIDI script's `pickup` setting, fixed at build time (SP1_MIDI_PICKUP). All three use
+ * Plaits' catch-up (plaits/pot_controller.h), as the faders do:
+ *   sum       the CC is an OFFSET on top of the fader, read by polarity (below). The UIs and
+ *             the synth add sp1_midi_offset() / the audio block's offsets.
+ *   shared    the CC is a POSITION, 0 = the bottom, 1 = the top, on the fader's OWN stored
+ *             value: each tick the UIs hand every value to sp1_midi_drive(), which moves it
+ *             when the CC moves -- catching up first if the two do not match -- and the
+ *             fader catches up after it in turn. No offset at all, so nothing to read by
+ *             polarity and nothing that returns to neutral at a disconnect.
+ *   takeover  as shared, and while the port is up a fader whose parameter has a CC rests
+ *             (sp1_midi_fader_held); after the port goes, it catches up.
+ * MODEL has no fader: it is an offset in every setting. [bind] sources are offsets in every
+ * setting too.
+ *
+ * ---- how a CC reads in sum: by the parameter's polarity (Adara's M5a test notes) ----
  * The rule Marbles' INTELLIGENT range uses (M4c), applied to CCs: a BIPOLAR parameter -- one
  * whose centre is its neutral point -- takes a CENTRED CC (64 = no change, 0 / 127 = half a
  * fader's travel down / up, i.e. from a centred fader exactly to either end); a UNIPOLAR one
@@ -34,8 +49,8 @@
  * to the top). Either way, from the fader's neutral position every CC value does something. Which is which is tools/gen_midi.py's POLARITY table; for TIMBRE, MORPH and
  * HARMONICS it is the playing engine's detent bits (SP1_ENGINE_TABLE[].centre), exactly as
  * INTELLIGENT reads them. Both readings are kept, and the reader picks at the moment it
- * applies the offset. When an engine change flips a reading, the offset is HELD and the CC
- * picks up once the host knob crosses it (sp1_midi.cc, PickupTarget) -- nothing jumps.
+ * applies the offset. When an engine change flips a reading, the offset stays where it was
+ * and catches up with the host knob as it moves (sp1_midi.cc, PickupTarget) -- nothing jumps.
  *
  * ---- three states (M5 plan, B6) ----
  *   port up      the host has enabled our MIDI interface. Drives the plug/unplug prompt.
@@ -85,6 +100,13 @@ void sp1_midi_main_tick(uint32_t elapsed_ms);
 float sp1_midi_offset(int dest);
 bool  sp1_midi_active(void);
 bool  sp1_midi_port_up(void);
+/* Pickup shared / takeover, after sp1_midi_main_tick: let destination `dest`'s CC move `*value`
+ * (fader space, 0..1, before detents) by Plaits' catch-up. Returns true when it moved it, and
+ * then the caller's fader must re-check its own pickup against the new value. Always false in
+ * sum, for MODEL, for -1 and for a CC that has not arrived. */
+bool  sp1_midi_drive(int dest, float *value);
+/* Pickup takeover: the port is up and `dest` has a CC, so its fader must not move it. */
+bool  sp1_midi_fader_held(int dest);
 
 struct sp1_midi_stats {
 	uint32_t received;    /* messages queued by USB                       */
@@ -132,6 +154,13 @@ static inline void  sp1_midi_main_tick(uint32_t elapsed_ms) { (void)elapsed_ms; 
 static inline float sp1_midi_offset(int dest) { (void)dest; return 0.0f; }
 static inline bool  sp1_midi_active(void) { return false; }
 static inline bool  sp1_midi_port_up(void) { return false; }
+static inline bool  sp1_midi_drive(int dest, float *value)
+{
+	(void)dest;
+	(void)value;
+	return false;
+}
+static inline bool  sp1_midi_fader_held(int dest) { (void)dest; return false; }
 
 #endif /* CONFIG_SP1_MIDI */
 

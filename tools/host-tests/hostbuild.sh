@@ -18,9 +18,17 @@ OBJ=$SP/hostobj
 python3 "$HERE/mkovr.py" "$OVR" >/dev/null
 mkdir -p "$GEN" "$OBJ"
 python3 "$ROOT/tools/gen_engines.py" "$ROOT/config/engines.csv" "$GEN/sp1_engines_gen.h" >/dev/null
-# The MIDI script (M5a), exactly as the firmware build generates it. miditest_alt.cc uses a
-# second script of its own (below).
-python3 "$ROOT/tools/gen_midi.py" "$ROOT/config/midi.ini" "$GEN/sp1_midi_gen.h" >/dev/null
+# The MIDI script (M5a) as the firmware build generates it -- with ONE change: its `pickup`
+# forced to `sum`, because miditest.cc checks the offset maths and the other suites were
+# written against offsets. miditest_pickup.cc runs the shipped script as it is otherwise, once
+# per other pickup (below); miditest_alt.cc uses a second script of its own.
+# $1 = pickup, $2 = the ini to write. Fails if the script has no `pickup` line to replace.
+pickup_ini() {
+  sed -E 's/^pickup[[:space:]]*=.*/pickup = '"$1"'/' "$ROOT/config/midi.ini" > "$2"
+  grep -Eq "^pickup = $1\$" "$2" || { echo "hostbuild: no pickup line in config/midi.ini" >&2; exit 1; }
+}
+pickup_ini sum "$GEN/midi-sum.ini"
+python3 "$ROOT/tools/gen_midi.py" "$GEN/midi-sum.ini" "$GEN/sp1_midi_gen.h" >/dev/null
 
 INC="-I$OVR -I$SRC/plaits_ovr -I$SRC/plaits_shim -I$ER -I$SRC -I$GEN"
 CXXFLAGS="-std=gnu++14 -O2 -funroll-loops -D_DEFAULT_SOURCE -DTEST -DCONFIG_SP1_PLAITS=1 \
@@ -97,6 +105,24 @@ for t in "$@"; do
       gcc $CFLAGS  $AINC -c $SRC/sp1_marbles_ui.c -o $OBJ/mui_alt.o
       g++ $CXXFLAGS $AINC "$t" $OBJ/sp1_synth_alt.o $OBJ/sp1_marbles.o $OBJ/sp1_midi_alt.o \
           $OBJ/pui_alt.o $OBJ/mui_alt.o "$LIB" -lm -o "$out" ;;
+    *miditest_pickup.cc)
+      # The shipped script under pickup shared and takeover (Adara, M5a round 4): one
+      # binary each, miditest_pickup_shared and miditest_pickup_takeover.
+      for m in shared takeover; do
+        PG=$SP/hostgen_$m
+        mkdir -p "$PG"
+        pickup_ini $m "$PG/midi.ini"
+        python3 "$ROOT/tools/gen_midi.py" "$PG/midi.ini" "$PG/sp1_midi_gen.h" >/dev/null
+        PINC="-I$PG $INC"
+        g++ $CXXFLAGS $PINC -c $SRC/sp1_midi.cc  -o $OBJ/sp1_midi_$m.o
+        g++ $CXXFLAGS $PINC -c $SRC/sp1_synth.cc -o $OBJ/sp1_synth_$m.o
+        gcc $CFLAGS  $PINC -c $SRC/sp1_plaits_ui.c  -o $OBJ/pui_$m.o
+        gcc $CFLAGS  $PINC -c $SRC/sp1_marbles_ui.c -o $OBJ/mui_$m.o
+        g++ $CXXFLAGS $PINC "$t" $OBJ/sp1_synth_$m.o $OBJ/sp1_marbles.o $OBJ/sp1_midi_$m.o \
+            $OBJ/pui_$m.o $OBJ/mui_$m.o "$LIB" -lm -o "${out}_$m"
+        [ "$m" = takeover ] || echo "${out}_$m"
+      done
+      out=${out}_takeover ;;
     *.cc) g++ $CXXFLAGS $INC "$t" $OBJ/sp1_synth.o $OBJ/sp1_marbles.o $OBJ/sp1_midi.o \
               $OBJ/pui.o $OBJ/mui.o "$LIB" -lm -o "$out" ;;
     *.c)  gcc $CFLAGS  $INC "$t" $OBJ/pui.o $OBJ/mui.o $OBJ/sp1_midi.o -lm -o "$out" ;;

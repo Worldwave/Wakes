@@ -89,6 +89,10 @@ void sp1_mui_enter(const uint16_t raw[4], bool fnc);
 #define SP1_MUI_EV_CAUGHT  0xF0u     /* bit 4+i: fader i just caught up               */
 uint32_t sp1_mui_tick(uint32_t elapsed_ms, const uint16_t raw[4], bool valid,
 		      bool fnc, bool activity);
+/* Every tick, whichever module is on show, after sp1_midi_main_tick: MIDI CCs move the
+ * stored values themselves when the script's pickup is shared or takeover (sp1_midi.h).
+ * Does nothing in sum. */
+void sp1_mui_midi(void);
 
 /* ---- buttons (main decodes presses; these apply them and return what changed) ---- */
 bool sp1_mui_set_page(enum sp1_mui_page p);        /* T2 / T3; true if it changed    */

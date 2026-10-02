@@ -16,12 +16,40 @@ Plaits straight away, and everything deeper is set in the MIDI script,
 | **Pitch** | added to FREQUENCY like a V/Oct cable, with **note 60 (C4) adding nothing**. F1 on its centre detent is exactly C4, so a centred F1 plays the keyboard at its real pitch, and moving F1 transposes. While MIDI is in use the FREQUENCY detent is **10 %** of the fader's travel (5 % otherwise), so C4 is easy to land on. |
 | **Pitch bend** | ±2 semitones, or whatever range the host sends (RPN 0, "pitch bend sensitivity"). |
 | **Sustain pedal** | CC 64 holds released notes until it lifts. |
-| **CCs** | each fader parameter on both modules, and Plaits' MODEL, has a CC (chart below). A CC is a **second hand on that fader**: it adds to where the fader is, as an offset, and the fader keeps working. How the CC reads depends on the parameter (below). Stepped parameters (OCTAVE range, LENGTH, Y divider, MODEL) move in whole steps; a MODEL change flashes the new engine's glyph -- the same flash as T2/T3 -- and MIDI changes the engine at most every 50 ms (each change costs the audio a moment, as a T2/T3 press does). MODEL offsets the engine T2/T3 select, so with MODEL away from 0 every engine glyph (T1, T2/T3, coming back from Marbles) shows the engine you **hear**, not the one selected. |
+| **CCs** | each fader parameter on both modules, and Plaits' MODEL, has a CC (chart below). A CC is a **second hand on that fader**; how the two hands share the parameter is the script's `pickup` setting (below). Stepped parameters (OCTAVE range, LENGTH, Y divider, MODEL) move in whole steps; a MODEL change flashes the new engine's glyph -- the same flash as T2/T3 -- and MIDI changes the engine at most every 50 ms (each change costs the audio a moment, as a T2/T3 press does). MODEL offsets the engine T2/T3 select, so with MODEL away from 0 every engine glyph (T1, T2/T3, coming back from Marbles) shows the engine you **hear**, not the one selected. |
 
 The faders, the shift layers, the attenuverters, Marbles and its routing all keep working while
-MIDI plays. MIDI adds to them; it does not take anything over.
+MIDI plays (with one exception you choose: `pickup = takeover`, below).
 
-### How a CC reads: centred or one-sided
+### Pickup: how a CC and its fader share a parameter
+
+The `pickup` line in the MIDI script picks one of three. All three use **Plaits' own pickup** --
+the "catch-up" its knobs do after you load a preset: a control that does not match the value
+never makes it jump. Moving it moves the value **the same way, from where it is**, a little
+faster or slower so that the two meet at the end you are heading for, and from then on the value
+simply follows the control.
+
+- **`shared`** (the default): the CC and the fader are **two hands on one value**. A CC reads
+  just like the fader -- 0 is the bottom, 127 the top, 64 the middle (inside the centre detent
+  where there is one). Move either and it takes the value from wherever the other one left it,
+  catching up with your hand. The fader's LEDs show the value, so you can see where the host put
+  it.
+- **`sum`**: the CC is an **offset** on top of the fader -- fader + CC, as a knob and a CV add
+  on the module. How the CC reads depends on the parameter (below). Unplug and every offset
+  glides back to zero.
+- **`takeover`**: while MIDI is plugged in, the faders whose parameter has a CC **rest**, and only
+  the CC moves it -- catching up with where the fader left it. Unplug and the faders work again,
+  catching up with where the CC left it. (A parameter your script gives no CC keeps its fader.)
+
+In `shared` and `takeover` the CC moves the parameter itself, so unplugging leaves it where the
+CC put it, as letting go of a fader would. Either way, a host knob's **first** value after
+plugging in -- including the snapshot some hosts send when they connect -- only tells Wakes where
+the knob is; nothing moves until you turn it.
+
+MODEL has no fader, so it is an offset from the engine T2/T3 selected in every setting, as are
+the `[bind]` sources (velocity, aftertouch).
+
+### How a CC reads in `sum`: centred or one-sided
 
 Each CC reads the way its parameter works -- the same rule Marbles' INTELLIGENT voltage range
 uses for its outputs:
@@ -34,14 +62,14 @@ uses for its outputs:
   sweeps the whole range. A controller knob resting at 0 leaves the fader in charge.
 - **TIMBRE, MORPH, HARMONICS: per engine.** Centred on an engine where that fader has a centre
   detent, one-sided where it doesn't (`docs/PLAITS-ENGINES.md` has the detents). When an engine
-  change flips how one of these reads, nothing jumps: the parameter **holds** where it was, and
-  the CC **picks up** -- like a fader after a page change -- once your knob crosses that value
-  (or reaches its end, if the held value is out of the new range). Until then the knob does
-  nothing.
+  change flips how one of these reads, nothing jumps: the offset stays where it was and **catches
+  up** with your knob as you turn it, Plaits' way (above).
 
 The fader and the CC add, and the result stops at the parameter's ends -- as a knob and a CV do
 on the module. So a CC that has pushed a parameter all the way to an end leaves the fader
 nothing to move until the CC comes back.
+
+MODEL reads one-sided in every setting: 0 = the engine T2/T3 selected.
 
 ### LEVEL, while a key is down — and only then
 
@@ -58,9 +86,10 @@ notes. Your scale stays selected and comes back when MIDI is unplugged.
 
 - **Plugged in**: the track row plays the Unpatch animation **in reverse** — a cable going in.
   It also plays once when you turn Wakes on with a host already attached.
-- **Unplugged** (or the host goes to sleep): the Unpatch animation as usual, and everything
-  MIDI was doing goes back to neutral — keys released, every CC offset glides back to zero,
-  bend to centre. The device is exactly as playable as before you plugged in.
+- **Unplugged** (or the host goes to sleep): the Unpatch animation as usual, and MIDI goes
+  back to neutral — keys released, bend to centre, and every offset (all of them in `sum`; MODEL
+  and `[bind]` in the others) glides back to zero. In `shared` and `takeover` the values the CCs
+  moved stay where they are, and in `takeover` the faders work again.
 
 Rip out the cables and Unpatch leave MIDI alone: MIDI is not a cable on the panel, and the
 host still thinks its knobs are where it left them.
@@ -78,8 +107,8 @@ and Wakes goes to STANDBY and charges.
 
 ## The CC chart (the shipped script)
 
-"reads" in the generated chart says, for each CC, whether it is centred, one-sided or per
-engine (above).
+With `pickup = sum`, a "reads" column in the generated chart says, for each CC, whether it is
+centred, one-sided or per engine (above).
 
 Every number here is a CC that keyboards and DAWs **do not send on their own**, so out of the box
 nothing moves until you point something at it — map a knob on your controller, or a DAW
@@ -142,6 +171,7 @@ What it sets:
 - `sustain` — `cc N`, or `off`.
 - `cc_smoothing` — 0–200 ms: how long a CC glides to a new value. This is what turns a CC's
   steps into a smooth movement instead of zipper noise.
+- `pickup` — `shared` (default), `sum` or `takeover` (above).
 - one line per parameter — `name = cc N`, or `none`.
 - `[bind]` — `velocity` and `aftertouch` (channel pressure) can push a parameter by a depth
   (`velocity = timbre 40%`). Aimed at `level`, they set how far each note opens LEVEL —

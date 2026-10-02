@@ -8,15 +8,16 @@ proved on a laptop, and because there is exactly one SP-1 (`docs/SAFETY.md`).
 |---|---|---|
 | `uitest.c` | `sp1_plaits_ui.c` + `sp1_marbles_ui.c`, with stubs | pages, layers, pickup, detents, rings, glyph uniqueness, scale stepping, the DEJA VU toggles, the V/Oct interlock, both rip wipes, `[J]`, Unpatch eating its own release (`sp1_release_guard.h`) |
 | `routetest.cc` | all of Plaits and Marbles (with the overrides applied) + `sp1_synth.cc` + `sp1_marbles.cc` + both UI objects | routing, TRIG edges, the summing clamp, the HARMONICS attenuverter, the FREQUENCY quantizer's note sets, the soft-clip drive, the deferred re-seed, INTELLIGENT's per-channel ranges |
-| `miditest.cc` | the same + `sp1_midi.cc`, against the shipped `config/midi.ini` | MIDI in (M5a): note priority and legato off, the LEVEL hand-back through a real LPG, sustain, 7- and 14-bit CCs, smoothing, pitch bend and RPN 0, channel filter, placement inside the audio block, queue overflow, disconnect to neutral, the quantizer bypass, stepped targets, Marbles offsets |
-| `miditest_alt.cc` | the same, built against `midi-alt.ini` | omni, legato on, Yarns' portamento curve, velocity -> LEVEL, aftertouch -> TIMBRE, no sustain pedal, bend range |
+| `miditest.cc` | the same + `sp1_midi.cc`, against the shipped `config/midi.ini` with its `pickup` set to `sum` | MIDI in (M5a): note priority and legato off, the LEVEL hand-back through a real LPG, sustain, 7- and 14-bit CCs read by polarity, the catch-up across an engine change, smoothing, pitch bend and RPN 0, channel filter, placement inside the audio block, queue overflow, disconnect to neutral, the quantizer bypass, stepped targets, Marbles offsets |
+| `miditest_pickup.cc` | the same, against the shipped script with `pickup` set to `shared`, then `takeover`: two binaries, `miditest_pickup_shared` and `miditest_pickup_takeover` | a CC as a second hand on the fader's value: its first value only a reference, Plaits' catch-up both ways between CC and fader, a rip under a CC, a page not on show, Marbles not on show, MODEL still an offset, a disconnect leaving the values; takeover's resting faders and their catch-up after unplugging |
+| `miditest_alt.cc` | the same, built against `midi-alt.ini` (pickup `sum`) | omni, legato on, Yarns' portamento curve, velocity -> LEVEL, aftertouch -> TIMBRE, no sustain pedal, bend range |
 | `third_party/feldd/test/test_usb_rt_parse.c` | feldd's packet validator | feldd's own test, unmodified |
 
 ```sh
 tools/host-tests/hostbuild.sh routetest.cc uitest.c miditest.cc miditest_alt.cc \
-    ../../third_party/feldd/test/test_usb_rt_parse.c          # prints each binary's path
+    miditest_pickup.cc ../../third_party/feldd/test/test_usb_rt_parse.c   # prints each path
 cd /tmp/wakes-sp1-host && ./routetest && ./uitest && ./miditest && ./miditest_alt \
-    && ./test_usb_rt_parse
+    && ./miditest_pickup_shared && ./miditest_pickup_takeover && ./test_usb_rt_parse
 ```
 
 Builds go to `$TMPDIR/wakes-sp1-host` (override with `SP1_HOST_BUILD_DIR`); nothing is written

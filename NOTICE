@@ -86,7 +86,8 @@ third_party/eurorack/
   Mutable Instruments Yarns from the same eurorack commit -- the mono branches
   of yarns/part.cc (Part::InternalNoteOn/Off, its legato modes and hold
   pedal) and yarns/voice.cc (Voice::NoteOn/Refresh: portamento, with Yarns'
-  portamento table in closed form, and pitch bend). Nothing from yarns/ is
+  portamento table in closed form, and pitch bend), and applies Plaits' pot
+  catch-up (plaits/pot_controller.h) to MIDI CCs. Nothing from yarns/ is
   vendored. It uses stmlib/algorithms/note_stack.h, vendored unmodified from
   the stmlib commit above. firmware/src/plaits_ovr/plaits/dsp/voice.{h,cc}
   also expose the low-pass gate's state for MIDI (M5a).
