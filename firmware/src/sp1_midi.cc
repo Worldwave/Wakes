@@ -284,14 +284,19 @@ void AllNotesOff() {
 
 // ---- CC offsets ---------------------------------------------------------------------------
 // A CC is a second hand on its fader, read the way Marbles' INTELLIGENT range reads its
-// destination (M4c; Adara's M5a test notes): a BIPOLAR parameter takes a CENTRED CC -- 64 =
-// no offset, 0 = a whole travel down, 127 = a whole travel up -- and a UNIPOLAR one a
-// ONE-SIDED CC -- 0 = no offset, 127 = a whole travel up -- so the whole CC range does
-// something, and a host knob resting at 0 leaves the fader in charge.
-//   centred, 7-bit: 64 -> 0, 0 -> -1, 127 -> +1 (63 steps up, 64 down);
-//            14-bit (CC 0-31 + fine half on N+32): 8192 -> 0, 0 -> -1, 16383 -> +1.
+// destination (M4c; Adara's M5a test notes): a BIPOLAR parameter takes a CENTRED CC and a
+// UNIPOLAR one a ONE-SIDED CC, each scaled so that FROM THE FADER'S NEUTRAL POSITION the CC's
+// whole range spans the parameter's whole range -- every CC value does something:
+//   one-sided: neutral is the bottom; 0 = no offset, 127 = a whole travel up.
+//   centred:   neutral is the middle, half a travel from either end; 64 = no offset,
+//              0 = HALF a travel down, 127 = half a travel up. (Round 1 used a whole
+//              travel, so from a centred fader CC 32 already reached the bottom and 96 the
+//              top, and a quarter of the CC range at each end did nothing -- Adara, round 2.)
+//   centred, 7-bit: 64 -> 0, 0 -> -0.5, 127 -> +0.5 (63 steps up, 64 down);
+//            14-bit (CC 0-31 + fine half on N+32): 8192 -> 0, 0 -> -0.5, 16383 -> +0.5.
 //   one-sided, 7-bit: v / 127; 14-bit: v / 16383.
 // A CC that has not arrived since the last neutral is no offset either way.
+const float kCentredSpan = 0.5f;             // fader travel from the middle to either end
 float CcOffset(int d, bool centred) {
   if (!cc_present[d]) {
     return 0.0f;
@@ -301,14 +306,16 @@ float CcOffset(int d, bool centred) {
       return static_cast<float>(cc_msb[d]) / 127.0f;
     }
     const int v = cc_msb[d] - 64;
-    return v >= 0 ? static_cast<float>(v) / 63.0f : static_cast<float>(v) / 64.0f;
+    return kCentredSpan *
+           (v >= 0 ? static_cast<float>(v) / 63.0f : static_cast<float>(v) / 64.0f);
   }
   const int raw = (cc_msb[d] << 7) | cc_lsb[d];
   if (!centred) {
     return static_cast<float>(raw) / 16383.0f;
   }
   const int v = raw - 8192;
-  return v >= 0 ? static_cast<float>(v) / 8191.0f : static_cast<float>(v) / 8192.0f;
+  return kCentredSpan *
+         (v >= 0 ? static_cast<float>(v) / 8191.0f : static_cast<float>(v) / 8192.0f);
 }
 
 void Publish(int d) {

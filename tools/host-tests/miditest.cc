@@ -141,32 +141,48 @@ int main() {
   centre = 0x2;                                // an engine where TIMBRE is bipolar
   cc(3, 127);                                  // TIMBRE, coarse only: 7-bit
   for (int i = 0; i < 100; ++i) block();
-  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] - 1.0f) < 1e-3f, "centred 127 -> +1, %.4f",
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] - 0.5f) < 1e-3f, "centred 127 -> +1/2 travel, %.4f",
         moff[SP1_MIDI_D_TIMBRE]);
   cc(3, 0);
   for (int i = 0; i < 100; ++i) block();
-  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] + 1.0f) < 1e-3f, "centred 0 -> -1");
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] + 0.5f) < 1e-3f, "centred 0 -> -1/2 travel");
   cc(3, 64);
   for (int i = 0; i < 100; ++i) block();
   CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE]) < 1e-4f, "centred 64 -> 0 (neutral)");
   cc(3, 96);
   block();
-  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) - 32.0f / 63.0f) < 1e-4f,
+  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) - 0.5f * 32.0f / 63.0f) < 1e-4f,
         "centred 7-bit 96 -> %.4f", sp1_midi_offset(SP1_MIDI_D_TIMBRE));
   cc(35, 0);                                   // its fine half: now 14-bit, 96 << 7
   block();
-  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) - 4096.0f / 8191.0f) < 1e-4f,
+  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) - 0.5f * 4096.0f / 8191.0f) < 1e-4f,
         "centred 14-bit 12288 -> %.4f", sp1_midi_offset(SP1_MIDI_D_TIMBRE));
   cc(35, 127);
   cc(3, 127);                                  // a new coarse half resets the fine half
   block();
-  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) - 1.0f) < 1e-4f, "MSB after LSB -> 7-bit +1");
+  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) - 0.5f) < 1e-4f, "MSB after LSB -> 7-bit +1/2");
   cc(35, 127);
   block();
-  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) - 1.0f) < 1e-4f, "16383 -> +1");
+  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) - 0.5f) < 1e-4f, "16383 -> +1/2");
   cc(3, 0); cc(35, 0);
   block();
-  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) + 1.0f) < 1e-4f, "0 -> -1");
+  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) + 0.5f) < 1e-4f, "0 -> -1/2");
+  // Adara's round-2 case: HARMONICS on virtual analog (bipolar), fader on its centre. The
+  // parameter is centre + offset, and EVERY CC value must move it: 0 reaches 0, 127 reaches
+  // 1, and 32 / 96 land a quarter of the way in -- not already at the ends.
+  centre = 0x1;
+  {
+    const uint8_t v[4] = { 0, 32, 96, 127 };
+    const float want[4] = { 0.0f, 0.25f, 0.754f, 1.0f };
+    for (int k = 0; k < 4; ++k) {
+      cc(14, v[k]);
+      block();
+      const float h = 0.5f + sp1_midi_offset(SP1_MIDI_D_HARMONICS);
+      CHECK(fabsf(h - want[k]) < 0.01f, "HARMONICS from centre, CC 14 = %u -> %.3f (want %.3f)",
+            v[k], h, want[k]);
+    }
+  }
+  centre = 0x2;
 
   centre = 0;                                  // an engine where TIMBRE is unipolar
   block();
@@ -190,7 +206,8 @@ int main() {
   CHECK(sp1_midi_offset(SP1_MIDI_D_LPG_COLOUR) == 0.0f, "LPG colour CC 0 -> no offset");
   cc(15, 0);
   block();
-  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_FREQUENCY) + 1.0f) < 1e-4f, "FREQUENCY CC 0 -> -1");
+  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_FREQUENCY) + 0.5f) < 1e-4f,
+        "FREQUENCY CC 0 -> -1/2 travel (-48 st: C4 down to the bottom of the full range)");
   cc(15, 64);
   block();
   CHECK(sp1_midi_offset(SP1_MIDI_D_FREQUENCY) == 0.0f, "FREQUENCY CC 64 -> 0");
@@ -380,6 +397,21 @@ int main() {
         "MODEL 127 -> last filled slot (%d), got engine %d", lastf, sp1_pui_engine());
   CHECK(sp1_pui_eslot() == lastf && sp1_pui_slot() == sel_slot,
         "the PLAYING slot moves (the flash's cue), the selection does not");
+  {
+    // The glyph is the engine you HEAR (Adara, round 2): MODEL at the top, so stepping the
+    // selection on with T3 still plays -- and must still show -- the last filled slot.
+    // (Not T2: from the first slot it wraps round to the last, where MODEL already is.)
+    uint8_t shown[4], want[4];
+    sp1_pui_engine_leds(shown);
+    sp1_pui_slot_leds(lastf, want);
+    CHECK(memcmp(shown, want, 4) == 0, "engine glyph = the PLAYING slot's");
+    sp1_pui_engine_step(+1);
+    sp1_pui_engine_leds(shown);
+    sp1_pui_slot_leds(sp1_pui_eslot(), want);
+    CHECK(memcmp(shown, want, 4) == 0 && sp1_pui_eslot() != sp1_pui_slot(),
+          "after T3 with MODEL offset: the glyph shows the slot playing, not the selection");
+    sp1_pui_engine_step(-1);                   // back to the original selection
+  }
   cc(105, 0);
   render_rms(1);
   sp1_midi_main_tick(8);
@@ -433,7 +465,7 @@ int main() {
   CHECK(mp.rate > rate0 && mp.rate < 60.0f, "RATE glides in the control loop: %.1f", mp.rate);
   for (int i = 0; i < 50; ++i) sp1_midi_main_tick(8);
   sp1_mui_params(&mp);
-  CHECK(fabsf(mp.rate - 60.0f) < 0.1f, "RATE +1 travel from centre -> +60 st (clamped), %.2f",
+  CHECK(fabsf(mp.rate - 60.0f) < 0.1f, "RATE CC 127 from centre -> +60 st, the top, %.2f",
         mp.rate);
   const int len0 = mp.length;
   cc(103, 0);                                  // LENGTH: one-sided, 0 = no offset

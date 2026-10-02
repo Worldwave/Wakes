@@ -16,7 +16,7 @@ Plaits straight away, and everything deeper is set in the MIDI script,
 | **Pitch** | added to FREQUENCY like a V/Oct cable, with **note 60 (C4) adding nothing**. F1 on its centre detent is exactly C4, so a centred F1 plays the keyboard at its real pitch, and moving F1 transposes. While MIDI is in use the FREQUENCY detent is **10 %** of the fader's travel (5 % otherwise), so C4 is easy to land on. |
 | **Pitch bend** | ±2 semitones, or whatever range the host sends (RPN 0, "pitch bend sensitivity"). |
 | **Sustain pedal** | CC 64 holds released notes until it lifts. |
-| **CCs** | each fader parameter on both modules, and Plaits' MODEL, has a CC (chart below). A CC is a **second hand on that fader**: it adds to where the fader is, as an offset, and the fader keeps working. How the CC reads depends on the parameter (below). Stepped parameters (OCTAVE range, LENGTH, Y divider, MODEL) move in whole steps; a MODEL change flashes the new engine's glyph, and MIDI changes the engine at most every 50 ms (each change costs the audio a moment, as a T2/T3 press does). |
+| **CCs** | each fader parameter on both modules, and Plaits' MODEL, has a CC (chart below). A CC is a **second hand on that fader**: it adds to where the fader is, as an offset, and the fader keeps working. How the CC reads depends on the parameter (below). Stepped parameters (OCTAVE range, LENGTH, Y divider, MODEL) move in whole steps; a MODEL change flashes the new engine's glyph -- the same flash as T2/T3 -- and MIDI changes the engine at most every 50 ms (each change costs the audio a moment, as a T2/T3 press does). MODEL offsets the engine T2/T3 select, so with MODEL away from 0 every engine glyph (T1, T2/T3, coming back from Marbles) shows the engine you **hear**, not the one selected. |
 
 The faders, the shift layers, the attenuverters, Marbles and its routing all keep working while
 MIDI plays. MIDI adds to them; it does not take anything over.
@@ -27,11 +27,11 @@ Each CC reads the way its parameter works -- the same rule Marbles' INTELLIGENT 
 uses for its outputs:
 
 - **centred** parameters, whose middle is "nothing happening" (FREQUENCY, the attenuverters,
-  RATE, BIAS, DEJA VU, STEPS): **64 = no change**, 0 = a whole fader's travel down, 127 = a whole
-  travel up.
+  RATE, BIAS, DEJA VU, STEPS): **64 = no change**, 0 and 127 = half a fader's travel down and
+  up -- so with the fader on its centre, the CC sweeps the whole range, end to end.
 - **one-sided** parameters (LPG colour and decay, LEVEL, JITTER, gate length, SPREAD, and the
-  stepped ones): **0 = no change**, 127 = a whole travel up. A controller knob resting at 0
-  leaves the fader in charge.
+  stepped ones): **0 = no change**, 127 = a whole travel up -- so with the fader at 0, the CC
+  sweeps the whole range. A controller knob resting at 0 leaves the fader in charge.
 - **TIMBRE, MORPH, HARMONICS: per engine.** Centred on an engine where that fader has a centre
   detent, one-sided where it doesn't (`docs/PLAITS-ENGINES.md` has the detents). Change engine
   and the CC is re-read the new way at once.

@@ -28,9 +28,10 @@
  *
  * ---- how a CC reads: by the parameter's polarity (Adara's M5a test notes) ----
  * The rule Marbles' INTELLIGENT range uses (M4c), applied to CCs: a BIPOLAR parameter -- one
- * whose centre is its neutral point -- takes a CENTRED CC (64 = no change, 0 / 127 = a whole
- * fader's travel down / up); a UNIPOLAR one takes a ONE-SIDED CC (0 = no change, 127 = a whole
- * travel up). Which is which is tools/gen_midi.py's POLARITY table; for TIMBRE, MORPH and
+ * whose centre is its neutral point -- takes a CENTRED CC (64 = no change, 0 / 127 = half a
+ * fader's travel down / up, i.e. from a centred fader exactly to either end); a UNIPOLAR one
+ * takes a ONE-SIDED CC (0 = no change, 127 = a whole travel up, i.e. from a fader at 0 exactly
+ * to the top). Either way, from the fader's neutral position every CC value does something. Which is which is tools/gen_midi.py's POLARITY table; for TIMBRE, MORPH and
  * HARMONICS it is the playing engine's detent bits (SP1_ENGINE_TABLE[].centre), exactly as
  * INTELLIGENT reads them. Both readings are kept, and the reader picks at the moment it
  * applies the offset, so an engine change re-reads the CC the right way at once.

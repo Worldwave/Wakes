@@ -231,11 +231,9 @@
  * the shutdown animation and the backstop warning always win, and an Unpatch or rip hold on
  * the same row makes it stand down. */
 #define SP1_MIDI_PROMPT_SETTLE_MS 250u
-/* MIDI's MODEL CC moved the engine (M5a test notes, Adara): the new engine's glyph, QUICKLY --
- * shorter than the T2/T3 engine flash (SP1_DISP_ENGINE_HOLD_MS), because a swept CC changes
- * engine many times a second and each change restarts it. */
-#define SP1_MODEL_FLASH_HOLD_MS   200u
-#define SP1_MODEL_FLASH_FADE_MS   150u
+/* MIDI's MODEL CC moved the engine: the same engine flash as T2/T3 (SP1_DISP_ENGINE_HOLD_MS /
+ * _FADE_MS), so there is one animation for "the engine changed" (Adara, M5a round 2 -- a
+ * shorter one was hard to read). A sweep restarts it at each change, as scrolling T2/T3 does. */
 #define SP1_DISP_ENGINE_HOLD_MS  700u   /* pattern shown solid (Adara: 0.7 s)      */
 #define SP1_DISP_ENGINE_FADE_MS  350u   /* then cross-fades into the page         */
 /* M3c: glyphs are drawn by hand (SLOT_GLYPHS) -- each LED off, half or full. */

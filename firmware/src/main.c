@@ -320,18 +320,19 @@ static void midi_tick(uint32_t dt, bool busy)
 		       : "neutral: notes released, offsets back to zero");
 	}
 
-	/* ---- MODEL moved by MIDI: flash the new engine's glyph, quickly (Adara) ----
-	 * Only when the engine PLAYING changed while the selection did not: a T2/T3 press has
-	 * its own, longer engine flash. Any module, so a change made by the host is seen even
-	 * from the Marbles pages. Stands down while something else owns the row. */
+	/* ---- MODEL moved by MIDI: the engine flash, exactly as T2/T3 draw it (Adara) ----
+	 * Same call, so the same hold and fade -- one animation for "the engine changed",
+	 * whatever changed it. Only when the engine PLAYING changed while the selection did
+	 * not: a T2/T3 press draws its own flash. Any module, so a change made by the host is
+	 * seen even from the Marbles pages. Stands down while something else owns the row. */
 	const int es = sp1_pui_eslot();
 	const int sel = sp1_pui_slot();
 	if (es != midi_eslot_was && sel == midi_sel_was) {
 		printk("MODEL %s (MIDI)\n", sp1_pui_engine_name());
 		if (!busy) {
 			uint8_t g[4];
-			sp1_pui_slot_leds(es, g);
-			sp1_display_flash(g, SP1_MODEL_FLASH_HOLD_MS, SP1_MODEL_FLASH_FADE_MS);
+			sp1_pui_engine_leds(g);
+			sp1_display_engine(g);
 		}
 	}
 	midi_eslot_was = es;
@@ -461,17 +462,24 @@ static void plaits_buttons(bool fnc, bool running, uint32_t dt)
 			uint8_t elv[4];
 			sp1_pui_engine_leds(elv);
 			sp1_display_engine(elv);
-			printk("ENGINE slot %d: %s (plaits %d)  [shown]\n",
-			       sp1_pui_slot() + 1, sp1_pui_engine_name(), sp1_pui_engine());
+			printk("ENGINE slot %d: %s (plaits %d)  [shown]%s\n",
+			       sp1_pui_eslot() + 1, sp1_pui_engine_name(), sp1_pui_engine(),
+			       sp1_pui_eslot() != sp1_pui_slot() ? "  (MODEL offset)" : "");
 		}
 		/* T2 previous engine, T3 next (UI-SPEC). */
 		if (step != 0) {
 			const int sl = sp1_pui_engine_step(step);
 			uint8_t elv[4];
-			sp1_pui_engine_leds(elv);
+			sp1_pui_engine_leds(elv);    /* the engine PLAYING (MODEL offset included) */
 			sp1_display_engine(elv);
-			printk("ENGINE slot %d: %s (plaits %d)\n", sl + 1,
-			       sp1_pui_engine_name(), sp1_pui_engine());
+			if (sp1_pui_eslot() != sl) {
+				printk("ENGINE slot %d selected, slot %d playing: %s (plaits %d)"
+				       "  (MODEL offset)\n", sl + 1, sp1_pui_eslot() + 1,
+				       sp1_pui_engine_name(), sp1_pui_engine());
+			} else {
+				printk("ENGINE slot %d: %s (plaits %d)\n", sl + 1,
+				       sp1_pui_engine_name(), sp1_pui_engine());
+			}
 		}
 	} else {
 		/* ---- SETTINGS: T1 shows the scale, T2 / T3 select it, T4 the output ---- */

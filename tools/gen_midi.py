@@ -70,9 +70,10 @@ KIND = {'audio': 0, 'main': 1, 'step': 2}
 # ---- which way each CC reads: the INTELLIGENT rule (M4c), applied to MIDI (M5a test notes) ----
 # Same policy as Marbles' INTELLIGENT [J] range (sp1_marbles.cc, IntelligentRange): a BIPOLAR
 # parameter -- one whose centre is its neutral point -- takes a centred CC (64 = no change,
-# 0 / 127 = a whole fader's travel down / up); a UNIPOLAR one takes a one-sided CC (0 = no
-# change, 127 = a whole travel up), so the whole CC range is usable and a host knob at 0 leaves
-# the fader alone. 'engine:<bit>' = decided per engine by the detent table, exactly as
+# 0 / 127 = half a fader's travel down / up: from a centred fader, exactly the two ends); a
+# UNIPOLAR one takes a one-sided CC (0 = no change, 127 = a whole travel up: from a fader at 0,
+# exactly the top). So from the fader's neutral position the whole CC range is usable, and a
+# host knob at 0 leaves a one-sided parameter's fader alone. 'engine:<bit>' = decided per engine by the detent table, exactly as
 # INTELLIGENT decides it for TIMBRE / MORPH / HARMONICS (SP1_ENGINE_TABLE[].centre bits:
 # 0x1 HARMONICS, 0x2 TIMBRE, 0x4 MORPH). Not a new table: the bipolar faders are the ones with
 # a centre detent (docs/PLAITS-ENGINES.md, sp1_plaits_ui.c, sp1_marbles_ui.c is_bipolar).
@@ -331,9 +332,10 @@ def write_charts(d, cfg, ccs, binds):
           % cfg['bend_range'],
           '- Sustain pedal: %s' % ('CC %d' % cfg['sustain'] if cfg['sustain'] >= 0 else 'off'),
           '- Every CC is an **offset** on its fader. **centred** parameters: 64 = no change,',
-          '  0 / 127 = a whole travel down / up. **one-sided** parameters: 0 = no change,',
-          '  127 = a whole travel up. **per engine**: centred when that engine gives the',
-          '  fader a centre detent, one-sided otherwise. CC 0–31 are 14-bit (fine half on N+32).',
+          '  0 / 127 = half a travel down / up (from a centred fader: the two ends).',
+          '  **one-sided** parameters: 0 = no change, 127 = a whole travel up (from a fader at',
+          '  0: the top). **per engine**: centred when that engine gives the fader a centre',
+          '  detent, one-sided otherwise. CC 0–31 are 14-bit (fine half on N+32).',
           '',
           '| CC | fine | parameter | reads | where |', '|---|---|---|---|---|']
     rows = sorted((n, i) for i, n in enumerate(ccs) if n >= 0)

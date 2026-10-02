@@ -176,7 +176,8 @@ void sp1_pui_slot_leds(int slot, uint8_t out[4]);
  * ⚠️ The faders do not move; pickup catches them up (Adara: by design). */
 void sp1_pui_rip(void);
 const char *sp1_pui_engine_name(void);
-/* The current slot's glyph as LED levels (fixed per slot, tools/gen_engines.py). */
+/* The glyph of the engine PLAYING (sp1_pui_eslot: the selection moved by MIDI's MODEL CC) as
+ * LED levels -- fixed per slot, tools/gen_engines.py. What T1, T2/T3 and the module swap flash. */
 void sp1_pui_engine_leds(uint8_t out[4]);
 /* T3 = +1, T2 = -1. Wraps; skips empty slots. Returns the new SLOT. */
 int  sp1_pui_engine_step(int dir);

@@ -542,11 +542,10 @@ void sp1_pui_rip(void)
 
 void sp1_pui_engine_leds(uint8_t out[4])
 {
-	static const uint8_t L[3] = { 0u, SP1_ENGINE_LED_HALF, SP1_ENGINE_LED_FULL };
-	for (int i = 0; i < 4; i++) {
-		const uint8_t k = SP1_ENGINE_TABLE[slot].led[i];
-		out[i] = L[k < 3u ? k : 0u];
-	}
+	/* The engine PLAYING, not the one T2/T3 selected (Adara, M5a): with MIDI's MODEL CC
+	 * offsetting the selection, the glyph has to show what you hear. Without a MODEL offset
+	 * the two are the same slot. */
+	sp1_pui_slot_leds(eslot(), out);
 }
 const char *sp1_pui_engine_name(void)   { return SP1_ENGINE_TABLE[eslot()].name; }
 int  sp1_pui_eslot(void)                { return eslot(); }
