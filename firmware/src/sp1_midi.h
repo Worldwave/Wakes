@@ -34,7 +34,8 @@
  * to the top). Either way, from the fader's neutral position every CC value does something. Which is which is tools/gen_midi.py's POLARITY table; for TIMBRE, MORPH and
  * HARMONICS it is the playing engine's detent bits (SP1_ENGINE_TABLE[].centre), exactly as
  * INTELLIGENT reads them. Both readings are kept, and the reader picks at the moment it
- * applies the offset, so an engine change re-reads the CC the right way at once.
+ * applies the offset. When an engine change flips a reading, the offset is HELD and the CC
+ * picks up once the host knob crosses it (sp1_midi.cc, PickupTarget) -- nothing jumps.
  *
  * ---- three states (M5 plan, B6) ----
  *   port up      the host has enabled our MIDI interface. Drives the plug/unplug prompt.

@@ -33,8 +33,11 @@ uses for its outputs:
   stepped ones): **0 = no change**, 127 = a whole travel up -- so with the fader at 0, the CC
   sweeps the whole range. A controller knob resting at 0 leaves the fader in charge.
 - **TIMBRE, MORPH, HARMONICS: per engine.** Centred on an engine where that fader has a centre
-  detent, one-sided where it doesn't (`docs/PLAITS-ENGINES.md` has the detents). Change engine
-  and the CC is re-read the new way at once.
+  detent, one-sided where it doesn't (`docs/PLAITS-ENGINES.md` has the detents). When an engine
+  change flips how one of these reads, nothing jumps: the parameter **holds** where it was, and
+  the CC **picks up** -- like a fader after a page change -- once your knob crosses that value
+  (or reaches its end, if the held value is out of the new range). Until then the knob does
+  nothing.
 
 The fader and the CC add, and the result stops at the parameter's ends -- as a knob and a CV do
 on the module. So a CC that has pushed a parameter all the way to an end leaves the fader

@@ -215,6 +215,65 @@ int main() {
   CHECK(sp1_midi_offset(SP1_MIDI_D_MORPH) == 0.0f, "an unsent CC is no offset");
   reset();
 
+  // ---- §5b pickup when an engine change re-reads a CC (Adara, round 3) ----
+  // TIMBRE centred on one engine, one-sided on the next: the SAME knob position means a
+  // different offset. The offset holds through the change, and the knob catches it up.
+  printf("§5b CC pickup across an engine change\n");
+  centre = 0x2;                                // TIMBRE centred
+  block();
+  cc(3, 96);                                   // centred: +0.254
+  for (int i = 0; i < 100; ++i) block();
+  const float before = moff[SP1_MIDI_D_TIMBRE];
+  CHECK(fabsf(before - 0.5f * 32.0f / 63.0f) < 1e-3f, "centred 96 -> %.3f", before);
+  centre = 0;                                  // engine change: TIMBRE now one-sided
+  for (int i = 0; i < 100; ++i) block();
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] - before) < 1e-3f,
+        "no jump on the engine change: still %.3f (one-sided 96 would be 0.756)",
+        moff[SP1_MIDI_D_TIMBRE]);
+  CHECK(fabsf(sp1_midi_offset(SP1_MIDI_D_TIMBRE) - before) < 1e-3f, "held while catching");
+  cc(3, 40);                                   // 0.315: still on the same side, still held
+  for (int i = 0; i < 100; ++i) block();
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] - before) < 1e-3f, "not caught yet: %.3f",
+        moff[SP1_MIDI_D_TIMBRE]);
+  cc(3, 30);                                   // 0.236: crossed the held offset -> tracks
+  for (int i = 0; i < 100; ++i) block();
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] - 30.0f / 127.0f) < 1e-3f, "caught: tracks the knob, %.3f",
+        moff[SP1_MIDI_D_TIMBRE]);
+  cc(3, 64);
+  for (int i = 0; i < 100; ++i) block();
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] - 64.0f / 127.0f) < 1e-3f, "and keeps tracking");
+  // A held offset the new reading cannot reach: centred -0.25 under a one-sided reading
+  // (which bottoms out at 0) is caught when the knob reaches 0.
+  centre = 0x2;
+  for (int i = 0; i < 100; ++i) block();       // flips back to centred: holds 0.504 again,
+                                               // above the centred range's top (0.5)
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] - 64.0f / 127.0f) < 1e-3f, "held across the flip back");
+  cc(3, 127);                                  // the knob's top: caught there
+  for (int i = 0; i < 100; ++i) block();
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] - 0.5f) < 1e-3f, "caught at the top: 0.5, %.3f",
+        moff[SP1_MIDI_D_TIMBRE]);
+  cc(3, 32);                                   // tracking: centred -0.25
+  for (int i = 0; i < 100; ++i) block();
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] + 0.25f) < 1e-3f, "centred 32 -> -0.25, %.3f",
+        moff[SP1_MIDI_D_TIMBRE]);
+  centre = 0;
+  cc(3, 10);                                   // one-sided 0.079: above -0.25, held
+  for (int i = 0; i < 100; ++i) block();
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] + 0.25f) < 1e-3f, "unreachable hold: still -0.25");
+  cc(3, 0);                                    // the knob's end: caught there
+  for (int i = 0; i < 100; ++i) block();
+  CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE]) < 1e-3f, "caught at the knob's end: 0, %.3f",
+        moff[SP1_MIDI_D_TIMBRE]);
+  // A reset clears a catch.
+  centre = 0x2;
+  cc(3, 127);
+  for (int i = 0; i < 100; ++i) block();
+  centre = 0;
+  block();
+  reset();
+  CHECK(sp1_midi_offset(SP1_MIDI_D_TIMBRE) == 0.0f, "a disconnect leaves nothing held");
+  centre = 0;
+
   // ---- §6 smoothing: cc_smoothing = 10 ms, a one-pole once per audio block ----
   // The message reaches the target in the first block and the smoothing from the second:
   // two smoothing steps of 5 ms after that are one time constant.

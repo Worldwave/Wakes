@@ -344,6 +344,58 @@ inline float Target(int d, uint8_t centre) {
   return Bipolar(d, centre) ? target_bi[d] : target_uni[d];
 }
 
+// ---- pickup when an engine change re-reads a CC (Adara, M5a round 3) ----
+// TIMBRE, MORPH and HARMONICS read their CC centred or one-sided depending on the engine, so an
+// engine change can give the SAME host knob position a different meaning -- a jump. Instead, on
+// that flip the offset is HELD where it was, and the CC is CATCHING: the host knob does nothing
+// until its new reading crosses the held offset, then it tracks again. The faders' own pickup
+// (sp1_plaits_ui.c), applied to a CC; the host is never asked to move anything.
+//   - A held offset the new reading cannot reach (a centred -0.25 under a one-sided reading,
+//     which bottoms out at 0) is caught when the knob reaches that end instead.
+//   - Only a CC that has arrived can catch; a reset or a disconnect clears every catch.
+//   - The other destinations' readings never flip, so they never catch.
+const float kCatch = 0.01f;                  // close enough to count as met, fader travel
+bool pk_known[SP1_MIDI_AUDIO_DESTS];         // pk_bi is valid
+bool pk_bi[SP1_MIDI_AUDIO_DESTS];            // the reading at the last block
+volatile bool pk_catch[SP1_MIDI_AUDIO_DESTS];
+volatile float pk_held[SP1_MIDI_AUDIO_DESTS];
+bool pk_above[SP1_MIDI_AUDIO_DESTS];         // the reading started above the held offset
+
+// AUDIO THREAD, once per audio block: destination d's offset with pickup applied.
+float PickupTarget(int d, uint8_t centre) {
+  const float r = Target(d, centre);
+  if ((SP1_MIDI_POLARITY[d] & 0x10u) == 0u) {
+    return r;
+  }
+  const bool bi = Bipolar(d, centre);
+  if (!pk_known[d]) {
+    pk_known[d] = true;
+    pk_bi[d] = bi;
+  } else if (bi != pk_bi[d]) {
+    // What the knob means RIGHT NOW under the reading being left -- not the offset applied
+    // at the last block, which lags a CC that arrived during it. Already catching: the
+    // held offset stays as it is.
+    const float was = pk_bi[d] ? target_bi[d] : target_uni[d];
+    pk_bi[d] = bi;
+    if (cc_present[d] && !pk_catch[d] && fabsf(r - was) >= kCatch) {
+      pk_held[d] = was;
+      pk_above[d] = r > was;
+      pk_catch[d] = true;
+    }
+  }
+  if (pk_catch[d]) {
+    const float held = pk_held[d];
+    const float lo = bi ? -kCentredSpan : 0.0f;
+    const float hi = bi ? kCentredSpan : 1.0f;
+    const bool met = fabsf(r - held) < kCatch || (r > held) != pk_above[d];
+    const bool at_end = (held < lo && r <= lo + kCatch) || (held > hi && r >= hi - kCatch);
+    if (met || at_end || !cc_present[d]) {
+      pk_catch[d] = false;
+    }
+  }
+  return pk_catch[d] ? pk_held[d] : r;
+}
+
 void PublishAll() {
   for (int d = 0; d < SP1_MIDI_DESTS; ++d) {
     Publish(d);
@@ -356,6 +408,9 @@ void ResetControllers() {
     cc_lsb[d] = 0;
     cc_has_lsb[d] = false;
     cc_present[d] = false;
+  }
+  for (int d = 0; d < SP1_MIDI_AUDIO_DESTS; ++d) {
+    pk_catch[d] = false;                       // nothing left to catch up with
   }
   aftertouch = 0;
   bend = 8192;
@@ -590,6 +645,9 @@ extern "C" float sp1_midi_offset(int d) {
   if (d == SP1_MIDI_D_MODEL) {
     return model_held;
   }
+  if (d < SP1_MIDI_AUDIO_DESTS && pk_catch[d]) {
+    return pk_held[d];                         // held while the CC catches up
+  }
   return SP1_MIDI_KIND[d] == SP1_MIDI_K_MAIN ? main_smooth[d] : Target(d, engine_centre_now);
 }
 
@@ -679,7 +737,7 @@ extern "C" bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t e
   }
   bool zero = true;
   for (int d = 0; d < SP1_MIDI_AUDIO_DESTS; ++d) {
-    const float t = Target(d, engine_centre);
+    const float t = PickupTarget(d, engine_centre);
     float v = smooth[d] + (t - smooth[d]) * smooth_coef;
     if (fabsf(v - t) < 1e-6f) {
       v = t;
