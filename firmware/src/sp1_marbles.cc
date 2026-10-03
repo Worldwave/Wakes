@@ -146,6 +146,11 @@ volatile uint32_t start_count;           // main: incremented on every start
 uint32_t start_seen;                     // audio
 bool t2_was;                             // audio
 
+// ---- an external clock: MIDI's (M5b; sp1_marbles_clock), audio thread ----
+const float* ext_beats;                  // this block's position in beats, or null
+bool ext_was;                            // the last block was external too
+bool ext_resync;                         // align the ramp and the clock at the next block
+
 // ---- audio -> main, for LEDs and the play-row clock ----
 volatile uint8_t last_gates;
 volatile float last_volts[4];
@@ -383,6 +388,23 @@ void RenderXY1k(marbles::ClockSource clk, const GroupSettings& x,
 // XYGenerator::Process, and a block-scope extern declaration names an entity in the
 // innermost enclosing namespace. `extern "C"` is not permitted at block scope at all.
 namespace marbles {
+// M5b: called by the generated override of t_generator.cc, from TGenerator::Process, in
+// external-clock mode with no gate stream -- i.e. when the clock is MIDI's. Fills Marbles'
+// external ramp from the beat position, at the ratio Marbles' own RATE code just chose:
+// one ramp cycle per q/p beats. Returns true when the ramp starts afresh -- a reset, or the
+// clock just became external -- so the override aligns Marbles to it rather than reading the
+// jump from the last ramp as one enormous step of the clock.
+bool sp1_mrb_external_ramp(const Ratio& ratio, bool* reset, float* ramp, size_t size) {
+  const float k = static_cast<float>(ratio.p) / static_cast<float>(ratio.q);
+  for (size_t i = 0; i < size; ++i) {
+    const float x = (ext_beats ? ext_beats[i] : 0.0f) * k;
+    ramp[i] = x - floorf(x);
+  }
+  const bool fresh = ext_resync || *reset;
+  ext_resync = false;
+  return fresh;
+}
+
 int sp1_mrb_channel_range(int channel, int group_range) {
   if (channel < 0 || channel > 3) {
     return group_range;
@@ -432,6 +454,34 @@ extern "C" void sp1_marbles_run(bool on) {
     start_count = start_count + 1u;
   }
   run_req = on;
+}
+
+extern "C" void sp1_marbles_clock(const float* beats, int transport) {
+  // Audio thread. The run state is PLAY's own, so either can change it (C6); a START is a
+  // start_count like PLAY's, so the next render resets and puts the clock at the end of its
+  // cycle -- and with the ramp still until beat 1, that cycle ends on beat 1's sample.
+  ext_beats = beats;
+  if (beats && !ext_was) {
+    ext_resync = true;                   // a cable just went in
+  }
+  ext_was = beats != nullptr;
+  switch (transport) {
+    case SP1_MRB_TP_START:
+      start_count = start_count + 1u;
+      run_req = true;
+      break;
+    case SP1_MRB_TP_CONTINUE:
+      if (!run_req) {
+        run_req = true;
+        ext_resync = true;
+      }
+      break;
+    case SP1_MRB_TP_STOP:
+      run_req = false;
+      break;
+    default:
+      break;
+  }
 }
 
 extern "C" bool sp1_marbles_running(void) {
@@ -521,8 +571,10 @@ extern "C" void sp1_marbles_render(uint32_t n) {
   ramps.slave[0] = &ramp_buffer[kN * 2];
   ramps.slave[1] = &ramp_buffer[kN * 3];
 
+  // External (M5b): no gate stream -- the override fills the ramp from ext_beats instead.
   bool t_reset = reset;
-  t_generator.Process(false, &t_reset, no_clock, ramps, gate_buffer, n);
+  const bool ext = ext_beats != nullptr;
+  t_generator.Process(ext, &t_reset, ext ? nullptr : no_clock, ramps, gate_buffer, n);
 
   // ---- X / Y sections (marbles.cc) ----
   // Resolve the four channels' ranges for this block, before Process asks for them.

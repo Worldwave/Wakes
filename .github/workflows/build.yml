@@ -32,13 +32,14 @@ jobs:
           SP1_HOST_BUILD_DIR: ${{ runner.temp }}/host
         run: |
           sh tools/host-tests/hostbuild.sh routetest.cc uitest.c miditest.cc miditest_alt.cc \
-            miditest_pickup.cc ../../third_party/feldd/test/test_usb_rt_parse.c
+            miditest_pickup.cc miditest_clock.cc ../../third_party/feldd/test/test_usb_rt_parse.c
           "$SP1_HOST_BUILD_DIR/routetest"
           "$SP1_HOST_BUILD_DIR/uitest"
           "$SP1_HOST_BUILD_DIR/miditest"
           "$SP1_HOST_BUILD_DIR/miditest_alt"
           "$SP1_HOST_BUILD_DIR/miditest_pickup_shared"
           "$SP1_HOST_BUILD_DIR/miditest_pickup_takeover"
+          "$SP1_HOST_BUILD_DIR/miditest_clock"
           "$SP1_HOST_BUILD_DIR/test_usb_rt_parse"
 
   firmware:

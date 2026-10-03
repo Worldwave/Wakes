@@ -52,6 +52,23 @@
  * applies the offset. When an engine change flips a reading, the offset stays where it was
  * and catches up with the host knob as it moves (sp1_midi.cc, PickupTarget) -- nothing jumps.
  *
+ * ---- MIDI clock and transport -> Marbles (M5b; M5 plan, B8, C5, C6) ----
+ * The script's `clock = on` (the default). Clock (F8, 24 per beat), Start (FA), Continue (FB)
+ * and Stop (FC) are queued and placed like every other message. Once per audio block the audio
+ * thread turns the ticks into a POSITION IN BEATS for each Plaits block: the tempo is the
+ * average tick interval over the last beat, and between ticks the position moves at that tempo
+ * but never past the next tick -- so a host that stops sending ticks leaves Marbles waiting, as
+ * a Eurorack Marbles waits on a stopped clock. sp1_marbles.cc turns the position into Marbles'
+ * external-clock ramp through Marbles' own RATE ratio table (1/4 ... 4, x the t range).
+ *   - The first tick or Start makes Marbles' clock EXTERNAL, until the port goes (C5).
+ *   - Start stops Marbles and arms it: the next tick is beat 1, where it resets and runs, on
+ *     that tick's Plaits block. Continue runs it without a reset. Stop stops it. PLAY still
+ *     runs and stops it locally; the next Start / Stop wins (C6). Song Position: ignored.
+ *   - Pulling the cable while MIDI clocks Marbles STOPS Marbles and gives it back its own
+ *     clock (C5).
+ * Clock is not a channel message: it never makes MIDI "active" (no quantizer bypass, no
+ * wider FREQUENCY detent).
+ *
  * ---- three states (M5 plan, B6) ----
  *   port up      the host has enabled our MIDI interface. Drives the plug/unplug prompt.
  *   active       a valid message has arrived on our channel since the port came up, or a
@@ -116,6 +133,10 @@ struct sp1_midi_stats {
 	uint32_t ignored;     /* other channels and unused message types      */
 	uint8_t  held;        /* keys down now                                */
 	uint8_t  bend_range;  /* semitones now (script, or the host's RPN 0)  */
+	bool     clock_ext;   /* Marbles follows MIDI clock (M5b)             */
+	uint16_t bpm10;       /* the host's tempo x 10, 0 = not measured yet  */
+	uint32_t ticks;       /* clock ticks received                         */
+	uint32_t starts, continues, stops;   /* transport messages acted on   */
 };
 void sp1_midi_get_stats(struct sp1_midi_stats *out);
 
@@ -146,6 +167,20 @@ void sp1_midi_audio_block(uint32_t j, struct sp1_midi_frame *out);
 /* After Plaits rendered that block: its low-pass gate. Ends MIDI's hold on LEVEL once the
  * gate has closed after the last key (or at once when the engine bypasses its LPG). */
 void sp1_midi_audio_lpg(float gain, bool bypassed);
+
+/* MIDI clock for this audio block (M5b, above), after sp1_midi_audio_begin and before
+ * Marbles renders. Always valid, whatever sp1_midi_audio_begin returned. */
+#define SP1_MIDI_TP_NONE     0
+#define SP1_MIDI_TP_START    1   /* beat 1 is in this block: reset and run              */
+#define SP1_MIDI_TP_CONTINUE 2   /* run, no reset                                       */
+#define SP1_MIDI_TP_STOP     3   /* stop (Stop, Start arming, or the cable pulled)      */
+struct sp1_midi_clock {
+	bool         external;   /* Marbles' clock is MIDI's this block                     */
+	uint8_t      transport;  /* SP1_MIDI_TP_*: the last one in this block                */
+	const float *beats;      /* per Plaits block, the position in beats, 0 .. 48;
+				  * beat 1 of a Start is 0 (valid while `external`)          */
+};
+void sp1_midi_audio_clock(struct sp1_midi_clock *out);
 
 #else  /* !CONFIG_SP1_MIDI: no MIDI function on the device; the UI sees it as never used */
 

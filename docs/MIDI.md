@@ -96,6 +96,27 @@ host still thinks its knobs are where it left them.
 
 A charger never enumerates, so it never prompts and never turns MIDI on.
 
+### MIDI clock: Marbles follows the host
+
+Send Wakes MIDI clock (on the OP-XY: turn **clock** on for Wakes in its device settings) and
+Marbles locks to the host, the way a Eurorack Marbles does with a cable in its CLOCK input:
+
+- From the first clock tick, **Marbles' clock is the host's**, until you unplug. The `CLOCK
+  external` line in the log says when it took over.
+- **RATE picks a ratio of the host's beat** instead of a tempo, from Marbles' own table: 1/4,
+  1/3, 1/2, 2/3, **1** (the centre: one Marbles tick per beat), 3/2, 2, 3, 4. The t range setting
+  multiplies that by 4 or ¼, as on the module.
+- **Start** plays from the top: Marbles waits, and its first tick lands exactly on the host's
+  beat 1. **Continue** carries on, **Stop** stops. **PLAY** still runs and stops Marbles on
+  Wakes; whatever the host does next wins.
+- If the host stops sending clock without a Stop, Marbles **waits** for the next tick.
+- **Unplug** while the host is clocking Marbles: Marbles stops and goes back to its own RATE
+  tempo.
+- FFWD's burst follows the host's tempo too.
+
+Clock alone does not count as "MIDI in use": it does not bypass the scale quantizer or widen
+the FREQUENCY detent. `clock = off` in the script makes Wakes ignore clock and transport.
+
 ### Charging
 
 While Wakes is **ON with a USB host attached** -- a computer, a phone, the OP-XY -- it does
@@ -172,6 +193,7 @@ What it sets:
 - `cc_smoothing` — 0–200 ms: how long a CC glides to a new value. This is what turns a CC's
   steps into a smooth movement instead of zipper noise.
 - `pickup` — `shared` (default), `sum` or `takeover` (above).
+- `clock` — `on` (default): Marbles follows MIDI clock and transport (above); `off` ignores them.
 - one line per parameter — `name = cc N`, or `none`.
 - `[bind]` — `velocity` and `aftertouch` (channel pressure) can push a parameter by a depth
   (`velocity = timbre 40%`). Aimed at `level`, they set how far each note opens LEVEL —
@@ -181,9 +203,9 @@ What it sets:
 
 ## Not (yet) here
 
-- **MIDI clock and transport** — following the host's tempo and start/stop with Marbles is the
-  next step (M5b).
-- **USB audio** out — after that (M5c).
+- **USB audio** out (M5c).
+- **Sending clock or transport** back to the host (PLAY driving the host), and **Song Position
+  Pointer** (a Continue carries on from where Marbles is, not from the host's bar).
 - **Sending MIDI** back to the host, and **MIDI 2.0**: Wakes is a MIDI 1.0 device, which every
   MIDI 2.0 host also speaks.
 

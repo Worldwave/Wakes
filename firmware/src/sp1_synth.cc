@@ -485,6 +485,23 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
     pulse_started = true;
   }
 
+#if defined(CONFIG_SP1_MIDI)
+  // ---- MIDI (M5a): this audio block's messages, each placed at its Plaits block, and the
+  // CC offsets, smoothed once per audio block (sp1_midi.h). Taken BEFORE Marbles renders:
+  // this block's clock ticks and transport are Marbles' clock (M5b). ----
+  float moff[SP1_MIDI_AUDIO_DESTS];
+  const bool midi = sp1_midi_audio_begin(Now(), frames / plaits::kBlockSize, c.engine_centre,
+                                         moff);
+  {
+    static_assert(SP1_MIDI_TP_START == SP1_MRB_TP_START &&
+                  SP1_MIDI_TP_CONTINUE == SP1_MRB_TP_CONTINUE &&
+                  SP1_MIDI_TP_STOP == SP1_MRB_TP_STOP, "one set of transport codes");
+    sp1_midi_clock clk;
+    sp1_midi_audio_clock(&clk);
+    sp1_marbles_clock(clk.external ? clk.beats : nullptr, clk.transport);
+  }
+#endif
+
   // Marbles, one sample per Plaits block (the 4 kHz rule, sp1_marbles.h). Stopped,
   // it renders nothing and every Marbles input below stays unpatched.
   const bool mrb = sp1_marbles_running();
@@ -533,16 +550,12 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
   drive_gain_prev = drive_target;
 
 #if defined(CONFIG_SP1_MIDI)
-  // ---- MIDI (M5a): this audio block's messages, each placed at its Plaits block, and the
-  // CC offsets, smoothed once per audio block (sp1_midi.h) ----
+  // ---- MIDI's CC offsets (M5a), taken above ----
   // A CC is a second hand on its fader: the offset is in fader-travel units, so a unipolar
   // parameter takes it as is and an attenuverter (-1..+1, two units of value per unit of
   // travel) takes twice it. Clamped to the parameter's range, as the fader is. Applied ONCE
   // here: the offsets are constant across the audio block. With MIDI idle -- nothing plugged
   // in, or nothing ever sent -- `midi` is false and nothing below runs per Plaits block.
-  float moff[SP1_MIDI_AUDIO_DESTS];
-  const bool midi = sp1_midi_audio_begin(Now(), frames / plaits::kBlockSize, c.engine_centre,
-                                         moff);
   if (midi) {
     patch.timbre = Clamp01(c.timbre + moff[SP1_MIDI_D_TIMBRE]);
     patch.morph = Clamp01(c.morph + moff[SP1_MIDI_D_MORPH]);

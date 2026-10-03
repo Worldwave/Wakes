@@ -150,6 +150,29 @@ const uint32_t kModelStepMs = 50;
 float model_held;                            // the MODEL offset the UI sees
 uint32_t model_since_ms = kModelStepMs;      // since model_held last moved
 
+// ---- MIDI clock -> Marbles (M5b; sp1_midi.h) ----
+const uint32_t kPpqn = 24;                   // MIDI clock: ticks per beat
+const uint32_t kClockWrap = kPpqn * 48;      // 48 beats: a whole period of every ratio
+                                             // Marbles can ask for (q in 1,2,3,4,8,12,16)
+const uint32_t kClockAvg = kPpqn;            // tempo averaged over one beat of ticks
+const uint32_t kClockLost = 8000;            // 2 s without a tick: re-measure the tempo
+const uint32_t kMaxBlocks = 64;              // Plaits blocks per audio block, at most
+Event rt_ev[kQueue];                         // this block's clock / transport messages
+uint8_t rt_at[kQueue];
+uint32_t rt_n;
+bool clk_ext;                                // Marbles' clock is MIDI's (C5)
+bool clk_armed;                              // Start: the next tick is beat 1
+bool clk_had_tick;                           // clk_since measures from a real tick
+uint32_t clk_ticks;                          // since beat 1, mod kClockWrap
+float clk_frac;                              // between ticks, 0 .. 1
+float clk_inc;                               // per Plaits block, in ticks (0 = not known)
+uint16_t clk_iv[kClockAvg];                  // the last tick intervals, in Plaits blocks
+uint32_t clk_iv_sum, clk_iv_n, clk_iv_i;
+uint32_t clk_since;                          // Plaits blocks since the last tick
+uint8_t clk_op;                              // this block's transport (SP1_MIDI_TP_*)
+float clk_beats[kMaxBlocks];
+volatile uint32_t pub_clk_ext, pub_bpm10, st_ticks, st_starts, st_conts, st_stops;
+
 // This audio block's events, each placed at a Plaits block.
 Event block_ev[kQueue];
 uint8_t block_at[kQueue];
@@ -662,11 +685,125 @@ __attribute__((noinline)) void Process(const Event& e) {
   UpdateBendScale();
 }
 
+// ---- MIDI clock (M5b) ---------------------------------------------------------------------
+void ClockForgetTempo() {
+  clk_iv_sum = clk_iv_n = clk_iv_i = 0;
+}
+
+// One tick, at the Plaits block being built.
+void ClockTick() {
+  st_ticks = st_ticks + 1u;
+  clk_ext = true;                              // the first tick makes the clock external
+  if (clk_armed) {
+    // Start was received: this tick is beat 1.
+    clk_armed = false;
+    clk_ticks = 0;
+    clk_op = SP1_MIDI_TP_START;
+    st_starts = st_starts + 1u;
+  } else {
+    clk_ticks = (clk_ticks + 1u) % kClockWrap;
+  }
+  clk_frac = 0.0f;
+  // The interval since the last tick, into the tempo. One that is much longer than the
+  // tempo so far is a pause (the host stopped its clock), not a new tempo: start measuring
+  // afresh rather than average it in.
+  if (clk_had_tick) {
+    const uint32_t iv = clk_since;
+    const bool pause = iv >= kClockLost ||
+                       (clk_iv_n >= 4u && iv * clk_iv_n > 2u * clk_iv_sum);
+    if (pause) {
+      ClockForgetTempo();
+    } else if (iv > 0u) {
+      if (clk_iv_n == kClockAvg) {
+        clk_iv_sum -= clk_iv[clk_iv_i];
+      } else {
+        ++clk_iv_n;
+      }
+      clk_iv[clk_iv_i] = static_cast<uint16_t>(iv);
+      clk_iv_sum += iv;
+      clk_iv_i = (clk_iv_i + 1u) % kClockAvg;
+      // Ticks per Plaits block. One divide per tick, not per block.
+      clk_inc = static_cast<float>(clk_iv_n) / static_cast<float>(clk_iv_sum);
+      pub_bpm10 = (100000u * clk_iv_n + clk_iv_sum / 2u) / clk_iv_sum;   // 10000 / avg
+    }
+  }
+  clk_had_tick = true;
+  clk_since = 0;
+}
+
+void ClockRealTime(uint8_t b) {
+  if (!SP1_MIDI_CLOCK) {
+    return;
+  }
+  switch (b) {
+    case 0xF8:
+      ClockTick();
+      break;
+    case 0xFA:                                 // Start: wait for beat 1, from the top
+      clk_ext = true;
+      clk_armed = true;
+      clk_ticks = 0;
+      clk_frac = 0.0f;
+      clk_op = SP1_MIDI_TP_STOP;
+      break;
+    case 0xFB:                                 // Continue: from where it is
+      clk_ext = true;
+      clk_armed = false;
+      clk_op = SP1_MIDI_TP_CONTINUE;
+      st_conts = st_conts + 1u;
+      break;
+    case 0xFC:
+      clk_armed = false;
+      clk_op = SP1_MIDI_TP_STOP;
+      st_stops = st_stops + 1u;
+      break;
+    default:
+      break;
+  }
+}
+
+// AUDIO THREAD, once per audio block: the clock messages at their Plaits blocks, and the
+// position in beats at each. Every block costs the same, ticking or not (Adara's rule).
+void ClockBlock(uint32_t blocks) {
+  if (blocks > kMaxBlocks) {
+    blocks = kMaxBlocks;
+  }
+  uint32_t r = 0;
+  for (uint32_t j = 0; j < blocks; ++j) {
+    while (r < rt_n && rt_at[r] <= j) {
+      ClockRealTime(rt_ev[r++].msg[0]);
+    }
+    // Between ticks, at the tempo -- but never past the next tick: a late tick holds the
+    // position, a stopped clock stops it. Armed for beat 1, it holds at 0.
+    if (!clk_armed) {
+      clk_frac += clk_inc;
+      if (clk_frac > 1.0f) {
+        clk_frac = 1.0f;
+      }
+    }
+    if (clk_since < 0xFFFFu) {
+      ++clk_since;
+    }
+    clk_beats[j] = (static_cast<float>(clk_ticks) + clk_frac) * (1.0f / kPpqn);
+  }
+  pub_clk_ext = clk_ext ? 1u : 0u;
+}
+
 // Back to neutral: the port went away, or ON was entered. Keys are released (LEVEL closes
 // through its tail), every controller returns to centre (offsets glide back), the bend range
 // returns to the script's. The pitch stays where it is until the tail has ended, so a
 // release does not jump; then it, too, returns.
 void Neutral() {
+  // The clock: a Marbles that MIDI was clocking stops, and has its own clock again (C5).
+  if (clk_ext) {
+    clk_op = SP1_MIDI_TP_STOP;
+  }
+  clk_ext = clk_armed = clk_had_tick = false;
+  clk_ticks = 0;
+  clk_frac = 0.0f;
+  clk_inc = 0.0f;
+  ClockForgetTempo();
+  pub_bpm10 = 0;
   session = false;
   AllNotesOff();
   ResetControllers();
@@ -830,6 +967,12 @@ extern "C" void sp1_midi_get_stats(struct sp1_midi_stats* out) {
   out->ignored = st_ignored;
   out->held = pub_held;
   out->bend_range = pub_bend_range;
+  out->clock_ext = pub_clk_ext != 0u;
+  out->bpm10 = static_cast<uint16_t>(pub_bpm10);
+  out->ticks = st_ticks;
+  out->starts = st_starts;
+  out->continues = st_conts;
+  out->stops = st_stops;
 }
 
 // ==== audio thread ========================================================================
@@ -850,6 +993,8 @@ extern "C" bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t e
       env_expo[i] = e[i] / e[255];
     }
   }
+  clk_op = SP1_MIDI_TP_NONE;
+  rt_n = 0;
   // Disconnected, or ON entered: drop whatever queued and go back to neutral.
   const uint32_t downs = port_downs;
   const uint32_t rr = reset_req;
@@ -892,12 +1037,20 @@ extern "C" bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t e
         }
       }
     }
+    if (e.len == 1u) {
+      // Clock and transport (M5b): not channel messages, handled in ClockBlock below.
+      rt_ev[rt_n] = e;
+      rt_at[rt_n] = static_cast<uint8_t>(at);
+      ++rt_n;
+      continue;
+    }
     block_ev[block_n] = e;
     block_at[block_n] = static_cast<uint8_t>(at);
     ++block_n;
   }
   prev_begin = cycles;
   prev_begin_valid = true;
+  ClockBlock(blocks);
 
   // ---- the CC offsets: smoothed ONCE PER AUDIO BLOCK (5 ms) ----
   // A one-pole at 200 Hz with the script's time constant. That is a finer step than the
@@ -959,6 +1112,12 @@ extern "C" void sp1_midi_audio_block(uint32_t j, sp1_midi_frame* f) {
   trig_pending = false;
   f->owns_level = gate || tail;
   f->gate = gate ? GateHeight() : 0.0f;
+}
+
+extern "C" void sp1_midi_audio_clock(sp1_midi_clock* out) {
+  out->external = clk_ext;
+  out->transport = clk_op;
+  out->beats = clk_beats;
 }
 
 extern "C" void sp1_midi_audio_lpg(float gain, bool bypassed) {

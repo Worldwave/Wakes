@@ -248,6 +248,27 @@ if(CONFIG_SP1_PLAITS)
     extern int sp1_mrb_channel_range(int channel, int group_range);
     switch (static_cast<VoltageRange>(sp1_mrb_channel_range(
         static_cast<int>(i), static_cast<int>(settings.voltage_range)))) {")
+	# M5b: MIDI clock. In external-clock mode with NO gate stream (a null external_clock,
+	# which upstream never passes), the external ramp comes from the host's MIDI clock --
+	# marbles::sp1_mrb_external_ramp in firmware/src/sp1_marbles.cc -- instead of from the
+	# ramp extractor (32 kHz-only, and built for jittery analog clocks). Everything around it
+	# -- RATE's ratio table and hysteresis, the t range, jitter, the slave ramps -- is
+	# upstream's. On a fresh ramp (a reset, or the clock just became external) the step from
+	# the last ramp value is not read as clock movement, and outside a reset the master clock
+	# is aligned to the ramp. Same block-scope extern trick as x_y_generator.cc above.
+	sp1_plaits_override(marbles/random/t_generator.cc
+		"    ramp_extractor_.Process("
+		"    // wakes-sp1 (M5b): no gate stream = MIDI clock (firmware/CMakeLists.txt).
+    extern bool sp1_mrb_external_ramp(const Ratio& ratio, bool* reset, float* ramp,
+                                      size_t size);
+    if (!external_clock) {
+      if (sp1_mrb_external_ramp(ratio, reset, ramps.external, size)) {
+        previous_external_ramp_value_ = *reset ? 0.0f : ramps.external[0];
+        if (!*reset) {
+          master_phase_ = ramps.external[0];
+        }
+      }
+    } else ramp_extractor_.Process(")
 	# M4: Marbles' t generator gets a setter for its master phase, so PLAY starts the
 	# clock on a beat (sp1_marbles.cc). Nothing else in Marbles is changed.
 	sp1_plaits_override(marbles/random/t_generator.h

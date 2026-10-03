@@ -143,6 +143,24 @@ void sp1_marbles_set_params(const struct sp1_marbles_params *p);
 /* Run / stop the clock (PLAY). Starting puts the master clock one sample before a
  * beat, so the first t2 tick -- and whatever t1/t3 decide on it -- comes at once. */
 void sp1_marbles_run(bool on);
+
+/* ---- an external clock: MIDI's (M5b; sp1_midi.h) ----
+ * AUDIO THREAD, before each sp1_marbles_render. `beats` = this block's position in beats,
+ * one per Marbles sample (= Plaits block), or NULL for Marbles' own clock. While external,
+ * RATE picks a RATIO of the beat from Marbles' own table (TGenerator::input_divider_ratios:
+ * 1/4 ... 4, x4 or x1/4 with the t range) through Marbles' own hysteresis -- exactly the
+ * module's external-clock path, with the ramp made from `beats` instead of by its 32 kHz
+ * ramp extractor. `transport`:
+ *   START     reset and run; the ramp holds still until beat 1, so the first tick lands on
+ *             beat 1's own sample
+ *   CONTINUE  run, no reset, the clock aligned to the beat position
+ *   STOP      stop
+ * The run state is the one PLAY sets, so either can change it (C6). */
+#define SP1_MRB_TP_NONE     0
+#define SP1_MRB_TP_START    1
+#define SP1_MRB_TP_CONTINUE 2
+#define SP1_MRB_TP_STOP     3
+void sp1_marbles_clock(const float *beats, int transport);
 bool sp1_marbles_running(void);
 
 /* ---- audio thread ---- */

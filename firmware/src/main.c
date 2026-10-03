@@ -260,6 +260,22 @@ static void unpatch_levels(uint32_t t, uint8_t lv[4])
 	lv[3] = (uint8_t)out;
 }
 
+#if defined(CONFIG_SP1_PLAITS)
+/* The tempo the synth's FFWD burst uses while Marbles is stopped (running, the burst locks to
+ * Marbles' ramp): Marbles' RATE, or the host's beat while MIDI clocks Marbles (M5b). */
+static float tempo_bpm(void)
+{
+#if defined(CONFIG_SP1_MIDI)
+	struct sp1_midi_stats ms;
+	sp1_midi_get_stats(&ms);
+	if (ms.clock_ext && ms.bpm10 != 0u) {
+		return (float)ms.bpm10 * 0.1f;
+	}
+#endif
+	return sp1_mui_bpm();
+}
+#endif
+
 /* ================= the MIDI prompt (M5a, Adara; M5 plan B9) =================
  * MIDI plugged in: the Unpatch animation REVERSED -- light gathers from T1/T4 inwards, drops,
  * blinks, and rises to full: the cable going in. Unplugged: the Unpatch animation as it is,
@@ -286,6 +302,8 @@ static bool     midi_active_was;
 static int      midi_eslot_was;        /* the engine PLAYING at the last tick */
 static int      midi_sel_was;          /* ...and the one T2/T3 selected        */
 static uint32_t midi_drop0;            /* queue drops before this ON (device was off) */
+static bool     midi_clk_was;          /* Marbles was on MIDI's clock at the last tick */
+static uint32_t midi_tp_seen[3];       /* starts, continues, stops already logged   */
 
 /* The prompt's state on entry to ON. (MIDI itself was reset before audio started.) */
 static void midi_enter(void)
@@ -301,6 +319,10 @@ static void midi_enter(void)
 		struct sp1_midi_stats ms;
 		sp1_midi_get_stats(&ms);
 		midi_drop0 = ms.dropped;
+		midi_clk_was = false;
+		midi_tp_seen[0] = ms.starts;
+		midi_tp_seen[1] = ms.continues;
+		midi_tp_seen[2] = ms.stops;
 	}
 }
 
@@ -319,6 +341,13 @@ static void midi_tick(uint32_t dt, bool busy)
 		if (up) {
 			printk("MIDI port enabled by the host (pickup %s)\n",
 			       pickup[SP1_MIDI_PICKUP]);
+			/* A host can start Marbles before PLAY ever has (M5b), so seed its
+			 * random stream now if PLAY has not: the moment a host enumerates
+			 * varies as much as the moment of a first PLAY. */
+			if (!g_seeded && !sp1_marbles_running()) {
+				sp1_marbles_seed(k_cycle_get_32());
+				g_seeded = true;
+			}
 		} else {
 			printk("MIDI port gone\n");
 		}
@@ -329,6 +358,32 @@ static void midi_tick(uint32_t dt, bool busy)
 		printk("MIDI %s\n", active
 		       ? "active: notes and CCs reach Wakes, FREQUENCY quantizer bypassed"
 		       : "neutral: notes released, offsets back to zero");
+	}
+
+	/* ---- MIDI clock and transport (M5b): log what the host did to Marbles ---- */
+	{
+		struct sp1_midi_stats ms;
+		sp1_midi_get_stats(&ms);
+		if (ms.clock_ext != midi_clk_was) {
+			midi_clk_was = ms.clock_ext;
+			printk("CLOCK %s\n", ms.clock_ext
+			       ? "external: Marbles follows MIDI clock, RATE picks the ratio"
+			       : "own: Marbles back on its RATE tempo");
+		}
+		if (ms.starts != midi_tp_seen[0]) {
+			midi_tp_seen[0] = ms.starts;
+			sp1_playrow_clock_reset();
+			printk("CLOCK run (MIDI Start, beat 1): %u.%u BPM\n", ms.bpm10 / 10u,
+			       ms.bpm10 % 10u);
+		}
+		if (ms.continues != midi_tp_seen[1]) {
+			midi_tp_seen[1] = ms.continues;
+			printk("CLOCK run (MIDI Continue)\n");
+		}
+		if (ms.stops != midi_tp_seen[2]) {
+			midi_tp_seen[2] = ms.stops;
+			printk("CLOCK stop (MIDI Stop)\n");
+		}
 	}
 
 	/* ---- MODEL moved by MIDI: the engine flash, exactly as T2/T3 draw it (Adara) ----
@@ -1630,7 +1685,7 @@ int main(void)
 				 * range follows an engine change while the sequence plays. */
 				mp.engine_centre = sp1_pui_engine_centre();
 				sp1_marbles_set_params(&mp);
-				sp1_synth_set_tempo(sp1_mui_bpm());
+				sp1_synth_set_tempo(tempo_bpm());
 
 				/* ---- the play-row clock steps on Marbles' t2 ---- */
 				const uint32_t b = sp1_marbles_beats();
@@ -1834,11 +1889,12 @@ int main(void)
 					if (sp1_midi_port_up() || ms.received != rx_seen) {
 						rx_seen = ms.received;
 						printk("MIDI port=%d act=%d rx=%u drop=%u notes=%u cc=%u"
-						       " ign=%u held=%u bend=%u\n",
+						       " ign=%u held=%u bend=%u clk=%s %u.%u BPM ticks=%u\n",
 						       sp1_midi_port_up() ? 1 : 0,
 						       sp1_midi_active() ? 1 : 0, ms.received,
 						       ms.dropped - midi_drop0, ms.notes, ms.ccs, ms.ignored,
-						       ms.held, ms.bend_range);
+						       ms.held, ms.bend_range, ms.clock_ext ? "midi" : "own",
+						       ms.bpm10 / 10u, ms.bpm10 % 10u, ms.ticks);
 					}
 				}
 #endif

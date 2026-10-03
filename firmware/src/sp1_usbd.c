@@ -124,12 +124,18 @@ void sp1_midi_usb_rx(const uint8_t *data, size_t len)
 	const uint32_t now = DWT->CYCCNT;
 	for (size_t i = 0; i + 4u <= len; i += 4u) {
 		uint8_t msg[3];
-		/* feldd's validator: channel messages only, status nibble must match the
-		 * packet's CIN, data bytes 7-bit. SysEx, system common and real-time (M5b's
-		 * clock) are not channel messages and are dropped here. */
+		/* feldd's validators: a channel message (status nibble must match the packet's
+		 * CIN, data bytes 7-bit), or -- M5b -- one of the four real-time bytes Marbles
+		 * follows: Clock, Start, Continue, Stop. Everything else (SysEx, system common,
+		 * active sensing, reset) is dropped here. */
 		const uint8_t n = usb_midi_extract_voice(&data[i], msg);
 		if (n != 0u) {
 			sp1_midi_push(msg, n, now);
+			continue;
+		}
+		msg[0] = usb_midi_extract_rt(&data[i]);
+		if (SP1_MIDI_CLOCK && msg[0] != 0u) {   /* the script's `clock` */
+			sp1_midi_push(msg, 1u, now);
 		}
 	}
 }

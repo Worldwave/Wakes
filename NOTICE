@@ -75,13 +75,14 @@ third_party/eurorack/
   copies the preset scales from marbles/settings.cc; sp1_marbles_ui.c
   copies the loop-length table from marbles.cc and Plaits' pot catch-up.
   The seventh scale slot (sp1_free_scale in sp1_marbles.cc) is ours, written
-  in Marbles' own Scale format. Two changes to Marbles are applied at build
+  in Marbles' own Scale format. Three changes to Marbles are applied at build
   time to generated copies, by firmware/CMakeLists.txt, leaving the vendored
   files unmodified: marbles/random/t_generator.h gains a master-phase setter
-  so the clock can start on a beat (M4), and marbles/random/x_y_generator.cc
+  so the clock can start on a beat (M4), marbles/random/x_y_generator.cc
   has its per-group voltage-range switch redirected so the range can be
-  chosen per output channel (M4c) -- the policy behind that is ours, in
-  firmware/src/sp1_marbles.cc.
+  chosen per output channel (M4c), and marbles/random/t_generator.cc takes
+  its external-clock ramp from MIDI clock instead of its ramp extractor
+  (M5b) -- the policy behind those is ours, in firmware/src/sp1_marbles.cc.
   MIDI (M5a): firmware/src/sp1_midi.cc ports the monophonic note handling of
   Mutable Instruments Yarns from the same eurorack commit -- the mono branches
   of yarns/part.cc (Part::InternalNoteOn/Off, its legato modes and hold
