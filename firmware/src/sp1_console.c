@@ -15,6 +15,7 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
 #include "sp1_usbd.h"
+#include "sp1_logbuf.h"
 #include <zephyr/app_version.h>   /* generated from firmware/VERSION */
 
 static bool up;
@@ -200,12 +201,25 @@ void sp1_console_poll(uint32_t elapsed_ms, const char *state)
 		uint32_t dtr = 0;
 		if (uart_line_ctrl_get(cdc, UART_LINE_CTRL_DTR, &dtr) == 0) {
 			const bool now = (dtr != 0);
-			if (now && !dtr_prev && boot_info.valid) {
-				print_banner();
+			if (now && !dtr_prev) {
+				/* The banner again (not stored twice), then everything stored
+				 * since boot -- an OP-XY session, a stretch on battery
+				 * (sp1_logbuf.h). */
+				if (boot_info.valid) {
+					sp1_logbuf_hold(true);
+					print_banner();
+					sp1_logbuf_hold(false);
+				}
+				sp1_logbuf_replay_start();
+			} else if (!now && dtr_prev) {
+				sp1_logbuf_replay_stop();   /* nobody is listening any more */
 			}
 			dtr_prev = now;
 		}
 	}
+	/* The stored log, a step per tick: paced for CDC ACM, and the loop goes on feeding
+	 * the watchdog in between. */
+	sp1_logbuf_replay_step();
 
 	if (raw_capture) {
 		raw_acc += elapsed_ms;

@@ -25,6 +25,14 @@ If the port disappears -- unplugged, powered off, OR the device reset -- the log
 waits and reconnects rather than dying, and writes a marker line into the log. That
 makes a spontaneous device reset VISIBLE in the capture (marker, then a fresh
 banner) instead of appearing as the log simply ending. --no-reconnect disables it.
+
+Sessions this logger could not see -- the USB-C port in another host's hands (the OP-XY),
+or the device on battery -- are KEPT on the device (firmware/src/sp1_logbuf.h, the newest
+~14 minutes in RAM). Keep Wakes ON afterwards, plug it into this computer and start the
+logger: after the banner the device plays the stored log back between
+"=== STORED LOG ... ===" markers, each line stamped with the device's uptime
+("[+hh:mm:ss.mmm]") -- this logger's own timestamps on those lines are the time of the
+dump, not of the event. Then live output resumes. Turning Wakes off loses the stored log.
 """
 import argparse
 import datetime

@@ -147,7 +147,14 @@ struct sp1_midi_stats {
 	uint16_t bpm10;       /* the host's tempo x 10, 0 = not measured yet  */
 	uint32_t ticks;       /* clock ticks received                         */
 	uint32_t starts, continues, stops;   /* transport messages acted on   */
+	/* Diagnostics (M5b): the clock's tick spacing over the last 5 s, from the USB
+	 * timestamps, in us; transport bytes as received; fresh starts of the line. */
+	uint32_t iv_n, iv_min_us, iv_avg_us, iv_max_us;
+	uint32_t rx_start, rx_cont, rx_stop, line_resets;
 };
+/* USB packets neither validator took (not channel voice, not clock / transport), and the
+ * last of them -- sp1_usbd.c. Diagnostics: what a host sends that Wakes ignores. */
+void sp1_midi_usb_rejects(uint32_t *count, uint8_t last[4]);
 void sp1_midi_get_stats(struct sp1_midi_stats *out);
 
 /* ---- audio thread ---- */

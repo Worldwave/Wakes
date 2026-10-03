@@ -192,6 +192,17 @@ float clk_pos;                               // what Marbles sees: ticks since b
 uint8_t clk_op;                              // this block's transport (SP1_MIDI_TP_*)
 float clk_beats[kMaxBlocks];
 volatile uint32_t pub_clk_ext, pub_bpm10, st_ticks, st_starts, st_conts, st_stops;
+// ---- diagnostics for the log (M5b, OP-XY): what the host's clock actually does ----
+// Tick spacing from the USB timestamps (the cycle counter), in microseconds, over 5 s
+// windows; the transport bytes as they ARRIVE (st_starts counts the beat 1 a Start leads to);
+// and how often the line had to start afresh after a gap.
+const uint32_t kDiagBlocks = 20000;          // 5 s of Plaits blocks
+uint32_t dg_blocks, dg_n, dg_min, dg_max;
+uint64_t dg_sum;
+uint32_t dg_last_cyc;
+bool dg_have;
+volatile uint32_t pub_iv_n, pub_iv_min, pub_iv_max, pub_iv_avg;   // us, the last window
+volatile uint32_t st_rx_start, st_rx_cont, st_rx_stop, st_line_resets;
 
 // This audio block's events, each placed at a Plaits block.
 Event block_ev[kQueue];
@@ -746,8 +757,17 @@ void ClockFit() {
 }
 
 // One tick, at the Plaits block being built (clk_now).
-void ClockTick() {
+void ClockTick(uint32_t cycles) {
   st_ticks = st_ticks + 1u;
+  if (dg_have && cycles != 0u) {
+    const uint32_t us = (cycles - dg_last_cyc) / 64u;   // 64 MHz
+    if (dg_n == 0u || us < dg_min) dg_min = us;
+    if (us > dg_max) dg_max = us;
+    dg_sum += us;
+    ++dg_n;
+  }
+  dg_have = cycles != 0u;
+  dg_last_cyc = cycles;
   clk_ext = true;                              // the first tick makes the clock external
   // A gap far longer than the tempo is a pause (the host stopped its clock), not a new
   // tempo: start the line afresh rather than bend it. 3x, plus 10 ms, because a DAW's jitter
@@ -756,6 +776,7 @@ void ClockTick() {
     const uint32_t iv = clk_now - ClockArrival(0);
     if (iv >= kClockLost || (clk_b > 0.0f && static_cast<float>(iv) > 3.0f * clk_b + 40.0f)) {
       ClockForgetTempo();
+      st_line_resets = st_line_resets + 1u;
     }
   }
   clk_t[clk_i] = clk_now;
@@ -784,15 +805,16 @@ void ClockTick() {
   }
 }
 
-void ClockRealTime(uint8_t b) {
+void ClockRealTime(uint8_t b, uint32_t cycles) {
   if (!SP1_MIDI_CLOCK) {
     return;
   }
   switch (b) {
     case 0xF8:
-      ClockTick();
+      ClockTick(cycles);
       break;
     case 0xFA:                                 // Start: wait for beat 1, from the top
+      st_rx_start = st_rx_start + 1u;
       clk_ext = true;
       clk_armed = true;
       clk_ticks = 0;
@@ -800,12 +822,14 @@ void ClockRealTime(uint8_t b) {
       clk_op = SP1_MIDI_TP_STOP;
       break;
     case 0xFB:                                 // Continue: from where it is
+      st_rx_cont = st_rx_cont + 1u;
       clk_ext = true;
       clk_armed = false;
       clk_op = SP1_MIDI_TP_CONTINUE;
       st_conts = st_conts + 1u;
       break;
     case 0xFC:
+      st_rx_stop = st_rx_stop + 1u;
       clk_armed = false;
       clk_op = SP1_MIDI_TP_STOP;
       st_stops = st_stops + 1u;
@@ -843,7 +867,8 @@ void ClockBlock(uint32_t blocks) {
   uint32_t r = 0;
   for (uint32_t j = 0; j < blocks; ++j) {
     while (r < rt_n && rt_at[r] <= j) {
-      ClockRealTime(rt_ev[r++].msg[0]);
+      ClockRealTime(rt_ev[r].msg[0], rt_ev[r].cycles);
+      ++r;
     }
     // Armed for beat 1, the position holds at 0. Otherwise it follows the target: with a
     // line, at the line's tempo plus a fraction of the gap, NEVER backwards and at most twice
@@ -872,6 +897,17 @@ void ClockBlock(uint32_t blocks) {
     ++clk_now;
   }
   pub_clk_ext = clk_ext ? 1u : 0u;
+  // The diagnostic window: publish and start again every 5 s.
+  dg_blocks += blocks;
+  if (dg_blocks >= kDiagBlocks) {
+    dg_blocks = 0;
+    pub_iv_min = dg_min;
+    pub_iv_max = dg_max;
+    pub_iv_avg = dg_n ? static_cast<uint32_t>(dg_sum / dg_n) : 0u;
+    pub_iv_n = dg_n;
+    dg_n = dg_min = dg_max = 0;
+    dg_sum = 0;
+  }
 }
 
 // Back to neutral: the port went away, or ON was entered. Keys are released (LEVEL closes
@@ -1058,6 +1094,14 @@ extern "C" void sp1_midi_get_stats(struct sp1_midi_stats* out) {
   out->starts = st_starts;
   out->continues = st_conts;
   out->stops = st_stops;
+  out->iv_n = pub_iv_n;
+  out->iv_min_us = pub_iv_min;
+  out->iv_avg_us = pub_iv_avg;
+  out->iv_max_us = pub_iv_max;
+  out->rx_start = st_rx_start;
+  out->rx_cont = st_rx_cont;
+  out->rx_stop = st_rx_stop;
+  out->line_resets = st_line_resets;
 }
 
 // ==== audio thread ========================================================================

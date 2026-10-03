@@ -100,6 +100,13 @@ USB-MIDI 1.0 class from `third_party/feldd/`, patched at build time by `tools/ap
 VID/PID. `tools/console-log.py` matches the console on the PID and knows both values used so
 far.
 
+**The stored log** (`firmware/src/sp1_logbuf.h`): everything printk writes is also kept in RAM
+(`CONFIG_SP1_LOGBUF_KB`, 96 KB, ~14 minutes), because a session with the port in another host's
+hands (the OP-XY) has nobody reading the console. When a terminal next opens it, the device plays
+the stored log back after the banner, each line stamped with its uptime, then goes on live. Keep
+Wakes ON, move the cable to the PC, start the logger. It lives in `.noinit`, so it carries on
+across a soft reset if the bootloader leaves RAM alone (unverified).
+
 **Do not fall back to `CONFIG_USB_DEVICE_STACK` (legacy).** It is smaller, but deprecated,
 and mass storage later needs device_next anyway — we would only migrate twice.
 

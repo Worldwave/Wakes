@@ -35,6 +35,15 @@ config SP1_USB_MAX_POWER
 	  iOS rejects accessories claiming more than 100 mA over the camera adapter, and
 	  the SP-1 runs from its own battery.
 
+config SP1_LOGBUF_KB
+	int "Stored log, in KB of RAM"
+	default 96
+	range 4 160
+	help
+	  Everything printk writes is also kept in RAM, newest last, and played back when a
+	  terminal next opens the console -- so a session with the USB port in another host's
+	  hands (the OP-XY) is not lost (src/sp1_logbuf.h). 96 KB is ~14 minutes of a session.
+
 config SP1_MIDI
 	bool "USB-MIDI in: notes into Plaits, CCs onto both modules (M5a)"
 	default y

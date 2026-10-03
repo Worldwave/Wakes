@@ -116,6 +116,18 @@ int sp1_usbd_init(void)
 }
 
 #if defined(CONFIG_SP1_MIDI)
+/* Packets nothing took (sp1_midi.h, sp1_midi_usb_rejects). USB thread writes, main reads. */
+static volatile uint32_t rej_count;
+static volatile uint8_t rej_last[4];
+
+void sp1_midi_usb_rejects(uint32_t *count, uint8_t last[4])
+{
+	*count = rej_count;
+	for (int k = 0; k < 4; k++) {
+		last[k] = rej_last[k];
+	}
+}
+
 /* ---- the calls feldd's patched class makes (sp1_midi_usb.h) ---- */
 void sp1_midi_usb_rx(const uint8_t *data, size_t len)
 {
@@ -134,8 +146,20 @@ void sp1_midi_usb_rx(const uint8_t *data, size_t len)
 			continue;
 		}
 		msg[0] = usb_midi_extract_rt(&data[i]);
-		if (SP1_MIDI_CLOCK && msg[0] != 0u) {   /* the script's `clock` */
-			sp1_midi_push(msg, 1u, now);
+		if (msg[0] != 0u) {
+			if (SP1_MIDI_CLOCK) {               /* the script's `clock` */
+				sp1_midi_push(msg, 1u, now);
+			}
+			continue;
+		}
+		/* Neither: counted, and the last one kept for the log (diagnostics -- e.g. a
+		 * host sending transport in a packet type we do not expect). An all-zero
+		 * packet is padding, not a message. */
+		if (data[i] | data[i + 1u] | data[i + 2u] | data[i + 3u]) {
+			for (int k = 0; k < 4; k++) {
+				rej_last[k] = data[i + (size_t)k];
+			}
+			rej_count = rej_count + 1u;
 		}
 	}
 }
