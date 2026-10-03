@@ -194,7 +194,7 @@ uint8_t clk_op;                              // this block's transport (SP1_MIDI
 float clk_beats[kMaxBlocks];
 volatile uint32_t pub_clk_ext, pub_bpm10, st_ticks, st_starts, st_conts, st_stops;
 // ---- diagnostics for the log (M5b, OP-XY): what the host's clock actually does ----
-// Tick spacing from the USB timestamps (the cycle counter), in microseconds, over 5 s
+// Tick spacing from the USB timestamps (SP1_MIDI_STAMP_HZ), in microseconds, over 5 s
 // windows; the transport bytes as they ARRIVE (st_starts counts the beat 1 a Start leads to);
 // and how often the line had to start afresh after a gap.
 const uint32_t kDiagBlocks = 20000;          // 5 s of Plaits blocks
@@ -781,7 +781,8 @@ void ClockFit() {
 void ClockTick(uint32_t cycles) {
   st_ticks = st_ticks + 1u;
   if (dg_have && cycles != 0u) {
-    const uint32_t us = (cycles - dg_last_cyc) / 64u;   // 64 MHz
+    const uint32_t us = static_cast<uint32_t>(
+        static_cast<uint64_t>(cycles - dg_last_cyc) * 1000000u / SP1_MIDI_STAMP_HZ);
     if (dg_n == 0u || us < dg_min) dg_min = us;
     if (us > dg_max) dg_max = us;
     dg_sum += us;

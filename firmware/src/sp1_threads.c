@@ -9,6 +9,12 @@
  * the same cycle counter (CONFIG_THREAD_RUNTIME_STATS_USE_TIMING_FUNCTIONS), split it out:
  * every thread's share of the last report window. Interrupt time is counted in the thread it
  * interrupted. Cost: a few cycles per thread switch.
+ *
+ * The shares are of WALL time, from the system clock. The cycle counter that times each
+ * thread stops while the CPU sleeps, so the kernel's own total leaves the sleep out: divided
+ * by that, idle read ~4 % where the CPU really slept ~13-17 % (Adara's logs, 2026-10-02: MIDI
+ * tick spacing measured on the same counter came out 17 % short at 71 % load). `sleep` is the
+ * rest of the window: the CPU halted, waiting for an interrupt.
  */
 #include "sp1_threads.h"
 
@@ -64,16 +70,24 @@ void sp1_threads_report(void)
 			tab[i].t = NULL;             /* the thread has gone */
 		}
 	}
-	/* The window: the whole CPU's cycles since last time, idle included -- the kernel's own
-	 * total, so the shares are of wall time whatever the per-thread list holds. */
-	static uint64_t all_prev;
+	/* The window: wall time since last time, from the system clock (it never stops), in CPU
+	 * cycles (64 MHz). What the threads ran is the kernel's total on the cycle counter; the
+	 * difference is sleep. */
+	static uint32_t wall_prev;
+	static uint64_t ran_prev;
+	static bool have_prev;
 	k_thread_runtime_stats_t all;
 	if (k_thread_runtime_stats_all_get(&all) != 0) {
 		return;
 	}
-	const uint64_t total = all.execution_cycles - all_prev;
-	const bool first = all_prev == 0u;
-	all_prev = all.execution_cycles;
+	const uint32_t wall_now = k_cycle_get_32();   /* wraps in 36 h: the delta does not care */
+	const uint64_t total = (uint64_t)(uint32_t)(wall_now - wall_prev) * 64000000ull /
+			       (uint64_t)CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC;
+	const uint64_t ran = all.execution_cycles - ran_prev;
+	const bool first = !have_prev;
+	have_prev = true;
+	wall_prev = wall_now;
+	ran_prev = all.execution_cycles;
 	if (first || total == 0u) {
 		return;
 	}
@@ -88,5 +102,7 @@ void sp1_threads_report(void)
 		n += snprintk(line + n, sizeof(line) - (size_t)n, " %s=%u.%u",
 			      (name != NULL && name[0] != '\0') ? name : "?", pm / 10u, pm % 10u);
 	}
-	printk("%s (%% of the window)\n", line);
+	const uint64_t slept = total > ran ? total - ran : 0u;
+	const uint32_t spm = (uint32_t)((slept * 1000u + total / 2u) / total);
+	printk("%s sleep=%u.%u (%% of the window)\n", line, spm / 10u, spm % 10u);
 }

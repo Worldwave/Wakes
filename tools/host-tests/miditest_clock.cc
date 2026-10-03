@@ -1,9 +1,10 @@
 // wakes-sp1 M5b: host checks of MIDI clock and transport into Marbles (sp1_midi.h, "MIDI
 // clock"; M5 plan B8, C5, C6), against the shipped script as hostbuild.sh builds it.
 //
-// Ticks are pushed with real cycle-counter stamps (64 MHz, an audio block = 320 000 cycles),
-// exactly as the USB thread stamps them, so the audio thread places each one at its own
-// Plaits block. Sections 1-4 drive the MIDI core alone; 5-9 the whole path through sp1_synth
+// Ticks are pushed with stamps on the firmware's own stamp clock (SP1_MIDI_STAMP_HZ, the
+// system clock: 32 768 Hz, an audio block = 163.84 counts, so the stamps are as coarse as on
+// the device), exactly as the USB thread stamps them, so the audio thread places each one at
+// its own Plaits block. Sections 1-4 drive the MIDI core alone; 5-9 the whole path through sp1_synth
 // into Marbles, counting Marbles' t2 beats.
 #include <cmath>
 #include <cstdio>
@@ -22,10 +23,19 @@ static int fails;
   printf(__VA_ARGS__); printf("\n"); fails++; } } while (0)
 
 static const uint32_t kBlocks = 20;          // Plaits blocks per audio block
-static const uint32_t kBlockCyc = 320000;    // cycles per audio block (5 ms at 64 MHz)
+static const double kHz = SP1_MIDI_STAMP_HZ;            // the stamp clock
+static const double kBlockCyc = kHz / 200.0;             // counts per audio block (5 ms)
+static const uint32_t kJust = static_cast<uint32_t>(std::ceil(kHz / 64000.0));   // ~15 us
+static uint32_t Ms(double ms) { return static_cast<uint32_t>(ms * kHz / 1000.0); }
 static float moff[SP1_MIDI_AUDIO_DESTS];
 static sp1_midi_clock clk;
-static volatile uint32_t now_cyc = 1000000;  // the "cycle counter"
+static double now_t = kHz / 64.0;            // the stamp clock, exactly
+static volatile uint32_t now_cyc = static_cast<uint32_t>(kHz / 64.0);   // ... as read
+static void advance() {
+  now_t += kBlockCyc;
+  now_cyc = static_cast<uint32_t>(std::llround(now_t));
+}
+static uint32_t midi_now() { return now_cyc; }
 static uint32_t lcg = 12345;
 
 // The host's clock: ticks at `bpm`, each stamped at its time, +-jitter_cyc of USB jitter.
@@ -38,7 +48,7 @@ static void rt(uint8_t b, uint32_t stamp) {
   sp1_midi_push(m, 1, stamp);
 }
 static void tempo(double bpm) {
-  tick_cyc = bpm > 0.0 ? 64e6 * 60.0 / (bpm * 24.0) : 0.0;
+  tick_cyc = bpm > 0.0 ? kHz * 60.0 / (bpm * 24.0) : 0.0;
 }
 // Queue every tick due before the audio block that starts at now_cyc.
 static void host() {
@@ -59,7 +69,7 @@ static void host() {
 }
 // One audio block of the MIDI core alone.
 static void core() {
-  now_cyc += kBlockCyc;
+  advance();
   host();
   if (sp1_midi_audio_begin(now_cyc, kBlocks, 0u, moff)) {
     for (uint32_t j = 0; j < kBlocks; ++j) {
@@ -72,7 +82,7 @@ static void core() {
 // One audio block through the synth (and so Marbles).
 static std::vector<int16_t> pcm(240);
 static void synth() {
-  now_cyc += kBlockCyc;
+  advance();
   host();
   sp1_synth_render(pcm.data(), 240);
 }
@@ -106,7 +116,7 @@ int main() {
   printf("§1 tempo and position, 120 BPM\n");
   CHECK(!clk.external, "no tick yet: not external");
   tempo(120.0);
-  next_tick = now_cyc + 1000.0;
+  next_tick = now_cyc + static_cast<double>(kJust);
   core();
   core();
   CHECK(clk.external, "the first tick makes the clock external");
@@ -124,7 +134,7 @@ int main() {
 
   // ---- §2 USB jitter: +-1 ms on every tick ----
   printf("§2 +-1 ms jitter\n");
-  jitter_cyc = 64000;
+  jitter_cyc = Ms(1.0);
   tempo(97.0);
   seconds(3.0, core);
   CHECK(bpm10() >= 965u && bpm10() <= 975u, "97 BPM through +-1 ms jitter, measured %u.%u",
@@ -166,8 +176,10 @@ int main() {
 
   // ---- §4 Start arms: the next tick is beat 1 ----
   printf("§4 Start\n");
-  rt(0xFA, now_cyc + 1000u);                   // Start, then the next tick 10 ms later
-  next_tick = now_cyc + kBlockCyc + 0.5 * kBlockCyc;   // half-way into the next block
+  rt(0xFA, now_cyc + kJust);                   // Start, then the next tick 10 ms later
+  // Half-way into the next block, plus a fifth of a Plaits block: a stamp is as coarse as the
+  // device's (30.5 us), so a tick exactly ON a Plaits block's edge may read as the one before.
+  next_tick = now_cyc + kBlockCyc + 0.5 * kBlockCyc + 0.2 * kBlockCyc / kBlocks;
   core();                                      // the block holding Start
   CHECK(clk.transport == SP1_MIDI_TP_STOP, "Start stops Marbles until beat 1 (%u)",
         clk.transport);
@@ -185,6 +197,7 @@ int main() {
   // ---- §5 through the synth: Marbles follows the host's tempo ----
   printf("§5 Marbles on MIDI clock\n");
   sp1_synth_set_cycle_counter(&now_cyc);
+  sp1_synth_set_midi_clock(midi_now);
   sp1_synth_init();
   sp1_pui_init();
   sp1_mui_init();
@@ -197,8 +210,8 @@ int main() {
   }
   marbles_rate(0.0f);                          // RATE centre: ratio 1, a tick a beat
   CHECK(!sp1_marbles_running(), "Marbles starts stopped");
-  rt(0xFA, now_cyc + 1000u);
-  next_tick = now_cyc + kBlockCyc + 0.25 * kBlockCyc;
+  rt(0xFA, now_cyc + kJust);
+  next_tick = now_cyc + kBlockCyc + 0.25 * kBlockCyc + 0.2 * kBlockCyc / kBlocks;   // §4
   synth();
   synth();                                     // beat 1: Marbles resets and runs
   CHECK(sp1_marbles_running(), "MIDI Start + beat 1 runs Marbles");
@@ -243,11 +256,11 @@ int main() {
 
   // ---- §7 Stop, Continue ----
   printf("§7 Stop and Continue\n");
-  rt(0xFC, now_cyc + 1000u);
+  rt(0xFC, now_cyc + kJust);
   synth();
   CHECK(!sp1_marbles_running(), "MIDI Stop stops Marbles");
   CHECK(beats_over(2.0) == 0u, "stopped: no beats while the clock keeps ticking");
-  rt(0xFB, now_cyc + 1000u);
+  rt(0xFB, now_cyc + kJust);
   synth();
   CHECK(sp1_marbles_running(), "MIDI Continue runs Marbles");
   {
@@ -305,9 +318,9 @@ int main() {
   printf("§10 164 BPM with +-8 ms of jitter: the line and the lead\n");
   synth();
   synth();
-  jitter_cyc = 512000;                         // +-8 ms
+  jitter_cyc = Ms(8.0);                        // +-8 ms
   tempo(164.0);
-  rt(0xFA, now_cyc + 1000u);
+  rt(0xFA, now_cyc + kJust);
   next_tick = now_cyc + 0.6 * kBlockCyc;       // beat 1's true time
   const double beat1 = next_tick, beat_cyc = tick_cyc * 24.0;
   std::vector<double> off;
@@ -322,7 +335,7 @@ int main() {
         ++beat;
         const double at = static_cast<double>(now_cyc) - kBlockCyc + j * (kBlockCyc / kBlocks);
         if (beat >= 8) {                       // the line settled
-          off.push_back((at - (beat1 + beat * beat_cyc)) / 64000.0);   // ms
+          off.push_back((at - (beat1 + beat * beat_cyc)) / (kHz / 1000.0));   // ms
         }
       }
       t2_was = t2;
@@ -368,11 +381,11 @@ int main() {
   }
   // Through the synth. No MIDI clock (the OP-XY sends none): Play runs Marbles on its own tempo.
   tempo(0.0);
-  rt(0xFC, now_cyc + 1000u);
+  rt(0xFC, now_cyc + kJust);
   seconds(3.0, synth);                         // > 2 s without a tick
   CHECK(!sp1_marbles_running(), "stopped before the test");
   marbles_rate(0.0f);
-  rt(0xF9, now_cyc + 1000u);                   // MMC Play, as sp1_usbd.c queues it
+  rt(0xF9, now_cyc + kJust);                   // MMC Play, as sp1_usbd.c queues it
   synth();
   CHECK(sp1_marbles_running(), "MMC Play with no clock arriving runs Marbles");
   {
@@ -383,15 +396,15 @@ int main() {
     const uint32_t n = beats_over(5.0);
     CHECK(n >= 9u && n <= 11u, "...at its RATE tempo, 120 BPM: 10 in 5 s, got %u", n);
   }
-  rt(0xFD, now_cyc + 1000u);                   // MMC Stop
+  rt(0xFD, now_cyc + kJust);                   // MMC Stop
   synth();
   CHECK(!sp1_marbles_running(), "MMC Stop stops Marbles");
   // With MIDI clock arriving, Play is a Start: it waits for the next tick, beat 1.
   tempo(120.0);
-  next_tick = now_cyc + 1000.0;
+  next_tick = now_cyc + static_cast<double>(kJust);
   seconds(2.0, synth);
   CHECK(!sp1_marbles_running(), "clock alone does not start it");
-  rt(0xF9, now_cyc + 1000u);
+  rt(0xF9, now_cyc + kJust);
   next_tick = now_cyc + kBlockCyc + 0.5 * kBlockCyc;
   synth();
   CHECK(!sp1_marbles_running(), "MMC Play with clock arriving: waits for beat 1");
@@ -401,7 +414,7 @@ int main() {
     const uint32_t n = beats_over(5.0);
     CHECK(n >= 9u && n <= 11u, "on the host's clock: 10 in 5 s at 120 BPM, got %u", n);
   }
-  rt(0xFD, now_cyc + 1000u);
+  rt(0xFD, now_cyc + kJust);
   synth();
   CHECK(!sp1_marbles_running(), "MMC Stop stops it there too");
 
@@ -413,14 +426,14 @@ int main() {
     const uint32_t resets0 = st.line_resets;
     tempo(0.0);
     seconds(3.0, synth);                       // a pause: the line starts afresh
-    for (int k = 0; k < 20; ++k) rt(0xF8, now_cyc + 1000u + 32000u * k);   // 0.5 ms apart
+    for (int k = 0; k < 20; ++k) rt(0xF8, now_cyc + kJust + Ms(0.5 * k));   // 0.5 ms apart
     synth();
     synth();
     sp1_midi_get_stats(&st);
     CHECK(st.bpm10 < 3000u, "a burst of ticks 0.5 ms apart is no tempo: %u.%u BPM shown",
           st.bpm10 / 10u, st.bpm10 % 10u);
     tempo(120.0);
-    next_tick = now_cyc + 1000.0;
+    next_tick = now_cyc + static_cast<double>(kJust);
     seconds(3.0, synth);
     sp1_midi_get_stats(&st);
     CHECK(st.line_resets - resets0 <= 2u, "the real clock after it does not restart the line "

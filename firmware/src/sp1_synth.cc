@@ -434,6 +434,7 @@ sp1_synth_profile prof;                      // audio thread: spans of the last 
 inline uint32_t Now() {
   return cyc_counter ? *cyc_counter : 0u;
 }
+uint32_t (*midi_clock)(void);                // NULL = untimed (sp1_synth_set_midi_clock)
 
 extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
   const uint32_t prof_t0 = Now();
@@ -490,7 +491,7 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
   // CC offsets, smoothed once per audio block (sp1_midi.h). Taken BEFORE Marbles renders:
   // this block's clock ticks and transport are Marbles' clock (M5b). ----
   float moff[SP1_MIDI_AUDIO_DESTS];
-  const bool midi = sp1_midi_audio_begin(Now(), frames / plaits::kBlockSize, c.engine_centre,
+  const bool midi = sp1_midi_audio_begin(midi_clock ? midi_clock() : 0u, frames / plaits::kBlockSize, c.engine_centre,
                                          moff);
   {
     static_assert(SP1_MIDI_TP_START == SP1_MRB_TP_START &&
@@ -786,6 +787,10 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
 
 extern "C" void sp1_synth_set_cycle_counter(const volatile uint32_t* counter) {
   cyc_counter = counter;
+}
+
+extern "C" void sp1_synth_set_midi_clock(uint32_t (*now)(void)) {
+  midi_clock = now;
 }
 
 extern "C" void sp1_synth_last_profile(sp1_synth_profile* out) {

@@ -19,6 +19,9 @@
 #include "sp1_midi.h"
 #include "sp1_midi_usb.h"
 #include "usb_rt_parse.h"
+
+BUILD_ASSERT(CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC == SP1_MIDI_STAMP_HZ,
+	     "MIDI stamps are the system clock: SP1_MIDI_STAMP_HZ must match it");
 #endif
 
 USBD_DEVICE_DEFINE(sp1_usbd,
@@ -138,8 +141,9 @@ uint32_t sp1_midi_usb_rt_cin5(void)
 void sp1_midi_usb_rx(const uint8_t *data, size_t len)
 {
 	/* One stamp for the whole buffer: it arrived in one USB transfer. The audio thread
-	 * places it within its block from this (sp1_midi.h, "timing"). */
-	const uint32_t now = DWT->CYCCNT;
+	 * places it within its block from this (sp1_midi.h, "timing": the system clock, not the
+	 * cycle counter, which stops while the CPU sleeps). */
+	const uint32_t now = k_cycle_get_32();
 	for (size_t i = 0; i + 4u <= len; i += 4u) {
 		uint8_t msg[3];
 		/* feldd's validators: a channel message (status nibble must match the packet's

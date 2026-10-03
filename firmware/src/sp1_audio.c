@@ -56,6 +56,12 @@ K_MEM_SLAB_DEFINE_STATIC(tx_slab, BLK_BYTES, TX_QUEUE + 4, 4);
 BUILD_ASSERT(SP1_MIDI_OUTPUT_LATENCY_MS == (TX_QUEUE + 3) * BLK_MS,
 	     "the audio block or queue changed: set SP1_MIDI_OUTPUT_LATENCY_MS in sp1_midi.h "
 	     "to (CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3) x the block in ms");
+
+/* The clock MIDI is placed by (sp1_midi.h, "timing"): the system clock, as sp1_usbd.c stamps. */
+static uint32_t midi_now(void)
+{
+	return k_cycle_get_32();
+}
 #endif
 
 static const struct device *const i2s_dev = DEVICE_DT_GET(DT_NODELABEL(i2s0));
@@ -645,6 +651,9 @@ void sp1_audio_init(void)
 	cyc_budget = st.cyc_budget;
 #if defined(CONFIG_SP1_PLAITS)
 	sp1_synth_set_cycle_counter(&DWT->CYCCNT);
+#endif
+#if defined(CONFIG_SP1_MIDI)
+	sp1_synth_set_midi_clock(midi_now);
 #endif
 
 #if defined(CONFIG_SP1_PLAITS)

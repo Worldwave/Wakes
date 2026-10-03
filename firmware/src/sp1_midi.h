@@ -20,11 +20,17 @@
  *                                           thread publishes.
  *
  * ---- timing ----
- * Each message is stamped with the cycle counter when USB hands it over. At the start of
- * each audio block the audio thread takes everything that arrived since the previous block
- * started and places each message at the matching one of that block's twenty Plaits
- * blocks. Latency is therefore CONSTANT -- one audio block plus the I2S queue -- and the
- * timing jitter is USB's own (~1 ms), not the 5 ms of the audio block.
+ * Each message is stamped with the system clock (SP1_MIDI_STAMP_HZ) when USB hands it over.
+ * At the start of each audio block the audio thread takes everything that arrived since the
+ * previous block started and places each message at the matching one of that block's twenty
+ * Plaits blocks. Latency is therefore CONSTANT -- one audio block plus the I2S queue -- and
+ * the timing jitter is USB's own (~1 ms), not the 5 ms of the audio block.
+ * The stamp is NOT the CPU's cycle counter: that one stops while the CPU sleeps (idle), so a
+ * span measured with it misses the idle part of the block and a message was placed up to the
+ * idle time early -- ~0.8 ms at 17 % idle. Measured on hardware (Adara's logs, 2026-10-02):
+ * tick spacing at 135 BPM read 15.4 ms at 71 % load and 18.5 ms at 97 %, where 18.52 is right.
+ * The system clock (the RTC on the nRF52840, 30.5 us) never stops, and 30.5 us is an eighth
+ * of a Plaits block.
  *
  * ---- pickup: how a CC and its fader share a parameter (Adara, M5a round 4) ----
  * The MIDI script's `pickup` setting, fixed at build time (SP1_MIDI_PICKUP). All three use
@@ -115,9 +121,16 @@ extern "C" {
 #if defined(CONFIG_SP1_MIDI)
 
 /* ---- USB thread ---- */
+/* The stamps' clock, ticks per second: the system clock (CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC,
+ * which sp1_usbd.c checks). Any rate works -- placement only uses ratios of spans -- but the
+ * tick-spacing diagnostics convert with it. */
+#ifndef SP1_MIDI_STAMP_HZ
+#define SP1_MIDI_STAMP_HZ 32768u
+#endif
+
 /* One channel message (status byte first; `len` 2 or 3) as it came off the wire, stamped
- * with the free-running cycle counter. Already validated (usb_rt_parse.c). A real-time byte
- * (clock / transport) has `len` 1. */
+ * with the system clock (SP1_MIDI_STAMP_HZ, "timing" above). Already validated
+ * (usb_rt_parse.c). A real-time byte (clock / transport) has `len` 1. */
 void sp1_midi_push(const uint8_t msg[3], uint8_t len, uint32_t cycles);
 /* MMC transport (M5b round 2): feed every USB-MIDI packet that is SysEx (CIN 0x4-0x7). When a
  * packet completes an MMC Play / Deferred Play or Stop / Pause (F0 7F <device> 06 <cmd> F7),
@@ -184,8 +197,8 @@ struct sp1_midi_frame {
 	float gate;           /* LEVEL from MIDI: the gate height while a key is down     */
 	float note;           /* semitones to add to the pitch: note - 60, portamento, bend */
 };
-/* Start of an audio block of `blocks` Plaits blocks; `cycles` = the cycle counter now
- * (0 on the host, which then places every message at the start of the block).
+/* Start of an audio block of `blocks` Plaits blocks; `cycles` = the stamps' clock now
+ * (SP1_MIDI_STAMP_HZ; 0 = untimed, which places every message at the start of the block).
  *
  * `engine_centre` = the playing engine's SP1_ENGINE_TABLE[].centre bits (polarity, above).
  * Fills `off` with this audio block's CC offsets for the Plaits parameters, in fader-travel

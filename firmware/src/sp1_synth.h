@@ -217,6 +217,9 @@ struct sp1_synth_profile {
 	uint32_t total, mrb, eng, post;
 };
 void sp1_synth_set_cycle_counter(const volatile uint32_t *counter);
+/* MIDI's clock (sp1_midi.h, "timing"): the same clock the USB side stamps messages with --
+ * NOT the cycle counter, which stops while the CPU sleeps. NULL (the default) = untimed. */
+void sp1_synth_set_midi_clock(uint32_t (*now)(void));
 /* AUDIO THREAD: the spans of the last sp1_synth_render() call. */
 void sp1_synth_last_profile(struct sp1_synth_profile *out);
 
