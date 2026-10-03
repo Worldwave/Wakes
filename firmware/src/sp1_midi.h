@@ -98,13 +98,14 @@ extern "C" {
 
 /* Wakes' own delay from a MIDI message arriving to its sound at the output, in ms -- what
  * the clock leads by with `clock_lead = auto` (M5b). Counted from the code, not measured:
- *   5 ms   the message is placed in the NEXT audio block (one 5 ms block after arrival)
- *  30 ms   when a block starts rendering, the I2S queue already holds 4 blocks
- *          (CONFIG_I2S_NRFX_TX_BLOCK_COUNT), the DMA one more, and one is playing: 6 x 5 ms
- *          -- the 7-block structural peak of sp1_audio.c's slab, with the one being rendered.
- * sp1_audio.c checks the queue length this assumes. Re-count if it or the block size moves;
- * section 7 of the M5 test issue measures it end to end. */
-#define SP1_MIDI_OUTPUT_LATENCY_MS 35
+ * (CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3) audio blocks --
+ *   1 block   the message is placed in the NEXT audio block, at its own moment inside it
+ *   4 blocks  when a block starts rendering, the I2S queue holds 2, the DMA one more, and
+ *             one is playing.
+ * At 2 ms blocks x 2 queued (M5b) that is 10 ms; it was 5 ms x (4 + 3) = 35 ms through
+ * M5a. sp1_audio.c BUILD_ASSERTs this against the real block and queue; section 7 of the
+ * M5 test issue measures it end to end. */
+#define SP1_MIDI_OUTPUT_LATENCY_MS 10
 
 #if defined(CONFIG_SP1_MIDI)
 

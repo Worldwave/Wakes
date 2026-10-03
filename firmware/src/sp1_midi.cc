@@ -170,10 +170,11 @@ const float kFollow = 1.0f / 32.0f;          // per Plaits block: closes 1/32 of
                                              // the line (an 8 ms time constant), so a line
                                              // that moves at a tick never jumps the position
 // ---- the lead: Wakes' own delay, made up (Adara, M5b round 1) ----
-// A tick is rendered one audio block after it arrives, into the I2S queue behind ~30 ms of
-// audio (sp1_midi.h, SP1_MIDI_OUTPUT_LATENCY_MS), so Marbles following the ticks exactly is
-// ~35 ms late at the output. The line is read that far AHEAD, so its beats leave Wakes on the
-// host's beat. Only with a line: a tick cannot be predicted from nothing.
+// A tick is rendered one audio block after it arrives, into the I2S queue behind the audio
+// already waiting (sp1_midi.h, SP1_MIDI_OUTPUT_LATENCY_MS: 10 ms at 2 ms blocks), so Marbles
+// following the ticks exactly is that late at the output. The line is read that far AHEAD,
+// so its beats leave Wakes on the host's beat. Only with a line: a tick cannot be predicted
+// from nothing.
 const float kLeadBlocks = (SP1_MIDI_CLOCK_LEAD_MS < 0 ? SP1_MIDI_OUTPUT_LATENCY_MS
                                                        : SP1_MIDI_CLOCK_LEAD_MS) * 4.0f;
 Event rt_ev[kQueue];                         // this block's clock / transport messages

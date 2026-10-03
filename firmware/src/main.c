@@ -1012,9 +1012,14 @@ int main(void)
 			const int arc = sp1_audio_start();
 			struct sp1_audio_stats as;
 			sp1_audio_stats(&as);
-			printk("AUD start rc=%d  i2s_cfg=%d  tas=%s  hp=%s\n", arc,
+			printk("AUD start rc=%d  i2s_cfg=%d  tas=%s  hp=%s  block %u ms x %u queued:"
+			       " ~%u ms in to out\n", arc,
 			       as.cfg_rc, as.tas_ok ? "ok" : "FAIL",
-			       as.hp_ok ? "ok" : "FAIL");
+			       as.hp_ok ? "ok" : "FAIL",
+			       (unsigned)(CONFIG_SP1_AUDIO_BLOCK_FRAMES / 48),
+			       (unsigned)CONFIG_I2S_NRFX_TX_BLOCK_COUNT,
+			       (unsigned)((CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3) *
+					  (CONFIG_SP1_AUDIO_BLOCK_FRAMES / 48)));
 		}
 		sp1_playrow_reset();
 		uint32_t aud_print = 0;

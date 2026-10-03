@@ -35,6 +35,16 @@ config SP1_USB_MAX_POWER
 	  iOS rejects accessories claiming more than 100 mA over the camera adapter, and
 	  the SP-1 runs from its own battery.
 
+config SP1_AUDIO_BLOCK_FRAMES
+	int "Audio block, in frames at 48 kHz"
+	default 96
+	range 48 240
+	help
+	  How much audio is rendered at a time: 96 = 2 ms (M5b, for latency), 240 = 5 ms
+	  (through v0.4.8). Must be a multiple of 48 (1 ms): whole Plaits blocks of 12, in
+	  groups of four for Marbles' 1 kHz X/Y. Latency is (CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3)
+	  blocks -- see prj.conf.
+
 config SP1_LOGBUF_KB
 	int "Stored log, in KB of RAM"
 	default 96

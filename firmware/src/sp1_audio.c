@@ -25,23 +25,35 @@
  *  I2S stream
  * ========================================================================== */
 #define SR_HZ        48000u
-/* 240 frames = 5 ms = exactly 20 Plaits blocks of 12 (M3). It was 256 in M2, which
- * Plaits' 12-sample block does not divide. Nothing else depends on the size: the gain
- * ramp and the budget are computed from it. */
-#define BLK_FRAMES   240u                                   /* 5.00 ms per block */
+/* The audio block: CONFIG_SP1_AUDIO_BLOCK_FRAMES, 96 = 2 ms (M5b). M3-M5a rendered 240 =
+ * 5 ms = 20 Plaits blocks of 12; M2 had 256, which Plaits' 12-sample block does not divide.
+ * Nothing else here depends on the size: the gain ramp and the budget are computed from it.
+ *
+ * ---- latency (Adara, M5b: "over 30 ms is a no-go") ----
+ * When a block starts rendering, the nrfx TX queue (CONFIG_I2S_NRFX_TX_BLOCK_COUNT) is full,
+ * the DMA holds the next block and one is playing; and MIDI places each message one block
+ * later, at its own moment inside it. So sound leaves Wakes (queue + 3) blocks after what
+ * caused it: 5 ms x (4 + 3) = 35 ms through M5a, 2 ms x (2 + 3) = 10 ms now. The price is
+ * the margin: a block that runs long has (queue + 1) blocks -- 6 ms, was 25 -- before the
+ * output runs dry. */
+#define BLK_FRAMES   ((uint32_t)CONFIG_SP1_AUDIO_BLOCK_FRAMES)
 #define BLK_BYTES    (BLK_FRAMES * 2u * sizeof(int16_t))    /* stereo, 16-bit    */
+#define BLK_MS       (BLK_FRAMES / 48u)
+#define TX_QUEUE     CONFIG_I2S_NRFX_TX_BLOCK_COUNT
+BUILD_ASSERT(BLK_FRAMES % 48u == 0u,
+	     "whole ms: Plaits blocks of 12, in fours for Marbles' 1 kHz X/Y");
 
-/* 8 blocks: the nrfx TX queue (4) + two EasyDMA buffers + the one being filled + one
- * spare for the re-prime. tape-looper measured the structural peak at exactly 7. */
-K_MEM_SLAB_DEFINE_STATIC(tx_slab, BLK_BYTES, 8, 4);
+/* The nrfx TX queue + two EasyDMA buffers + the one being filled + one spare for the
+ * re-prime. tape-looper measured the structural peak at exactly queue + 3 (7 at 4). */
+K_MEM_SLAB_DEFINE_STATIC(tx_slab, BLK_BYTES, TX_QUEUE + 4, 4);
 
 #if defined(CONFIG_SP1_MIDI)
 #include "sp1_midi.h"
 /* The MIDI clock leads by Wakes' own output delay (sp1_midi.h, SP1_MIDI_OUTPUT_LATENCY_MS),
- * counted from THESE numbers: one 5 ms block of placement + 6 blocks ahead in the queue. */
-BUILD_ASSERT(CONFIG_I2S_NRFX_TX_BLOCK_COUNT == 4 && BLK_FRAMES == 240u &&
-	     SP1_MIDI_OUTPUT_LATENCY_MS == 5 + (CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 2) * 5,
-	     "the audio queue changed: re-count SP1_MIDI_OUTPUT_LATENCY_MS in sp1_midi.h");
+ * which is THIS count. */
+BUILD_ASSERT(SP1_MIDI_OUTPUT_LATENCY_MS == (TX_QUEUE + 3) * BLK_MS,
+	     "the audio block or queue changed: set SP1_MIDI_OUTPUT_LATENCY_MS in sp1_midi.h "
+	     "to (CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3) x the block in ms");
 #endif
 
 static const struct device *const i2s_dev = DEVICE_DT_GET(DT_NODELABEL(i2s0));
@@ -217,13 +229,14 @@ uint32_t sp1_audio_take_peak(void)
  * gain moves by at most GAIN_SLEW per block and is interpolated linearly ACROSS the
  * block, per sample, so the waveform envelope is continuous.
  *
- * GAIN_SLEW = 8192 (Q15) per 5 ms block: silence <-> full scale in 4 blocks, 20 ms;
- * one 3 dB step in 1-2 blocks. Fast enough to feel immediate on a button, slow enough
- * that no step is a discontinuity. Costs one multiply-add per sample.
+ * GAIN_SLEW = 8192 (Q15) per 5 ms -- scaled to the block, so the time stays the same
+ * whatever the block length: silence <-> full scale in 20 ms, one 3 dB step in 5-10 ms.
+ * Fast enough to feel immediate on a button, slow enough that no step is a
+ * discontinuity. Costs one multiply-add per sample.
  *
  * This is the pattern for the M3 output volume too: never write a gain the audio
  * path uses directly -- write a TARGET, and let the block loop slew to it. */
-#define GAIN_SLEW 8192
+#define GAIN_SLEW ((int32_t)(8192u * BLK_FRAMES / 240u))
 
 static int32_t gain_cur;          /* Q15, audio thread only */
 
@@ -326,7 +339,7 @@ static void prime(int n)
  *  power-off. See the note in sp1_audio.h: a spin
  *  here on battery is a boot loop with no working power button.
  *     - parked:          k_sem_take(K_FOREVER)          sleeps
- *     - steady state:    i2s_write blocks until the DMA drains a block (5 ms)
+ *     - steady state:    i2s_write blocks until the DMA drains a block (2 ms)
  *     - slab exhausted:  k_mem_slab_alloc(K_MSEC(100))  sleeps, then re-checks stop
  *     - write failure:   k_msleep(2) BEFORE retrying    <-- tape-looper had none
  * ========================================================================== */
@@ -370,7 +383,7 @@ static void audio_thread(void *a, void *b, void *c)
 		if (st.cfg_rc != 0) {
 			goto park;
 		}
-		prime(4);
+		prime(TX_QUEUE);
 		if (i2s_trigger(i2s_dev, I2S_DIR_TX, I2S_TRIGGER_START) != 0) {
 			goto park;
 		}
@@ -412,7 +425,7 @@ static void audio_thread(void *a, void *b, void *c)
 					 * a repeating fail/restart cycle. Inherited from
 					 * tape-looper; cheap to close. */
 					k_msleep(5);
-					prime(4);
+					prime(TX_QUEUE);
 					(void)i2s_trigger(i2s_dev, I2S_DIR_TX,
 							  I2S_TRIGGER_START);
 				}
@@ -624,7 +637,7 @@ void sp1_audio_init(void)
 
 	/* 64 MHz, a constant rather than SystemCoreClock: one fewer dependency on a
 	 * symbol this build only reaches through a local Zephyr patch. */
-	st.cyc_budget = (uint32_t)((64000000ull * BLK_FRAMES) / SR_HZ);   /* 320 000 */
+	st.cyc_budget = (uint32_t)((64000000ull * BLK_FRAMES) / SR_HZ);   /* 128 000 at 2 ms */
 	cyc_budget = st.cyc_budget;
 #if defined(CONFIG_SP1_PLAITS)
 	sp1_synth_set_cycle_counter(&DWT->CYCCNT);

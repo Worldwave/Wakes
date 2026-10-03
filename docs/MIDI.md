@@ -114,12 +114,12 @@ Marbles locks to the host, the way a Eurorack Marbles does with a cable in its C
   arrive a few ms early or late. Wakes fits a straight line through the last two beats of
   ticks and follows the line, not each tick: ±8 ms of tick jitter comes out as under 1 ms on
   Marbles' beats.
-- **On time at the output.** Wakes plays everything about 35 ms after the MIDI that caused it
-  (it places each message on time inside the next 5 ms audio block, and audio is queued ahead
+- **On time at the output.** Wakes plays everything about 10 ms after the MIDI that caused it
+  (it places each message on time inside the next 2 ms audio block, and audio is queued ahead
   of the output). A clock is steady, so Marbles reads it that far **ahead** and its beats leave
   Wakes on the host's beat. Beat 1 after a Start is the exception — nothing said when it
   would come — so Marbles is on time from beat 2. `clock_lead` in the script sets the lead
-  (`auto` = 35 ms); **leave your DAW's own clock offset for Wakes at 0**, or set `clock_lead = 0`
+  (`auto` = 10 ms); **leave your DAW's own clock offset for Wakes at 0**, or set `clock_lead = 0`
   and use the DAW's instead. Notes cannot be played early: give Wakes' track the DAW's usual
   hardware latency compensation for those.
 - **Unplug** while the host is clocking Marbles: Marbles stops and goes back to its own RATE
@@ -207,7 +207,7 @@ What it sets:
   steps into a smooth movement instead of zipper noise.
 - `pickup` — `shared` (default), `sum` or `takeover` (above).
 - `clock` — `on` (default): Marbles follows MIDI clock and transport (above); `off` ignores them.
-- `clock_lead` — `auto` (35 ms, Wakes' own delay) or 0–200 ms: how far ahead of the host's
+- `clock_lead` — `auto` (10 ms, Wakes' own delay) or 0–200 ms: how far ahead of the host's
   clock Marbles runs (above).
 - one line per parameter — `name = cc N`, or `none`.
 - `[bind]` — `velocity` and `aftertouch` (channel pressure) can push a parameter by a depth
