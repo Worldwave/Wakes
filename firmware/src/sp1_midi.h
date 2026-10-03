@@ -156,6 +156,9 @@ struct sp1_midi_stats {
 /* USB packets neither validator took (not channel voice, not clock / transport), and the
  * last of them -- sp1_usbd.c. Diagnostics: what a host sends that Wakes ignores. */
 void sp1_midi_usb_rejects(uint32_t *count, uint8_t last[4]);
+/* Clock / transport bytes that came in CIN 0x5 packets rather than the spec's CIN 0xF, and
+ * were taken anyway (sp1_usbd.c). */
+uint32_t sp1_midi_usb_rt_cin5(void);
 void sp1_midi_get_stats(struct sp1_midi_stats *out);
 
 /* ---- audio thread ---- */

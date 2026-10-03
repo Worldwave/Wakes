@@ -119,6 +119,7 @@ int sp1_usbd_init(void)
 /* Packets nothing took (sp1_midi.h, sp1_midi_usb_rejects). USB thread writes, main reads. */
 static volatile uint32_t rej_count;
 static volatile uint8_t rej_last[4];
+static volatile uint32_t rt_cin5;   /* real-time bytes taken from CIN 0x5 packets */
 
 void sp1_midi_usb_rejects(uint32_t *count, uint8_t last[4])
 {
@@ -126,6 +127,11 @@ void sp1_midi_usb_rejects(uint32_t *count, uint8_t last[4])
 	for (int k = 0; k < 4; k++) {
 		last[k] = rej_last[k];
 	}
+}
+
+uint32_t sp1_midi_usb_rt_cin5(void)
+{
+	return rt_cin5;
 }
 
 /* ---- the calls feldd's patched class makes (sp1_midi_usb.h) ---- */
@@ -146,6 +152,16 @@ void sp1_midi_usb_rx(const uint8_t *data, size_t len)
 			continue;
 		}
 		msg[0] = usb_midi_extract_rt(&data[i]);
+		/* ...and the same four bytes under CIN 0x5 ("single-byte system common"), which
+		 * some hosts use for real-time instead of the spec's CIN 0xF -- suspected of the
+		 * OP-XY (2026-10-02: ~192 ticks arrived in a 2.5 min session at 164 BPM, and Start /
+		 * Stop never did). Counted separately, so the log says which form a host sends. */
+		if (msg[0] == 0u && (data[i] & 0x0Fu) == 0x5u &&
+		    (data[i + 1u] == 0xF8u || data[i + 1u] == 0xFAu ||
+		     data[i + 1u] == 0xFBu || data[i + 1u] == 0xFCu)) {
+			msg[0] = data[i + 1u];
+			rt_cin5 = rt_cin5 + 1u;
+		}
 		if (msg[0] != 0u) {
 			if (SP1_MIDI_CLOCK) {               /* the script's `clock` */
 				sp1_midi_push(msg, 1u, now);

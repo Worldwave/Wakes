@@ -1918,16 +1918,21 @@ int main(void)
 					uint32_t rej;
 					uint8_t last[4];
 					sp1_midi_usb_rejects(&rej, last);
-					if (ms.iv_n > 0u || rej != rej_seen) {
+					/* cin5: clock / transport that came as CIN 0x5 packets
+					 * and was taken anyway (sp1_usbd.c) -- the OP-XY? */
+					static uint32_t cin5_seen;
+					const uint32_t cin5 = sp1_midi_usb_rt_cin5();
+					if (ms.iv_n > 0u || rej != rej_seen || cin5 != cin5_seen) {
 						rej_seen = rej;
+						cin5_seen = cin5;
 						printk("MIDI clk iv=%u.%03u/%u.%03u/%u.%03u ms (min/avg/max, "
 						       "n=%u) rx start=%u cont=%u stop=%u resets=%u"
-						       " rej=%u last=%02x %02x %02x %02x\n",
+						       " cin5=%u rej=%u last=%02x %02x %02x %02x\n",
 						       ms.iv_min_us / 1000u, ms.iv_min_us % 1000u,
 						       ms.iv_avg_us / 1000u, ms.iv_avg_us % 1000u,
 						       ms.iv_max_us / 1000u, ms.iv_max_us % 1000u, ms.iv_n,
 						       ms.rx_start, ms.rx_cont, ms.rx_stop, ms.line_resets,
-						       rej, last[0], last[1], last[2], last[3]);
+						       cin5, rej, last[0], last[1], last[2], last[3]);
 					}
 				}
 #endif
