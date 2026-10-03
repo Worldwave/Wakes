@@ -305,7 +305,7 @@ static int      midi_eslot_was;        /* the engine PLAYING at the last tick */
 static int      midi_sel_was;          /* ...and the one T2/T3 selected        */
 static uint32_t midi_drop0;            /* queue drops before this ON (device was off) */
 static bool     midi_clk_was;          /* Marbles was on MIDI's clock at the last tick */
-static uint32_t midi_tp_seen[3];       /* starts, continues, stops already logged   */
+static uint32_t midi_tp_seen[5];       /* starts, continues, stops, MMC play / stop logged */
 
 /* The prompt's state on entry to ON. (MIDI itself was reset before audio started.) */
 static void midi_enter(void)
@@ -325,6 +325,8 @@ static void midi_enter(void)
 		midi_tp_seen[0] = ms.starts;
 		midi_tp_seen[1] = ms.continues;
 		midi_tp_seen[2] = ms.stops;
+		midi_tp_seen[3] = ms.mmc_play;
+		midi_tp_seen[4] = ms.mmc_stop;
 	}
 }
 
@@ -385,6 +387,22 @@ static void midi_tick(uint32_t dt, bool busy)
 		if (ms.stops != midi_tp_seen[2]) {
 			midi_tp_seen[2] = ms.stops;
 			printk("CLOCK stop (MIDI Stop)\n");
+		}
+		/* MMC (M5b round 2): the OP-XY's transport. With MIDI clock arriving, Play
+		 * waits for beat 1 like Start (its CLOCK run line follows); without, Marbles
+		 * plays on its own RATE tempo. */
+		if (ms.mmc_play != midi_tp_seen[3]) {
+			midi_tp_seen[3] = ms.mmc_play;
+			printk("CLOCK MMC Play: %s\n", ms.clock_ext
+			       ? "waiting for beat 1 on the host's clock"
+			       : "run on Marbles' own RATE tempo (no MIDI clock arriving)");
+			if (!ms.clock_ext) {
+				sp1_playrow_clock_reset();
+			}
+		}
+		if (ms.mmc_stop != midi_tp_seen[4]) {
+			midi_tp_seen[4] = ms.mmc_stop;
+			printk("CLOCK stop (MMC Stop)\n");
 		}
 	}
 
@@ -1926,12 +1944,13 @@ int main(void)
 						rej_seen = rej;
 						cin5_seen = cin5;
 						printk("MIDI clk iv=%u.%03u/%u.%03u/%u.%03u ms (min/avg/max, "
-						       "n=%u) rx start=%u cont=%u stop=%u resets=%u"
-						       " cin5=%u rej=%u last=%02x %02x %02x %02x\n",
+						       "n=%u) rx start=%u cont=%u stop=%u mmc play=%u stop=%u"
+						       " resets=%u cin5=%u rej=%u last=%02x %02x %02x %02x\n",
 						       ms.iv_min_us / 1000u, ms.iv_min_us % 1000u,
 						       ms.iv_avg_us / 1000u, ms.iv_avg_us % 1000u,
 						       ms.iv_max_us / 1000u, ms.iv_max_us % 1000u, ms.iv_n,
-						       ms.rx_start, ms.rx_cont, ms.rx_stop, ms.line_resets,
+						       ms.rx_start, ms.rx_cont, ms.rx_stop, ms.mmc_play,
+						       ms.mmc_stop, ms.line_resets,
 						       cin5, rej, last[0], last[1], last[2], last[3]);
 					}
 				}

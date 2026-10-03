@@ -171,7 +171,7 @@ const float kFollow = 1.0f / 32.0f;          // per Plaits block: closes 1/32 of
                                              // that moves at a tick never jumps the position
 // ---- the lead: Wakes' own delay, made up (Adara, M5b round 1) ----
 // A tick is rendered one audio block after it arrives, into the I2S queue behind the audio
-// already waiting (sp1_midi.h, SP1_MIDI_OUTPUT_LATENCY_MS: 10 ms at 2 ms blocks), so Marbles
+// already waiting (sp1_midi.h, SP1_MIDI_OUTPUT_LATENCY_MS: 25 ms at 5 ms x 2), so Marbles
 // following the ticks exactly is that late at the output. The line is read that far AHEAD,
 // so its beats leave Wakes on the host's beat. Only with a line: a tick cannot be predicted
 // from nothing.
@@ -204,6 +204,23 @@ uint32_t dg_last_cyc;
 bool dg_have;
 volatile uint32_t pub_iv_n, pub_iv_min, pub_iv_max, pub_iv_avg;   // us, the last window
 volatile uint32_t st_rx_start, st_rx_cont, st_rx_stop, st_line_resets;
+volatile uint32_t st_mmc_play, st_mmc_stop;
+// ---- a plausible tempo (Adara's Bitwig log, M5b round 2) ----
+// At connect a DAW can send a burst of ticks 0.5-3 ms apart; a line through those is thousands
+// of BPM (a Start there read 476 BPM and set Marbles' first beats from it), and as a reference
+// for the pause test it made every ordinary tick look like a pause (316 restarts in seconds).
+// The line, and the tempo it gives, are used only between these.
+const float kMinBlocksPerTick = 10000.0f / 300.0f;   // 300 BPM (bpm = 10000 / blocks per tick)
+const float kMaxBlocksPerTick = 10000.0f / 20.0f;    //  20 BPM
+inline bool Plausible(float b) { return b >= kMinBlocksPerTick && b <= kMaxBlocksPerTick; }
+// ---- MMC (MIDI Machine Control) transport (Adara's OP-XY log, M5b round 2) ----
+// The OP-XY sends its play / stop as MMC -- Universal Real Time SysEx F0 7F <device> 06 <cmd>
+// F7 -- not as the real-time Start / Stop bytes, and sends no clock at all to Wakes. The USB
+// side reassembles those SysEx (sp1_midi_mmc_feed) and queues them as two codes MIDI leaves
+// undefined, so they travel the same queue as clock and transport and are placed like them.
+const uint8_t kMmcPlay = 0xF9;               // internal only (undefined in MIDI 1.0)
+const uint8_t kMmcStop = 0xFD;               // internal only (undefined in MIDI 1.0)
+const uint32_t kMmcRecent = 8000;            // ticks in the last 2 s: the host owns the tempo
 
 // This audio block's events, each placed at a Plaits block.
 Event block_ev[kQueue];
@@ -752,9 +769,12 @@ void ClockFit() {
     clk_b = sxy / sxx;
     clk_a = sy / static_cast<float>(n) + clk_b * xm;   // the line at the newest tick
   }
-  if (clk_b > 0.0f) {
-    pub_bpm10 = static_cast<uint32_t>(100000.0f / clk_b + 0.5f);   // 10000 / blocks per tick
+  // A line at an impossible tempo is not a line (see Plausible).
+  if (!Plausible(clk_b)) {
+    clk_line = false;
+    return;
   }
+  pub_bpm10 = static_cast<uint32_t>(100000.0f / clk_b + 0.5f);   // 10000 / blocks per tick
 }
 
 // One tick, at the Plaits block being built (clk_now).
@@ -775,7 +795,8 @@ void ClockTick(uint32_t cycles) {
   // can be most of a tick at fast tempos.
   if (clk_n > 0u) {
     const uint32_t iv = clk_now - ClockArrival(0);
-    if (iv >= kClockLost || (clk_b > 0.0f && static_cast<float>(iv) > 3.0f * clk_b + 40.0f)) {
+    if (iv >= kClockLost ||
+        (Plausible(clk_b) && static_cast<float>(iv) > 3.0f * clk_b + 40.0f)) {
       ClockForgetTempo();
       st_line_resets = st_line_resets + 1u;
     }
@@ -834,6 +855,27 @@ void ClockRealTime(uint8_t b, uint32_t cycles) {
       clk_armed = false;
       clk_op = SP1_MIDI_TP_STOP;
       st_stops = st_stops + 1u;
+      break;
+    case kMmcPlay:
+      // With MIDI clock arriving: exactly a Start (beat 1 at the next tick). Without -- the
+      // OP-XY sends none -- a Start would wait for a tick that never comes, so Marbles plays
+      // from the top on its OWN clock, as PLAY does: the host's play button, Marbles' tempo.
+      st_mmc_play = st_mmc_play + 1u;
+      if (clk_ext && clk_n > 0u && clk_now - ClockArrival(0) < kMmcRecent) {
+        clk_armed = true;
+        clk_ticks = 0;
+        clk_pos = 0.0f;
+        clk_op = SP1_MIDI_TP_STOP;
+      } else {
+        clk_ext = false;                       // no clock: Marbles' own
+        clk_armed = false;
+        clk_op = SP1_MIDI_TP_START;
+      }
+      break;
+    case kMmcStop:
+      st_mmc_stop = st_mmc_stop + 1u;
+      clk_armed = false;
+      clk_op = SP1_MIDI_TP_STOP;
       break;
     default:
       break;
@@ -940,6 +982,61 @@ void Neutral() {
 }  // namespace
 
 // ==== USB thread ==========================================================================
+// MMC out of USB-MIDI SysEx packets (sp1_midi.h). A SysEx arrives as CIN 0x4 packets (three
+// bytes, starting or continuing) and ends with CIN 0x5 / 0x6 / 0x7 (one, two or three bytes,
+// the last F7). Only the six-byte MMC command F0 7F <device> 06 <cmd> F7 is kept; anything
+// longer is skipped to its end. USB thread only (single caller), so plain statics.
+namespace {
+uint8_t sx_buf[8];
+uint8_t sx_len;
+bool sx_on;
+}  // namespace
+
+extern "C" uint8_t sp1_midi_mmc_feed(const uint8_t pkt[4]) {
+  const uint8_t cin = pkt[0] & 0x0Fu;
+  uint8_t n;
+  bool end = true;
+  switch (cin) {
+    case 0x4: n = 3; end = false; break;
+    case 0x5: n = 1; break;
+    case 0x6: n = 2; break;
+    case 0x7: n = 3; break;
+    default: return 0u;
+  }
+  if (pkt[1] == 0xF0u) {                     // a SysEx starts here
+    sx_on = true;
+    sx_len = 0;
+  }
+  if (!sx_on) {
+    return 0u;                               // a single-byte common message, or a stray end
+  }
+  for (uint8_t k = 0; k < n; ++k) {
+    if (sx_len < sizeof(sx_buf)) {
+      sx_buf[sx_len] = pkt[1u + k];
+    }
+    ++sx_len;
+  }
+  if (!end) {
+    return 0u;
+  }
+  sx_on = false;
+  // Returned 1: a whole SysEx that is not MMC transport (the caller counts it as ignored).
+  if (sx_len == 6u && sx_buf[0] == 0xF0u && sx_buf[1] == 0x7Fu && sx_buf[3] == 0x06u &&
+      sx_buf[5] == 0xF7u) {
+    switch (sx_buf[4]) {
+      case 0x02:                             // play
+      case 0x03:                             // deferred play
+        return kMmcPlay;
+      case 0x01:                             // stop
+      case 0x09:                             // pause
+        return kMmcStop;
+      default:
+        break;
+    }
+  }
+  return 1u;
+}
+
 extern "C" void sp1_midi_push(const uint8_t msg[3], uint8_t len, uint32_t cycles) {
   const uint32_t h = q_head;
   if (h - q_tail >= kQueue) {
@@ -1103,6 +1200,8 @@ extern "C" void sp1_midi_get_stats(struct sp1_midi_stats* out) {
   out->rx_cont = st_rx_cont;
   out->rx_stop = st_rx_stop;
   out->line_resets = st_line_resets;
+  out->mmc_play = st_mmc_play;
+  out->mmc_stop = st_mmc_stop;
 }
 
 // ==== audio thread ========================================================================

@@ -25,16 +25,18 @@
  *  I2S stream
  * ========================================================================== */
 #define SR_HZ        48000u
-/* The audio block: CONFIG_SP1_AUDIO_BLOCK_FRAMES, 96 = 2 ms (M5b). M3-M5a rendered 240 =
- * 5 ms = 20 Plaits blocks of 12; M2 had 256, which Plaits' 12-sample block does not divide.
+/* The audio block: CONFIG_SP1_AUDIO_BLOCK_FRAMES, 240 = 5 ms = 20 Plaits blocks of 12 (96 =
+ * 2 ms was an M5b trial); M2 had 256, which Plaits' 12-sample block does not divide.
  * Nothing else here depends on the size: the gain ramp and the budget are computed from it.
  *
  * ---- latency (Adara, M5b: "over 30 ms is a no-go") ----
  * When a block starts rendering, the nrfx TX queue (CONFIG_I2S_NRFX_TX_BLOCK_COUNT) is full,
  * the DMA holds the next block and one is playing; and MIDI places each message one block
  * later, at its own moment inside it. So sound leaves Wakes (queue + 3) blocks after what
- * caused it: 5 ms x (4 + 3) = 35 ms through M5a, 2 ms x (2 + 3) = 10 ms now. The price is
- * the margin: a block that runs long has (queue + 1) blocks -- 6 ms, was 25 -- before the
+ * caused it: 5 ms x (4 + 3) = 35 ms through M5a; 2 ms x (2 + 3) = 10 ms was tried and paid
+ * ~8 points of CPU in per-block overhead (i2s hand-off, switches, interrupts -- the THREADS
+ * line against the block's own cycles); 5 ms x (2 + 3) = 25 ms now. The price is the
+ * margin: a block that runs long has (queue + 1) blocks -- 15 ms, was 25 -- before the
  * output runs dry. */
 #define BLK_FRAMES   ((uint32_t)CONFIG_SP1_AUDIO_BLOCK_FRAMES)
 #define BLK_BYTES    (BLK_FRAMES * 2u * sizeof(int16_t))    /* stereo, 16-bit    */
@@ -339,7 +341,7 @@ static void prime(int n)
  *  power-off. See the note in sp1_audio.h: a spin
  *  here on battery is a boot loop with no working power button.
  *     - parked:          k_sem_take(K_FOREVER)          sleeps
- *     - steady state:    i2s_write blocks until the DMA drains a block (2 ms)
+ *     - steady state:    i2s_write blocks until the DMA drains a block (5 ms)
  *     - slab exhausted:  k_mem_slab_alloc(K_MSEC(100))  sleeps, then re-checks stop
  *     - write failure:   k_msleep(2) BEFORE retrying    <-- tape-looper had none
  * ========================================================================== */
@@ -639,7 +641,7 @@ void sp1_audio_init(void)
 
 	/* 64 MHz, a constant rather than SystemCoreClock: one fewer dependency on a
 	 * symbol this build only reaches through a local Zephyr patch. */
-	st.cyc_budget = (uint32_t)((64000000ull * BLK_FRAMES) / SR_HZ);   /* 128 000 at 2 ms */
+	st.cyc_budget = (uint32_t)((64000000ull * BLK_FRAMES) / SR_HZ);   /* 320 000 at 5 ms */
 	cyc_budget = st.cyc_budget;
 #if defined(CONFIG_SP1_PLAITS)
 	sp1_synth_set_cycle_counter(&DWT->CYCCNT);

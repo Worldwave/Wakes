@@ -99,20 +99,32 @@ extern "C" {
 /* Wakes' own delay from a MIDI message arriving to its sound at the output, in ms -- what
  * the clock leads by with `clock_lead = auto` (M5b). Counted from the code, not measured:
  * (CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3) audio blocks --
- *   1 block   the message is placed in the NEXT audio block, at its own moment inside it
- *   4 blocks  when a block starts rendering, the I2S queue holds 2, the DMA one more, and
- *             one is playing.
- * At 2 ms blocks x 2 queued (M5b) that is 10 ms; it was 5 ms x (4 + 3) = 35 ms through
- * M5a. sp1_audio.c BUILD_ASSERTs this against the real block and queue; section 7 of the
- * M5 test issue measures it end to end. */
-#define SP1_MIDI_OUTPUT_LATENCY_MS 10
+ *   1 block              the message is placed in the NEXT audio block, at its own moment
+ *   queue + 2 blocks     when a block starts rendering, the I2S queue is full, the DMA holds
+ *                        one more, and one is playing.
+ * 5 ms x (4 + 3) = 35 ms through M5a; 2 ms x (2 + 3) = 10 ms tried in M5b (too costly: ~8
+ * points of per-block overhead); 5 ms x (2 + 3) = 25 ms now. Taken from the build settings;
+ * the host suites, which have none, get 25. Section 7 of the M5 test issue measures it. */
+#if defined(CONFIG_SP1_AUDIO_BLOCK_FRAMES) && defined(CONFIG_I2S_NRFX_TX_BLOCK_COUNT)
+#define SP1_MIDI_OUTPUT_LATENCY_MS \
+	((CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3) * (CONFIG_SP1_AUDIO_BLOCK_FRAMES / 48))
+#else
+#define SP1_MIDI_OUTPUT_LATENCY_MS 25
+#endif
 
 #if defined(CONFIG_SP1_MIDI)
 
 /* ---- USB thread ---- */
 /* One channel message (status byte first; `len` 2 or 3) as it came off the wire, stamped
- * with the free-running cycle counter. Already validated (usb_rt_parse.c). */
+ * with the free-running cycle counter. Already validated (usb_rt_parse.c). A real-time byte
+ * (clock / transport) has `len` 1. */
 void sp1_midi_push(const uint8_t msg[3], uint8_t len, uint32_t cycles);
+/* MMC transport (M5b round 2): feed every USB-MIDI packet that is SysEx (CIN 0x4-0x7). When a
+ * packet completes an MMC Play / Deferred Play or Stop / Pause (F0 7F <device> 06 <cmd> F7),
+ * returns the byte to push as real-time (len 1) -- Play and Stop as two codes MIDI leaves
+ * undefined, handled with the clock. 1 = a whole SysEx that is not MMC transport (count it as
+ * ignored); 0 = nothing finished yet. The OP-XY sends its transport this way. */
+uint8_t sp1_midi_mmc_feed(const uint8_t pkt[4]);
 /* The host enabled (up) or lost (down) our MIDI interface. */
 void sp1_midi_port(bool up);
 
@@ -152,6 +164,7 @@ struct sp1_midi_stats {
 	 * timestamps, in us; transport bytes as received; fresh starts of the line. */
 	uint32_t iv_n, iv_min_us, iv_avg_us, iv_max_us;
 	uint32_t rx_start, rx_cont, rx_stop, line_resets;
+	uint32_t mmc_play, mmc_stop;  /* MMC Play / Stop acted on (M5b round 2)    */
 };
 /* USB packets neither validator took (not channel voice, not clock / transport), and the
  * last of them -- sp1_usbd.c. Diagnostics: what a host sends that Wakes ignores. */

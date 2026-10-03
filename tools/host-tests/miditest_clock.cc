@@ -346,6 +346,89 @@ int main() {
         bpm10() / 10u, bpm10() % 10u);
   jitter_cyc = 0;
 
+  // ---- §11 MMC transport: what the OP-XY sends instead of Start / Stop ----
+  printf("§11 MMC Play / Stop\n");
+  {
+    const uint8_t play1[4] = { 0x04, 0xF0, 0x7F, 0x7F }, play2[4] = { 0x07, 0x06, 0x02, 0xF7 };
+    const uint8_t stop2[4] = { 0x07, 0x06, 0x01, 0xF7 };
+    const uint8_t ident[4] = { 0x07, 0x06, 0x01, 0xF7 };    // after F0 7E 7F: not MMC
+    const uint8_t uni1[4] = { 0x04, 0xF0, 0x7E, 0x7F };
+    const uint8_t long1[4] = { 0x04, 0xF0, 0x43, 0x10 }, longc[4] = { 0x04, 0x01, 0x02, 0x03 };
+    const uint8_t end1[4] = { 0x05, 0xF7, 0x00, 0x00 };
+    CHECK(sp1_midi_mmc_feed(play1) == 0u, "a SysEx's first packet finishes nothing");
+    CHECK(sp1_midi_mmc_feed(play2) == 0xF9u, "F0 7F 7F 06 02 F7 = MMC Play");
+    CHECK(sp1_midi_mmc_feed(play1) == 0u && sp1_midi_mmc_feed(stop2) == 0xFDu,
+          "F0 7F 7F 06 01 F7 = MMC Stop (the OP-XY's, from its log)");
+    CHECK(sp1_midi_mmc_feed(uni1) == 0u && sp1_midi_mmc_feed(ident) == 1u,
+          "a Universal NON-real-time SysEx is not MMC: ignored (1)");
+    CHECK(sp1_midi_mmc_feed(long1) == 0u && sp1_midi_mmc_feed(longc) == 0u &&
+          sp1_midi_mmc_feed(longc) == 0u && sp1_midi_mmc_feed(end1) == 1u,
+          "a long SysEx is skipped to its end and ignored");
+    CHECK(sp1_midi_mmc_feed(end1) == 0u, "a stray end finishes nothing");
+  }
+  // Through the synth. No MIDI clock (the OP-XY sends none): Play runs Marbles on its own tempo.
+  tempo(0.0);
+  rt(0xFC, now_cyc + 1000u);
+  seconds(3.0, synth);                         // > 2 s without a tick
+  CHECK(!sp1_marbles_running(), "stopped before the test");
+  marbles_rate(0.0f);
+  rt(0xF9, now_cyc + 1000u);                   // MMC Play, as sp1_usbd.c queues it
+  synth();
+  CHECK(sp1_marbles_running(), "MMC Play with no clock arriving runs Marbles");
+  {
+    sp1_midi_stats st;
+    sp1_midi_get_stats(&st);
+    CHECK(!st.clock_ext && st.mmc_play == 1u, "...on its OWN clock (ext %d, plays %u)",
+          st.clock_ext, st.mmc_play);
+    const uint32_t n = beats_over(5.0);
+    CHECK(n >= 9u && n <= 11u, "...at its RATE tempo, 120 BPM: 10 in 5 s, got %u", n);
+  }
+  rt(0xFD, now_cyc + 1000u);                   // MMC Stop
+  synth();
+  CHECK(!sp1_marbles_running(), "MMC Stop stops Marbles");
+  // With MIDI clock arriving, Play is a Start: it waits for the next tick, beat 1.
+  tempo(120.0);
+  next_tick = now_cyc + 1000.0;
+  seconds(2.0, synth);
+  CHECK(!sp1_marbles_running(), "clock alone does not start it");
+  rt(0xF9, now_cyc + 1000u);
+  next_tick = now_cyc + kBlockCyc + 0.5 * kBlockCyc;
+  synth();
+  CHECK(!sp1_marbles_running(), "MMC Play with clock arriving: waits for beat 1");
+  synth();
+  CHECK(sp1_marbles_running(), "...and runs on the next tick");
+  {
+    const uint32_t n = beats_over(5.0);
+    CHECK(n >= 9u && n <= 11u, "on the host's clock: 10 in 5 s at 120 BPM, got %u", n);
+  }
+  rt(0xFD, now_cyc + 1000u);
+  synth();
+  CHECK(!sp1_marbles_running(), "MMC Stop stops it there too");
+
+  // ---- §12 a burst at connect (Adara's Bitwig log): no silly tempo, no restart storm ----
+  printf("§12 a burst of ticks, then the real clock\n");
+  {
+    sp1_midi_stats st;
+    sp1_midi_get_stats(&st);
+    const uint32_t resets0 = st.line_resets;
+    tempo(0.0);
+    seconds(3.0, synth);                       // a pause: the line starts afresh
+    for (int k = 0; k < 20; ++k) rt(0xF8, now_cyc + 1000u + 32000u * k);   // 0.5 ms apart
+    synth();
+    synth();
+    sp1_midi_get_stats(&st);
+    CHECK(st.bpm10 < 3000u, "a burst of ticks 0.5 ms apart is no tempo: %u.%u BPM shown",
+          st.bpm10 / 10u, st.bpm10 % 10u);
+    tempo(120.0);
+    next_tick = now_cyc + 1000.0;
+    seconds(3.0, synth);
+    sp1_midi_get_stats(&st);
+    CHECK(st.line_resets - resets0 <= 2u, "the real clock after it does not restart the line "
+          "over and over: %u restarts", st.line_resets - resets0);
+    CHECK(st.bpm10 >= 1195u && st.bpm10 <= 1205u, "...and its tempo is read right: %u.%u",
+          st.bpm10 / 10u, st.bpm10 % 10u);
+  }
+
   printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "all checks passed", fails,
          fails == 1 ? "" : "s");
   return fails ? 1 : 0;

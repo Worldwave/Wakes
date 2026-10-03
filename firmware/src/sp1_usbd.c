@@ -168,10 +168,26 @@ void sp1_midi_usb_rx(const uint8_t *data, size_t len)
 			}
 			continue;
 		}
+		/* SysEx (CIN 0x4-0x7): MMC transport, which the OP-XY sends instead of Start /
+		 * Stop (M5b round 2). A finished SysEx that is not MMC play / stop is counted
+		 * as ignored below; the packets of one still being assembled are not. */
+		const uint8_t cin = data[i] & 0x0Fu;
+		bool ignored = true;
+		if (cin >= 0x4u && cin <= 0x7u) {
+			const uint8_t mmc = sp1_midi_mmc_feed(&data[i]);
+			if (mmc > 1u) {
+				if (SP1_MIDI_CLOCK) {
+					msg[0] = mmc;
+					sp1_midi_push(msg, 1u, now);
+				}
+				continue;
+			}
+			ignored = (mmc == 1u);
+		}
 		/* Neither: counted, and the last one kept for the log (diagnostics -- e.g. a
 		 * host sending transport in a packet type we do not expect). An all-zero
 		 * packet is padding, not a message. */
-		if (data[i] | data[i + 1u] | data[i + 2u] | data[i + 3u]) {
+		if (ignored && (data[i] | data[i + 1u] | data[i + 2u] | data[i + 3u])) {
 			for (int k = 0; k < 4; k++) {
 				rej_last[k] = data[i + (size_t)k];
 			}

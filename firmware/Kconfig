@@ -37,11 +37,11 @@ config SP1_USB_MAX_POWER
 
 config SP1_AUDIO_BLOCK_FRAMES
 	int "Audio block, in frames at 48 kHz"
-	default 96
+	default 240
 	range 48 240
 	help
-	  How much audio is rendered at a time: 96 = 2 ms (M5b, for latency), 240 = 5 ms
-	  (through v0.4.8). Must be a multiple of 48 (1 ms): whole Plaits blocks of 12, in
+	  How much audio is rendered at a time: 240 = 5 ms (the default; with 2 queued, 25 ms
+	  of latency), 96 = 2 ms (M5b trial: 10 ms, but ~8 points of CPU in per-block overhead). Must be a multiple of 48 (1 ms): whole Plaits blocks of 12, in
 	  groups of four for Marbles' 1 kHz X/Y. Latency is (CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3)
 	  blocks -- see prj.conf.
 
