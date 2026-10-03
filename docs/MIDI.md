@@ -12,7 +12,7 @@ Plaits straight away, and everything deeper is set in the MIDI script,
 | | |
 |---|---|
 | **Notes** | play Plaits. A note-on strikes **TRIG** and holds **LEVEL** open — as far as the note's **velocity** says, out of the box, so soft notes are quieter and darker (Plaits reads LEVEL as accent too); a note-off lets LEVEL close through Plaits' own low-pass gate, so the release is the LPG's. |
-| **Several keys** | Plaits is one voice: you hear the **newest** key. Let it go and you hear the previous one if it is still held (Yarns-style note priority). The same pitch played again before its note-off -- a sequencer's notes longer than its step -- strikes again with `legato = off` and is tied into one long note with `on` / `auto`; it ends at its **last** note-off. Even a note shorter than a quarter of a millisecond opens the gate. |
+| **Several keys** | Plaits is one voice: you hear the **newest** key. Let it go and you hear the previous one if it is still held. (`note_priority` in the script can make it the lowest or the highest key held instead.) The same pitch played again before its note-off -- a sequencer's notes longer than its step -- strikes again with `legato = off` and is tied into one long note with `on` / `auto`; it ends at its **last** note-off. Even a note shorter than a quarter of a millisecond opens the gate. |
 | **Pitch** | added to FREQUENCY like a V/Oct cable, with **note 60 (C4) adding nothing**. F1 on its centre detent is exactly C4, so a centred F1 plays the keyboard at its real pitch, and moving F1 transposes. While MIDI is in use the FREQUENCY detent is **10 %** of the fader's travel (5 % otherwise), so C4 is easy to land on. |
 | **Pitch bend** | ±2 semitones, or whatever range the host sends (RPN 0, "pitch bend sensitivity"). |
 | **Sustain pedal** | CC 64 holds released notes until it lifts. |
@@ -196,10 +196,11 @@ What it sets:
 - `channel` — 1–16, or `omni`.
 - `note_priority` — `last` (default), `low` or `high`.
 - `legato` — `off` (every new note strikes; the default), `on` (a note played over a held one
-  slides without striking), `auto` (as `on`, with portamento only between overlapping notes).
-  These are Yarns' three modes.
-- `portamento` — `0`, `t1`–`t50` (constant time), `r0`–`r50` (constant rate). Yarns' scale:
-  instant up to about 6 seconds.
+  slides without striking), `auto` (as `on`, with portamento only between overlapping notes,
+  so playing legato glides and playing detached jumps).
+- `portamento` — `0`, `t1`–`t50` (constant time, an exponential glide), `r0`–`r50`
+  (constant rate, a straight line, timed per octave). From about 1 ms up to about 2.6 s;
+  the script lists the steps.
 - `bend_range` — 0–24 semitones, until the host sends its own.
 - `sustain` — `cc N`, or `off`.
 - `cc_smoothing` — 0–200 ms: how long a CC glides to a new value. This is what turns a CC's
