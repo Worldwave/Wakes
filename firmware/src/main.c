@@ -77,6 +77,7 @@
 #include "sp1_usbd.h"
 #include "sp1_console.h"
 #include "sp1_logbuf.h"
+#include "sp1_threads.h"
 #include "sp1_controls.h"
 #include "sp1_display.h"
 #include "sp1_calib.h"
@@ -1886,6 +1887,9 @@ int main(void)
 				       a10[SP1_SEC_OUT] / 10u, a10[SP1_SEC_OUT] % 10u,
 				       m10[SP1_SEC_OUT] / 10u, m10[SP1_SEC_OUT] % 10u,
 				       sc.over, sc.over_run);
+				/* ...and where the whole CPU went, per thread: the USB stack runs above
+				 * audio, so the sections above cannot show its share (sp1_threads.h). */
+				sp1_threads_report();
 #endif
 #if defined(CONFIG_SP1_MIDI)
 				/* MIDI health, only while a host has the port or something

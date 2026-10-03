@@ -631,8 +631,10 @@ void sp1_audio_init(void)
 	/* CMSIS 6 names (this build uses modules/hal/cmsis_6, checked against the
 	 * pinned tree). `CoreDebug` still exists there, but only as a compatibility
 	 * alias for DCB; use the native name rather than lean on the alias. */
+	/* Enabled, NOT zeroed: Zephyr's thread runtime statistics count on the same counter
+	 * (sp1_threads.h), and a reset under them would book one huge bogus interval. Every
+	 * user here only ever takes differences. */
 	DCB->DEMCR |= DCB_DEMCR_TRCENA_Msk;
-	DWT->CYCCNT = 0u;
 	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 
 	/* 64 MHz, a constant rather than SystemCoreClock: one fewer dependency on a
@@ -655,6 +657,7 @@ void sp1_audio_init(void)
 				      K_THREAD_STACK_SIZEOF(audio_stack),
 				      audio_thread, NULL, NULL, NULL,
 				      K_PRIO_PREEMPT(0), 0, K_NO_WAIT);
+		(void)k_thread_name_set(&audio_tcb, "audio");   /* the THREADS log line */
 	}
 }
 

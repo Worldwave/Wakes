@@ -65,6 +65,7 @@ target_sources(app PRIVATE
 	src/sp1_standby.c
 	src/sp1_console.c
 	src/sp1_logbuf.c
+	src/sp1_threads.c
 	src/sp1_usbd.c
 	src/sp1_controls.c
 	src/sp1_display.c
