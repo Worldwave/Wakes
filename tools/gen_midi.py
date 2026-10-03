@@ -159,10 +159,11 @@ def parse(path):
                  % (sec, ', '.join('[%s]' % s for s in sorted(allowed))))
 
     cfg = {'channel': 0, 'priority': 0, 'legato': 0, 'portamento': 0, 'bend_range': 2,
-           'sustain': 64, 'smooth_ms': 10, 'pickup': PICKUP['shared'], 'clock': 1}
+           'sustain': 64, 'smooth_ms': 10, 'pickup': PICKUP['shared'], 'clock': 1,
+           'clock_lead': -1}
     m = cp['midi'] if cp.has_section('midi') else {}
     known = {'channel', 'note_priority', 'legato', 'portamento', 'bend_range', 'sustain',
-             'cc_smoothing', 'pickup', 'clock'}
+             'cc_smoothing', 'pickup', 'clock', 'clock_lead'}
     for k in m:
         if k not in known:
             err('midi', k, 'unknown setting "%s" in [midi]' % k)
@@ -208,6 +209,13 @@ def parse(path):
     if v not in ('on', 'off'):
         err('midi', 'clock', 'clock must be on or off, not "%s"' % v)
     cfg['clock'] = 1 if v == 'on' else 0
+    v = m.get('clock_lead', 'auto').strip().lower()
+    if v == 'auto':
+        cfg['clock_lead'] = -1
+    elif v.isdigit() and int(v) <= 200:
+        cfg['clock_lead'] = int(v)
+    else:
+        err('midi', 'clock_lead', 'clock_lead must be auto or 0-200 (ms), not "%s"' % v)
 
     def cc_value(sec, key, raw, allow_none):
         raw = raw.strip().lower()
@@ -297,7 +305,9 @@ def generate(ini, out, chart_dir):
          '#define SP1_MIDI_PICKUP_TAKEOVER 2   /* port up: the CC moves it, its fader rests */',
          '#define SP1_MIDI_PICKUP      %d' % cfg['pickup'],
          '#define SP1_MIDI_CLOCK       %d   /* 1 = Marbles follows MIDI clock + transport */'
-         % cfg['clock'], '',
+         % cfg['clock'],
+         '#define SP1_MIDI_CLOCK_LEAD_MS (%d)   /* ms; -1 = auto: SP1_MIDI_OUTPUT_LATENCY_MS */'
+         % cfg['clock_lead'], '',
          'enum sp1_midi_dest {']
     L += ['\t%s,' % e for e in enum]
     L += ['\tSP1_MIDI_DESTS', '};', '',
@@ -367,8 +377,11 @@ def write_charts(d, cfg, ccs, binds):
           '- Notes play Plaits; pitch bend ±%d semitones until the host sends RPN 0'
           % cfg['bend_range'],
           '- Sustain pedal: %s' % ('CC %d' % cfg['sustain'] if cfg['sustain'] >= 0 else 'off'),
-          '- MIDI clock: %s' % ('Marbles follows the host\'s clock, Start / Continue / Stop; '
-                                'RATE picks the ratio (1/4 … 4)' if cfg['clock'] else 'ignored')]
+          '- MIDI clock: %s' % (('Marbles follows the host\'s clock, Start / Continue / Stop; '
+                                 'RATE picks the ratio (1/4 … 4); running %s ahead'
+                                 % ('35 ms (auto)' if cfg['clock_lead'] < 0
+                                    else '%d ms' % cfg['clock_lead']))
+                                if cfg['clock'] else 'ignored')]
     md += how
     md += ['- MODEL is always an offset from the engine T2/T3 selected (it has no fader).',
            '- CC 0–31 are 14-bit (fine half on N+32).', '']

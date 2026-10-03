@@ -11,7 +11,7 @@ Plaits straight away, and everything deeper is set in the MIDI script,
 
 | | |
 |---|---|
-| **Notes** | play Plaits. A note-on strikes **TRIG** and holds **LEVEL** open; a note-off lets LEVEL close through Plaits' own low-pass gate, so the release is the LPG's. |
+| **Notes** | play Plaits. A note-on strikes **TRIG** and holds **LEVEL** open — as far as the note's **velocity** says, out of the box, so soft notes are quieter and darker (Plaits reads LEVEL as accent too); a note-off lets LEVEL close through Plaits' own low-pass gate, so the release is the LPG's. |
 | **Several keys** | Plaits is one voice: you hear the **newest** key. Let it go and you hear the previous one if it is still held (Yarns-style note priority). The same pitch played again before its note-off -- a sequencer's notes longer than its step -- strikes again with `legato = off` and is tied into one long note with `on` / `auto`; it ends at its **last** note-off. Even a note shorter than a quarter of a millisecond opens the gate. |
 | **Pitch** | added to FREQUENCY like a V/Oct cable, with **note 60 (C4) adding nothing**. F1 on its centre detent is exactly C4, so a centred F1 plays the keyboard at its real pitch, and moving F1 transposes. While MIDI is in use the FREQUENCY detent is **10 %** of the fader's travel (5 % otherwise), so C4 is easy to land on. |
 | **Pitch bend** | ±2 semitones, or whatever range the host sends (RPN 0, "pitch bend sensitivity"). |
@@ -110,6 +110,18 @@ Marbles locks to the host, the way a Eurorack Marbles does with a cable in its C
   beat 1. **Continue** carries on, **Stop** stops. **PLAY** still runs and stops Marbles on
   Wakes; whatever the host does next wins.
 - If the host stops sending clock without a Stop, Marbles **waits** for the next tick.
+- **Steady through a jittery clock.** DAWs make clock in chunks of their audio buffer, so ticks
+  arrive a few ms early or late. Wakes fits a straight line through the last two beats of
+  ticks and follows the line, not each tick: ±8 ms of tick jitter comes out as under 1 ms on
+  Marbles' beats.
+- **On time at the output.** Wakes plays everything about 35 ms after the MIDI that caused it
+  (it places each message on time inside the next 5 ms audio block, and audio is queued ahead
+  of the output). A clock is steady, so Marbles reads it that far **ahead** and its beats leave
+  Wakes on the host's beat. Beat 1 after a Start is the exception — nothing said when it
+  would come — so Marbles is on time from beat 2. `clock_lead` in the script sets the lead
+  (`auto` = 35 ms); **leave your DAW's own clock offset for Wakes at 0**, or set `clock_lead = 0`
+  and use the DAW's instead. Notes cannot be played early: give Wakes' track the DAW's usual
+  hardware latency compensation for those.
 - **Unplug** while the host is clocking Marbles: Marbles stops and goes back to its own RATE
   tempo.
 - FFWD's burst follows the host's tempo too.
@@ -194,10 +206,14 @@ What it sets:
   steps into a smooth movement instead of zipper noise.
 - `pickup` — `shared` (default), `sum` or `takeover` (above).
 - `clock` — `on` (default): Marbles follows MIDI clock and transport (above); `off` ignores them.
+- `clock_lead` — `auto` (35 ms, Wakes' own delay) or 0–200 ms: how far ahead of the host's
+  clock Marbles runs (above).
 - one line per parameter — `name = cc N`, or `none`.
 - `[bind]` — `velocity` and `aftertouch` (channel pressure) can push a parameter by a depth
   (`velocity = timbre 40%`). Aimed at `level`, they set how far each note opens LEVEL —
-  which Plaits also reads as accent, so `velocity = level` makes soft notes quieter and darker.
+  which Plaits also reads as accent, so soft notes are quieter and darker. **The shipped
+  script has `velocity = level`** (100 %: the softest note barely opens it; at 50 % the
+  softest still opens it half way). Comment that line out to play every note at full LEVEL.
   You can also do this on the host instead: most DAWs can turn velocity or pressure into a CC
   and aim it at one of the CCs above.
 

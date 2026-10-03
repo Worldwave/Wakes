@@ -154,21 +154,41 @@ uint32_t model_since_ms = kModelStepMs;      // since model_held last moved
 const uint32_t kPpqn = 24;                   // MIDI clock: ticks per beat
 const uint32_t kClockWrap = kPpqn * 48;      // 48 beats: a whole period of every ratio
                                              // Marbles can ask for (q in 1,2,3,4,8,12,16)
-const uint32_t kClockAvg = kPpqn;            // tempo averaged over one beat of ticks
-const uint32_t kClockLost = 8000;            // 2 s without a tick: re-measure the tempo
+const uint32_t kClockLost = 8000;            // 2 s without a tick: a pause, whatever the tempo
 const uint32_t kMaxBlocks = 64;              // Plaits blocks per audio block, at most
+// ---- jitter: a straight line through the ticks (Adara, M5b round 1) ----
+// Bitwig at 164 BPM measured 160.9 .. 168.9 BPM over one-beat windows: a DAW makes clock in
+// chunks of its audio buffer, so ticks arrive several ms early or late. Following each tick
+// passed that straight on to Marbles' beats. Instead the tick arrival times of the last
+// kFitTicks are fitted with a least-squares line -- tempo AND phase, the way the eye reads a
+// steady pulse through the jitter -- and the position follows the LINE, not the ticks.
+// Jitter sigma s gives about s * 2 / sqrt(n) at the newest end of the line: ~1.3 ms instead
+// of ~5 ms, two beats of ticks.
+const uint32_t kFitTicks = 2u * kPpqn;       // the line: the last two beats of ticks
+const uint32_t kFitMin = 6;                  // fewer than this: follow the ticks themselves
+const float kFollow = 1.0f / 32.0f;          // per Plaits block: closes 1/32 of the gap to
+                                             // the line (an 8 ms time constant), so a line
+                                             // that moves at a tick never jumps the position
+// ---- the lead: Wakes' own delay, made up (Adara, M5b round 1) ----
+// A tick is rendered one audio block after it arrives, into the I2S queue behind ~30 ms of
+// audio (sp1_midi.h, SP1_MIDI_OUTPUT_LATENCY_MS), so Marbles following the ticks exactly is
+// ~35 ms late at the output. The line is read that far AHEAD, so its beats leave Wakes on the
+// host's beat. Only with a line: a tick cannot be predicted from nothing.
+const float kLeadBlocks = (SP1_MIDI_CLOCK_LEAD_MS < 0 ? SP1_MIDI_OUTPUT_LATENCY_MS
+                                                       : SP1_MIDI_CLOCK_LEAD_MS) * 4.0f;
 Event rt_ev[kQueue];                         // this block's clock / transport messages
 uint8_t rt_at[kQueue];
 uint32_t rt_n;
 bool clk_ext;                                // Marbles' clock is MIDI's (C5)
 bool clk_armed;                              // Start: the next tick is beat 1
-bool clk_had_tick;                           // clk_since measures from a real tick
 uint32_t clk_ticks;                          // since beat 1, mod kClockWrap
-float clk_frac;                              // between ticks, 0 .. 1
-float clk_inc;                               // per Plaits block, in ticks (0 = not known)
-uint16_t clk_iv[kClockAvg];                  // the last tick intervals, in Plaits blocks
-uint32_t clk_iv_sum, clk_iv_n, clk_iv_i;
-uint32_t clk_since;                          // Plaits blocks since the last tick
+uint32_t clk_now;                            // Plaits blocks since boot: the audio clock
+uint32_t clk_t[kFitTicks];                   // the last ticks' arrivals, in clk_now
+uint32_t clk_n, clk_i;                       // how many, and the next slot
+bool clk_line;                               // clk_b / clk_a are a fitted line
+float clk_b;                                 // Plaits blocks per tick (0 = not known)
+float clk_a;                                 // the line at the newest tick, minus its arrival
+float clk_pos;                               // what Marbles sees: ticks since beat 1
 uint8_t clk_op;                              // this block's transport (SP1_MIDI_TP_*)
 float clk_beats[kMaxBlocks];
 volatile uint32_t pub_clk_ext, pub_bpm10, st_ticks, st_starts, st_conts, st_stops;
@@ -687,48 +707,81 @@ __attribute__((noinline)) void Process(const Event& e) {
 
 // ---- MIDI clock (M5b) ---------------------------------------------------------------------
 void ClockForgetTempo() {
-  clk_iv_sum = clk_iv_n = clk_iv_i = 0;
+  clk_n = clk_i = 0;
+  clk_line = false;
 }
 
-// One tick, at the Plaits block being built.
+// The newest arrival, and the one `back` ticks before it.
+inline uint32_t ClockArrival(uint32_t back) {
+  return clk_t[(clk_i + kFitTicks - 1u - back) % kFitTicks];
+}
+
+// Fit the line through the arrivals: x = tick index centred on the window, y = arrival minus
+// the newest arrival, in Plaits blocks. Once per tick, never per block.
+void ClockFit() {
+  const uint32_t n = clk_n;
+  if (n < 2u) {
+    return;
+  }
+  const uint32_t newest = ClockArrival(0);
+  // The slope from the two ends, until there are enough ticks for a line.
+  clk_b = static_cast<float>(newest - ClockArrival(n - 1u)) / static_cast<float>(n - 1u);
+  clk_line = n >= kFitMin;
+  if (clk_line) {
+    const float xm = 0.5f * static_cast<float>(n - 1u);
+    float sy = 0.0f, sxy = 0.0f;
+    for (uint32_t k = 0; k < n; ++k) {         // k = 0 oldest .. n - 1 newest
+      const float y = -static_cast<float>(newest - ClockArrival(n - 1u - k));
+      const float x = static_cast<float>(k) - xm;
+      sy += y;
+      sxy += x * y;
+    }
+    const float sxx = static_cast<float>(n) * static_cast<float>(n * n - 1u) / 12.0f;
+    clk_b = sxy / sxx;
+    clk_a = sy / static_cast<float>(n) + clk_b * xm;   // the line at the newest tick
+  }
+  if (clk_b > 0.0f) {
+    pub_bpm10 = static_cast<uint32_t>(100000.0f / clk_b + 0.5f);   // 10000 / blocks per tick
+  }
+}
+
+// One tick, at the Plaits block being built (clk_now).
 void ClockTick() {
   st_ticks = st_ticks + 1u;
   clk_ext = true;                              // the first tick makes the clock external
+  // A gap far longer than the tempo is a pause (the host stopped its clock), not a new
+  // tempo: start the line afresh rather than bend it. 3x, plus 10 ms, because a DAW's jitter
+  // can be most of a tick at fast tempos.
+  if (clk_n > 0u) {
+    const uint32_t iv = clk_now - ClockArrival(0);
+    if (iv >= kClockLost || (clk_b > 0.0f && static_cast<float>(iv) > 3.0f * clk_b + 40.0f)) {
+      ClockForgetTempo();
+    }
+  }
+  clk_t[clk_i] = clk_now;
+  clk_i = (clk_i + 1u) % kFitTicks;
+  if (clk_n < kFitTicks) {
+    ++clk_n;
+  }
+  ClockFit();
   if (clk_armed) {
-    // Start was received: this tick is beat 1.
+    // Start was received: this tick is beat 1. Marbles resets here, and the position goes
+    // straight to where the line puts it -- the lead -- so from beat 2 on it is on time.
+    // (Beat 1 itself cannot be early: nothing said when it would come.)
     clk_armed = false;
     clk_ticks = 0;
+    // At least a hair past 0 even with no line yet (a first Start after a long pause): the
+    // position has to MOVE on this block for Marbles to strike beat 1 on it.
+    clk_pos = 1e-3f;
+    if (clk_line) {
+      const float d = (kLeadBlocks - clk_a) / clk_b;
+      clk_pos = d > clk_pos ? d : clk_pos;
+    }
     clk_op = SP1_MIDI_TP_START;
     st_starts = st_starts + 1u;
   } else {
     clk_ticks = (clk_ticks + 1u) % kClockWrap;
   }
-  clk_frac = 0.0f;
-  // The interval since the last tick, into the tempo. One that is much longer than the
-  // tempo so far is a pause (the host stopped its clock), not a new tempo: start measuring
-  // afresh rather than average it in.
-  if (clk_had_tick) {
-    const uint32_t iv = clk_since;
-    const bool pause = iv >= kClockLost ||
-                       (clk_iv_n >= 4u && iv * clk_iv_n > 2u * clk_iv_sum);
-    if (pause) {
-      ClockForgetTempo();
-    } else if (iv > 0u) {
-      if (clk_iv_n == kClockAvg) {
-        clk_iv_sum -= clk_iv[clk_iv_i];
-      } else {
-        ++clk_iv_n;
-      }
-      clk_iv[clk_iv_i] = static_cast<uint16_t>(iv);
-      clk_iv_sum += iv;
-      clk_iv_i = (clk_iv_i + 1u) % kClockAvg;
-      // Ticks per Plaits block. One divide per tick, not per block.
-      clk_inc = static_cast<float>(clk_iv_n) / static_cast<float>(clk_iv_sum);
-      pub_bpm10 = (100000u * clk_iv_n + clk_iv_sum / 2u) / clk_iv_sum;   // 10000 / avg
-    }
-  }
-  clk_had_tick = true;
-  clk_since = 0;
 }
 
 void ClockRealTime(uint8_t b) {
@@ -743,7 +796,7 @@ void ClockRealTime(uint8_t b) {
       clk_ext = true;
       clk_armed = true;
       clk_ticks = 0;
-      clk_frac = 0.0f;
+      clk_pos = 0.0f;
       clk_op = SP1_MIDI_TP_STOP;
       break;
     case 0xFB:                                 // Continue: from where it is
@@ -762,29 +815,61 @@ void ClockRealTime(uint8_t b) {
   }
 }
 
+// Where the clock is now, in ticks since beat 1: the line read kLeadBlocks ahead, never more
+// than a tick past where the line put the next tick (a host that stops sending stops it).
+// Without a line yet, the ticks themselves, held at the next one.
+float ClockTarget() {
+  const float since = static_cast<float>(clk_now - ClockArrival(0));
+  const float t = static_cast<float>(clk_ticks);
+  if (clk_line) {
+    const float d = (since + kLeadBlocks - clk_a) / clk_b;
+    const float most = 1.0f + kLeadBlocks / clk_b;
+    return t + (d < most ? d : most);
+  }
+  if (clk_n >= 2u && clk_b > 0.0f) {
+    const float d = since / clk_b;
+    return t + (d < 1.0f ? d : 1.0f);
+  }
+  return t;
+}
+
 // AUDIO THREAD, once per audio block: the clock messages at their Plaits blocks, and the
 // position in beats at each. Every block costs the same, ticking or not (Adara's rule).
 void ClockBlock(uint32_t blocks) {
   if (blocks > kMaxBlocks) {
     blocks = kMaxBlocks;
   }
+  const float wrap = static_cast<float>(kClockWrap);
   uint32_t r = 0;
   for (uint32_t j = 0; j < blocks; ++j) {
     while (r < rt_n && rt_at[r] <= j) {
       ClockRealTime(rt_ev[r++].msg[0]);
     }
-    // Between ticks, at the tempo -- but never past the next tick: a late tick holds the
-    // position, a stopped clock stops it. Armed for beat 1, it holds at 0.
-    if (!clk_armed) {
-      clk_frac += clk_inc;
-      if (clk_frac > 1.0f) {
-        clk_frac = 1.0f;
+    // Armed for beat 1, the position holds at 0. Otherwise it follows the target: with a
+    // line, at the line's tempo plus a fraction of the gap, NEVER backwards and at most twice
+    // the tempo; without one, straight to the target, never backwards.
+    if (clk_n > 0u && !clk_armed) {
+      float gap = ClockTarget() - clk_pos;
+      if (gap > 0.5f * wrap) {
+        gap -= wrap;
+      } else if (gap < -0.5f * wrap) {
+        gap += wrap;
+      }
+      float step;
+      if (clk_line) {
+        const float inc = 1.0f / clk_b;
+        step = inc + gap * kFollow;
+        step = step < 0.0f ? 0.0f : (step > 2.0f * inc ? 2.0f * inc : step);
+      } else {
+        step = gap > 0.0f ? gap : 0.0f;
+      }
+      clk_pos += step;
+      if (clk_pos >= wrap) {
+        clk_pos -= wrap;
       }
     }
-    if (clk_since < 0xFFFFu) {
-      ++clk_since;
-    }
-    clk_beats[j] = (static_cast<float>(clk_ticks) + clk_frac) * (1.0f / kPpqn);
+    clk_beats[j] = clk_pos * (1.0f / kPpqn);
+    ++clk_now;
   }
   pub_clk_ext = clk_ext ? 1u : 0u;
 }
@@ -798,10 +883,10 @@ void Neutral() {
   if (clk_ext) {
     clk_op = SP1_MIDI_TP_STOP;
   }
-  clk_ext = clk_armed = clk_had_tick = false;
+  clk_ext = clk_armed = false;
   clk_ticks = 0;
-  clk_frac = 0.0f;
-  clk_inc = 0.0f;
+  clk_pos = 0.0f;
+  clk_b = 0.0f;
   ClockForgetTempo();
   pub_bpm10 = 0;
   session = false;

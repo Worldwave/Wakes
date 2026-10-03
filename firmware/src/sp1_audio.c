@@ -35,6 +35,15 @@
  * spare for the re-prime. tape-looper measured the structural peak at exactly 7. */
 K_MEM_SLAB_DEFINE_STATIC(tx_slab, BLK_BYTES, 8, 4);
 
+#if defined(CONFIG_SP1_MIDI)
+#include "sp1_midi.h"
+/* The MIDI clock leads by Wakes' own output delay (sp1_midi.h, SP1_MIDI_OUTPUT_LATENCY_MS),
+ * counted from THESE numbers: one 5 ms block of placement + 6 blocks ahead in the queue. */
+BUILD_ASSERT(CONFIG_I2S_NRFX_TX_BLOCK_COUNT == 4 && BLK_FRAMES == 240u &&
+	     SP1_MIDI_OUTPUT_LATENCY_MS == 5 + (CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 2) * 5,
+	     "the audio queue changed: re-count SP1_MIDI_OUTPUT_LATENCY_MS in sp1_midi.h");
+#endif
+
 static const struct device *const i2s_dev = DEVICE_DT_GET(DT_NODELABEL(i2s0));
 static const struct device *const i2c_bus = DEVICE_DT_GET(DT_NODELABEL(i2c0));
 

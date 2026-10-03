@@ -33,7 +33,7 @@ static void send(uint8_t s, uint8_t a, uint8_t b = 0, uint32_t cyc = 0) {
   sp1_midi_push(m, (t == 0xC0 || t == 0xD0) ? 2 : 3, cyc);
 }
 static void cc(uint8_t n, uint8_t v) { send(0xB0, n, v); }
-static void on(uint8_t n, uint8_t v = 100) { send(0x90, n, v); }
+static void on(uint8_t n, uint8_t v = 127) { send(0x90, n, v); }   // full LEVEL
 static void off(uint8_t n) { send(0x80, n, 0); }
 
 // One audio block of the MIDI core, as sp1_synth_render drives it: nothing per Plaits
@@ -175,6 +175,24 @@ int main() {
   cc(64, 0);
   block();
   CHECK(last().gate == 0.0f, "pedal up: the held note should end");
+  reset();
+
+  // ---- §4b velocity -> LEVEL, the shipped script's [bind] ----
+  printf("§4b velocity opens LEVEL\n");
+  static_assert(SP1_MIDI_VELOCITY_DEST == SP1_MIDI_D_LEVEL,
+                "the shipped script: velocity = level");
+  on(60, 64);
+  block();
+  CHECK(fabsf(last().gate - 64.0f / 127.0f) < 1e-4f, "velocity 64 opens LEVEL to 64/127, %.3f",
+        last().gate);
+  on(62, 127);
+  block();
+  CHECK(last().gate == 1.0f, "velocity 127 opens it fully, %.3f", last().gate);
+  off(62);
+  block();
+  CHECK(fabsf(last().gate - 64.0f / 127.0f) < 1e-4f,
+        "back to the held note: ITS velocity again (Yarns), %.3f", last().gate);
+  off(60);
   reset();
 
   // ---- §5 CCs read by polarity, the INTELLIGENT rule (Adara, M5a test notes) ----

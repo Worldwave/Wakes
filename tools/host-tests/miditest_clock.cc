@@ -296,6 +296,56 @@ int main() {
   sp1_marbles_run(false);
   sp1_midi_port(true);
 
+  // ---- §10 a DAW's jittery clock, and the lead (Adara: Bitwig at 164 BPM) ----
+  // Every tick +-8 ms late or early. Each Marbles beat is timed at its Plaits block, mapped
+  // back to the time a message would have had to ARRIVE to land there (one audio block
+  // earlier), and compared with the host's true beat. Wakes reads the clock
+  // SP1_MIDI_OUTPUT_LATENCY_MS ahead to make up its own delay, so the beats should come
+  // that much early in arrival terms -- and steady, far steadier than the ticks.
+  printf("§10 164 BPM with +-8 ms of jitter: the line and the lead\n");
+  synth();
+  synth();
+  jitter_cyc = 512000;                         // +-8 ms
+  tempo(164.0);
+  rt(0xFA, now_cyc + 1000u);
+  next_tick = now_cyc + 0.6 * kBlockCyc;       // beat 1's true time
+  const double beat1 = next_tick, beat_cyc = tick_cyc * 24.0;
+  std::vector<double> off;
+  int beat = -1;
+  bool t2_was = false;
+  for (int i = 0; i < 200 * 30; ++i) {         // 30 s
+    synth();
+    const uint8_t* g = sp1_marbles_gate_frames();
+    for (uint32_t j = 0; j < kBlocks; ++j) {
+      const bool t2 = (g[j] & 2u) != 0u;
+      if (t2 && !t2_was) {
+        ++beat;
+        const double at = static_cast<double>(now_cyc) - kBlockCyc + j * (kBlockCyc / kBlocks);
+        if (beat >= 8) {                       // the line settled
+          off.push_back((at - (beat1 + beat * beat_cyc)) / 64000.0);   // ms
+        }
+      }
+      t2_was = t2;
+    }
+  }
+  {
+    double m = 0.0, v = 0.0, lo = 1e9, hi = -1e9;
+    for (double o : off) { m += o; lo = o < lo ? o : lo; hi = o > hi ? o : hi; }
+    m /= off.size();
+    for (double o : off) v += (o - m) * (o - m);
+    const double sd = sqrt(v / off.size());
+    printf("   %zu beats: %.1f ms vs the host's beat (lead %d ms), sd %.2f ms, range %.1f .. %.1f\n",
+           off.size(), m, SP1_MIDI_OUTPUT_LATENCY_MS, sd, lo, hi);
+    CHECK(off.size() >= 70u, "Marbles kept time for 30 s: %zu beats", off.size());
+    CHECK(fabs(m + SP1_MIDI_OUTPUT_LATENCY_MS) < 1.5,
+          "on average the lead early: %.1f ms (want -%d)", m, SP1_MIDI_OUTPUT_LATENCY_MS);
+    CHECK(sd < 2.0, "the jitter mostly gone: sd %.2f ms against ticks of +-8 ms (sd 4.6)", sd);
+    CHECK(hi - lo < 8.0, "no beat strays: spread %.1f ms", hi - lo);
+  }
+  CHECK(bpm10() >= 1630u && bpm10() <= 1650u, "the line's tempo through the jitter: %u.%u",
+        bpm10() / 10u, bpm10() % 10u);
+  jitter_cyc = 0;
+
   printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "all checks passed", fails,
          fails == 1 ? "" : "s");
   return fails ? 1 : 0;
