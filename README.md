@@ -18,11 +18,11 @@ IMPORTANT: Flashing custom firmware on the SP-1 is at your own risk. SP-1s are a
 
 ## Status
 
-**v0.4.8, pre-release for beta testing.** Report problems with the bug form under [Issues](https://github.com/Worldwave/Wakes/issues).
+**v0.5.0, pre-release for beta testing.** Report problems with the bug form under [Issues](https://github.com/Worldwave/Wakes/issues).
 
 ## Flashing
 
-1. Download `wakes-sp1-v0.4.8.bin` from the
+1. Download `wakes-sp1-v0.5.0.bin` from the
    [latest release](https://github.com/Worldwave/Wakes/releases).
 2. Open <https://solderless.engineering>. Hold down **T1+T4** while connecting the SP-1 over USB-C.
 4. Select the `.bin` in Solderless Engineering's page, flash it, and once done, you can unplug.
