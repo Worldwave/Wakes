@@ -18,7 +18,7 @@ IMPORTANT: Flashing custom firmware on the SP-1 is at your own risk. SP-1s are a
 
 ## Status
 
-**v0.5.0, pre-release for beta testing.** Report problems with the bug form under [Issues](https://github.com/Worldwave/Wakes/issues).
+**v0.6.0, pre-release for beta testing.** Report problems with the bug form under [Issues](https://github.com/Worldwave/Wakes/issues).
 
 ## Flashing
 
