@@ -185,9 +185,16 @@ const float kFollow = 1.0f / (8.0f * kBlocksPerMs);  // per Plaits block: closes
 // following the ticks exactly is that late at the output. The line is read that far AHEAD,
 // so its beats leave Wakes on the host's beat. Only with a line: a tick cannot be predicted
 // from nothing.
-const float kLeadBlocks = (SP1_MIDI_CLOCK_LEAD_MS < 0 ? SP1_MIDI_OUTPUT_LATENCY_MS
-                                                       : SP1_MIDI_CLOCK_LEAD_MS) *
-                          static_cast<float>(kBlocksPerMs);
+// auto (#32): the pipeline plus Plaits' TRIG delay -- a beat strikes only after it.
+#if defined(CONFIG_SP1_TRIGGER_DELAY_SAMPLES)
+const float kTrigDelayBlocks =
+    static_cast<float>(CONFIG_SP1_TRIGGER_DELAY_SAMPLES / SP1_SYNTH_BLOCK);
+#else
+const float kTrigDelayBlocks = 0.0f;
+#endif
+const float kLeadBlocks = SP1_MIDI_CLOCK_LEAD_MS < 0
+    ? static_cast<float>(SP1_MIDI_OUTPUT_LATENCY_MS * kBlocksPerMs) + kTrigDelayBlocks
+    : static_cast<float>(SP1_MIDI_CLOCK_LEAD_MS * kBlocksPerMs);
 Event rt_ev[kQueue];                         // this block's clock / transport messages
 uint8_t rt_at[kQueue];
 uint32_t rt_n;
@@ -214,6 +221,19 @@ uint64_t dg_sum;
 uint32_t dg_last_cyc;
 bool dg_have;
 volatile uint32_t pub_iv_n, pub_iv_min, pub_iv_max, pub_iv_avg;   // us, the last window
+// ---- notes vs clock (#32): the host's skew between its notes and its own clock ----
+// Wakes sees only when ticks and notes ARRIVE; it cannot see the host's grid. But a quantised
+// note-on belongs on a 16th of the host's clock, so where it lands on the ticks' own 16th
+// grid (from beat 1, both from arrival stamps) is how far the host sends its notes and its
+// clock apart -- Bitwig's clock offset, measured instead of guessed by ear.
+float sk_period;                             // tick spacing in stamp counts, smoothed
+uint32_t sk_tick_cyc;                        // the newest tick's stamp
+uint32_t sk_tick_pos;                        // ...and its count since beat 1
+bool sk_have;
+float sk_sum_us, sk_sq_us;
+uint32_t sk_n;
+volatile int32_t pub_sk_avg_us;
+volatile uint32_t pub_sk_sd_us, pub_sk_n;
 volatile uint32_t st_rx_start, st_rx_cont, st_rx_stop, st_line_resets;
 volatile uint32_t st_mmc_play, st_mmc_stop;
 // ---- a plausible tempo (Adara's Bitwig log, M5b round 2) ----
@@ -802,6 +822,15 @@ void ClockTick(uint32_t cycles) {
     dg_sum += us;
     ++dg_n;
   }
+  if (dg_have && cycles != 0u) {
+    // Plausible spacing only (20-300 BPM): a pause or a connect burst must not set it.
+    const float iv = static_cast<float>(cycles - dg_last_cyc);
+    const float lo = SP1_MIDI_STAMP_HZ * (60.0f / (300.0f * kPpqn));
+    const float hi = SP1_MIDI_STAMP_HZ * (60.0f / (20.0f * kPpqn));
+    if (iv >= lo && iv <= hi) {
+      sk_period = sk_period <= 0.0f ? iv : sk_period + (iv - sk_period) * 0.05f;
+    }
+  }
   dg_have = cycles != 0u;
   dg_last_cyc = cycles;
   clk_ext = true;                              // the first tick makes the clock external
@@ -841,6 +870,27 @@ void ClockTick(uint32_t cycles) {
   } else {
     clk_ticks = (clk_ticks + 1u) % kClockWrap;
   }
+  sk_tick_cyc = cycles;
+  sk_tick_pos = clk_ticks;
+  sk_have = cycles != 0u;
+}
+
+// A note-on's place on the clock's 16th grid (see "notes vs clock"), in microseconds.
+void NoteSkew(uint32_t cycles) {
+  if (!sk_have || cycles == 0u || sk_period <= 0.0f || !clk_ext || clk_armed) {
+    return;
+  }
+  const float dt = static_cast<float>(static_cast<int32_t>(cycles - sk_tick_cyc)) / sk_period;
+  if (dt < -3.0f || dt > 12.0f) {
+    return;                                    // the clock has gone quiet: not comparable
+  }
+  float r = fmodf(static_cast<float>(sk_tick_pos) + dt, 6.0f);   // 6 ticks = a 16th
+  if (r < -3.0f) r += 6.0f;
+  if (r >= 3.0f) r -= 6.0f;
+  const float us = r * sk_period * (1e6f / static_cast<float>(SP1_MIDI_STAMP_HZ));
+  sk_sum_us += us;
+  sk_sq_us += us * us;
+  ++sk_n;
 }
 
 void ClockRealTime(uint8_t b, uint32_t cycles) {
@@ -966,6 +1016,15 @@ void ClockBlock(uint32_t blocks) {
     pub_iv_n = dg_n;
     dg_n = dg_min = dg_max = 0;
     dg_sum = 0;
+    if (sk_n > 0u) {
+      const float mean = sk_sum_us / static_cast<float>(sk_n);
+      const float var = sk_sq_us / static_cast<float>(sk_n) - mean * mean;
+      pub_sk_avg_us = static_cast<int32_t>(mean);
+      pub_sk_sd_us = static_cast<uint32_t>(var > 0.0f ? sqrtf(var) : 0.0f);
+    }
+    pub_sk_n = sk_n;
+    sk_n = 0;
+    sk_sum_us = sk_sq_us = 0.0f;
   }
 }
 
@@ -1218,6 +1277,9 @@ extern "C" void sp1_midi_get_stats(struct sp1_midi_stats* out) {
   out->line_resets = st_line_resets;
   out->mmc_play = st_mmc_play;
   out->mmc_stop = st_mmc_stop;
+  out->skew_n = pub_sk_n;
+  out->skew_avg_us = pub_sk_avg_us;
+  out->skew_sd_us = pub_sk_sd_us;
 }
 
 // ==== audio thread ========================================================================
@@ -1288,6 +1350,9 @@ extern "C" bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t e
       rt_at[rt_n] = static_cast<uint8_t>(at);
       ++rt_n;
       continue;
+    }
+    if (e.len == 3u && (e.msg[0] & 0xF0u) == 0x90u && e.msg[2] != 0u) {
+      NoteSkew(e.cycles);                      // diagnostics only (#32)
     }
     block_ev[block_n] = e;
     block_at[block_n] = static_cast<uint8_t>(at);

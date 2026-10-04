@@ -40,8 +40,8 @@ config SP1_AUDIO_BLOCK_FRAMES
 	default 96
 	range 48 240
 	help
-	  How much audio is rendered at a time: 96 = 2 ms (the default since #32; with 2 queued,
-	  10 ms of latency), 240 = 5 ms (25 ms; v0.5.0). Must be a multiple of 48 (1 ms): whole
+	  How much audio is rendered at a time: 96 = 2 ms (the default since #32; with 1 queued,
+	  8 ms of latency), 240 = 5 ms (25 ms with 2 queued; v0.5.0). Must be a multiple of 48 (1 ms): whole
 	  Plaits blocks, and whole 1 kHz groups for Marbles' X/Y. Latency is
 	  (CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3) blocks -- see prj.conf.
 
@@ -57,6 +57,19 @@ config SP1_PLAITS_BLOCK
 	  that counted blocks (the TRIG pulse, Plaits' trigger delay, Additive's spectrum
 	  update, Chords' crossfade, MIDI's clock and smoothing, Marbles' rate) is expressed in
 	  time, so it is the same at either size. Only 12 and 24 are valid.
+
+config SP1_TRIGGER_DELAY_SAMPLES
+	int "Plaits' TRIG delay, in samples (whole Plaits blocks)"
+	default 24
+	range 0 96
+	depends on SP1_PLAITS
+	help
+	  Upstream Plaits delays its TRIG input by 1 ms (48 samples) so a eurorack pitch CV
+	  that lags its gate is still caught. In Wakes every TRIG arrives with its pitch, but
+	  Plaits averages its V/Oct input over two blocks, so with no delay a Marbles X -> V/Oct
+	  strike catches the pitch half-way (host: Modal's attack -1 dB from the settled one,
+	  against -18 dB at 0.5 ms; MIDI notes and the quantizer latch are unaffected even at 0).
+	  24 = 0.5 ms keeps every attack as it was (#32). Must be whole Plaits blocks.
 
 config SP1_PROFILE_ICACHE
 	bool "Diagnostics: flash-cache misses per audio section"

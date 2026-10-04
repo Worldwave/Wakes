@@ -110,14 +110,15 @@ extern "C" {
  *   1 block              the message is placed in the NEXT audio block, at its own moment
  *   queue + 2 blocks     when a block starts rendering, the I2S queue is full, the DMA holds
  *                        one more, and one is playing.
- * 5 ms x (4 + 3) = 35 ms through M5a, 5 ms x (2 + 3) = 25 ms in v0.5.0, 2 ms x (2 + 3) =
- * 10 ms since #32. Taken from the build settings; the host suites, which have none, get the
- * default's 10. Section 7 of the M5 test issue measures it. */
+ * 5 ms x (4 + 3) = 35 ms through M5a, 5 ms x (2 + 3) = 25 ms in v0.5.0, 2 ms x (1 + 3) =
+ * 8 ms since #32. Taken from the build settings; the host suites, which have none, get the
+ * default's 8. Section 7 of the M5 test issue measures it. `clock_lead = auto` adds Plaits'
+ * TRIG delay (CONFIG_SP1_TRIGGER_DELAY_SAMPLES) to it, since a beat sounds only then. */
 #if defined(CONFIG_SP1_AUDIO_BLOCK_FRAMES) && defined(CONFIG_I2S_NRFX_TX_BLOCK_COUNT)
 #define SP1_MIDI_OUTPUT_LATENCY_MS \
 	((CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3) * (CONFIG_SP1_AUDIO_BLOCK_FRAMES / 48))
 #else
-#define SP1_MIDI_OUTPUT_LATENCY_MS 10
+#define SP1_MIDI_OUTPUT_LATENCY_MS 8
 #endif
 
 #if defined(CONFIG_SP1_MIDI)
@@ -180,6 +181,13 @@ struct sp1_midi_stats {
 	uint32_t iv_n, iv_min_us, iv_avg_us, iv_max_us;
 	uint32_t rx_start, rx_cont, rx_stop, line_resets;
 	uint32_t mmc_play, mmc_stop;  /* MMC Play / Stop acted on (M5b round 2)    */
+	/* #32: where the host's note-ons land on its OWN clock's 16th grid, from their arrival
+	 * stamps, over the last 5 s window -- the host's skew between its notes and its clock,
+	 * which Wakes cannot otherwise see. Negative: notes arrive BEFORE their clock tick
+	 * (the clock leaves late). Meaningful when the notes are quantised (sd small). */
+	uint32_t skew_n;
+	int32_t skew_avg_us;
+	uint32_t skew_sd_us;
 };
 /* USB packets neither validator took (not channel voice, not clock / transport), and the
  * last of them -- sp1_usbd.c. Diagnostics: what a host sends that Wakes ignores. */

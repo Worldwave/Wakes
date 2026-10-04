@@ -34,11 +34,12 @@
  * the DMA holds the next block and one is playing; and MIDI places each message one block
  * later, at its own moment inside it. So sound leaves Wakes (queue + 3) blocks after what
  * caused it: 5 ms x (4 + 3) = 35 ms through M5a, 5 ms x (2 + 3) = 25 ms in v0.5.0, and
- * 2 ms x (2 + 3) = 10 ms now. 2 ms blocks cost ~6 points of per-block overhead with
+ * 2 ms x (1 + 3) = 8 ms now (one queued block since the 2026-10-04 MIDI session: 96.8 % peak
+ * against a 200 % margin). 2 ms blocks cost ~6 points of per-block overhead with
  * 12-sample Plaits blocks (cache refills and fixed setup at every block boundary, #32 step A);
  * 24-sample Plaits blocks paid for it with room to spare (#32 B1: the heaviest patch at
  * 76-79 %, no block over budget). The price is the margin: a block that runs long has
- * (queue + 1) blocks -- 6 ms, was 15 -- before the output runs dry. */
+ * (queue + 1) blocks -- 4 ms, was 15 -- before the output runs dry. */
 #define BLK_FRAMES   ((uint32_t)CONFIG_SP1_AUDIO_BLOCK_FRAMES)
 #define BLK_BYTES    (BLK_FRAMES * 2u * sizeof(int16_t))    /* stereo, 16-bit    */
 #define BLK_MS       (BLK_FRAMES / 48u)

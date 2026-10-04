@@ -348,11 +348,13 @@ int main() {
     m /= off.size();
     for (double o : off) v += (o - m) * (o - m);
     const double sd = sqrt(v / off.size());
-    printf("   %zu beats: %.1f ms vs the host's beat (lead %d ms), sd %.2f ms, range %.1f .. %.1f\n",
-           off.size(), m, SP1_MIDI_OUTPUT_LATENCY_MS, sd, lo, hi);
+    // auto = the pipeline + Plaits' TRIG delay (#32): a beat strikes only after both.
+    const double lead = SP1_MIDI_OUTPUT_LATENCY_MS + CONFIG_SP1_TRIGGER_DELAY_SAMPLES / 48.0;
+    printf("   %zu beats: %.1f ms vs the host's beat (lead %.1f ms), sd %.2f ms, range %.1f .. %.1f\n",
+           off.size(), m, lead, sd, lo, hi);
     CHECK(off.size() >= 70u, "Marbles kept time for 30 s: %zu beats", off.size());
-    CHECK(fabs(m + SP1_MIDI_OUTPUT_LATENCY_MS) < 1.5,
-          "on average the lead early: %.1f ms (want -%d)", m, SP1_MIDI_OUTPUT_LATENCY_MS);
+    CHECK(fabs(m + lead) < 1.0,
+          "on average the lead early: %.1f ms (want -%.1f)", m, lead);
     CHECK(sd < 2.0, "the jitter mostly gone: sd %.2f ms against ticks of +-8 ms (sd 4.6)", sd);
     CHECK(hi - lo < 8.0, "no beat strays: spread %.1f ms", hi - lo);
   }

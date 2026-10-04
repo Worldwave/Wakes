@@ -1995,6 +1995,16 @@ int main(void)
 						       ms.rx_start, ms.rx_cont, ms.rx_stop, ms.mmc_play,
 						       ms.mmc_stop, ms.line_resets,
 						       cin5, rej, last[0], last[1], last[2], last[3]);
+						/* #32: the host's notes against its own clock (sp1_midi.h). */
+						if (ms.skew_n > 0u) {
+							const int32_t a = ms.skew_avg_us;
+							const uint32_t m = (uint32_t)(a < 0 ? -a : a);
+							printk("MIDI notes vs clock: %c%u.%u ms (sd %u.%u ms, n=%u)"
+							       "  - = notes before their tick: the clock leaves late\n",
+							       a < 0 ? '-' : '+', m / 1000u, (m % 1000u) / 100u,
+							       ms.skew_sd_us / 1000u,
+							       (ms.skew_sd_us % 1000u) / 100u, ms.skew_n);
+						}
 					}
 				}
 #endif
