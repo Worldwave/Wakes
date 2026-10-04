@@ -5,8 +5,9 @@
  * usb_midi1.patch makes its receive path and its enable/disable/suspend/resume callbacks
  * call these instead of feldd's own clock router and MIDI-thru. Implemented in sp1_usbd.c.
  *
- * Both run in Zephyr's usbd thread (cooperative, above the audio thread): short, never
- * blocking, no locks.
+ * sp1_midi_usb_rx() runs in the USB INTERRUPT (#32: the class serves its OUT endpoint
+ * through the driver's fast path, zephyr-patches/udc_nrf-fast-paths.patch) and
+ * sp1_midi_usb_port() in Zephyr's usbd thread: short, never blocking, no locks.
  */
 #ifndef SP1_MIDI_USB_H
 #define SP1_MIDI_USB_H

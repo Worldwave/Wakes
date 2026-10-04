@@ -9,9 +9,11 @@
  * The USB side (feldd's class, our sp1_usbd.c) only ever calls the two producer functions.
  *
  * ---- threads ----
- *   sp1_midi_push(), sp1_midi_port()        USB thread (Zephyr's usbd thread, cooperative,
- *                                           ABOVE audio). Never block, never take a lock:
- *                                           a lock-free ring, drop-and-count when full.
+ *   sp1_midi_push()                         the USB INTERRUPT (#32: the bulk OUT fast path,
+ *                                           zephyr-patches/udc_nrf-fast-paths.patch; the
+ *                                           usbd thread before). Never block, never take a
+ *                                           lock: a lock-free ring, drop-and-count when full.
+ *   sp1_midi_port()                         the usbd thread (enable / disable / bus events).
  *   sp1_midi_audio_*()                      AUDIO THREAD ONLY (from sp1_synth_render). This
  *                                           is where every message is parsed and every
  *                                           piece of MIDI state lives, so nothing is shared
@@ -120,7 +122,7 @@ extern "C" {
 
 #if defined(CONFIG_SP1_MIDI)
 
-/* ---- USB thread ---- */
+/* ---- USB side (the interrupt, and the usbd thread for port changes) ---- */
 /* The stamps' clock, ticks per second: the system clock (CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC,
  * which sp1_usbd.c checks). Any rate works -- placement only uses ratios of spans -- but the
  * tick-spacing diagnostics convert with it. */

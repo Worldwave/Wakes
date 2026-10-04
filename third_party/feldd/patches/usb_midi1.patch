@@ -1,6 +1,6 @@
 --- a/usb_midi1.c
 +++ b/usb_midi1.c
-@@ -41,13 +41,11 @@
+@@ -41,13 +41,16 @@
  #include <zephyr/logging/log.h>
  LOG_MODULE_REGISTER(usb_midi1, LOG_LEVEL_INF);
  
@@ -16,10 +16,32 @@
 + * feldd's clock router, MIDI-thru and librarian are not part of Wakes, and the port
 + * state is reported so Wakes knows when MIDI is plugged in or unplugged. */
 +#include "sp1_midi_usb.h"
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++/* wakes-sp1 (#32): the host->device endpoint is served from the USB interrupt
++ * (zephyr-patches/udc_nrf-fast-paths.patch): no net_buf and no thread per packet. */
++#include <zephyr/drivers/usb/udc_nrf_fast.h>
++#endif
  
  /* USB Device Class Definition for MIDI Devices 1.0 constants. */
  /* B.4.1 MS Class-Specific Interface Descriptor Subtypes */
-@@ -465,25 +463,9 @@
+@@ -440,6 +443,16 @@
+ 	}
+ }
+ 
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++/* wakes-sp1 (#32): one received packet, in the USB interrupt. Same parse as the
++ * request() path below; it must stay short and never block. */
++static void usb_midi1_out_fast(const uint8_t *d, uint16_t len, void *user_data)
++{
++	ARG_UNUSED(user_data);
++	sp1_midi_usb_rx(d, len);
++}
++#endif
++
+ /* ---- usbd_class_api callbacks ---- */
+ 
+ /* Transfer completion. IN (device->host): free + kick another Tx if the ring
+@@ -465,25 +478,9 @@
  		 * default - feldd is a control surface, not a sink). SysEx is always
  		 * dropped. Then re-arm the read (unless aborted on disable/suspend). */
  		if (err != -ECONNABORTED) {
@@ -46,7 +68,7 @@
  		}
  		(void)usbd_ep_buf_free(uds_ctx, buf);
  		if (err != -ECONNABORTED && data->enabled) {
-@@ -504,6 +486,7 @@
+@@ -504,10 +501,20 @@
  	struct usb_midi1_data *data = usbd_class_get_private(class_data);
  
  	data->enabled = true;
@@ -54,15 +76,31 @@
  	LOG_DBG("USB-MIDI 1.0 enabled");
  
  	/* Open the host->device read sink so the host has somewhere to send. */
-@@ -520,6 +503,7 @@
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++	/* wakes-sp1 (#32): from the interrupt, if the driver takes the endpoint; the
++	 * stock net_buf read otherwise. */
++	if (udc_nrf_out_fast_start(usb_midi1_cfg.desc->out_ep_fs.bEndpointAddress,
++				   usb_midi1_out_fast, NULL) != 0) {
++		usb_midi1_out_prep(data);
++	}
++#else
+ 	usb_midi1_out_prep(data);
++#endif
+ 
+ 	/* Flush anything that queued before the host enabled the interface. */
+ 	if (!ring_buf_is_empty(&data->tx_queue)) {
+@@ -520,6 +527,10 @@
  	struct usb_midi1_data *data = usbd_class_get_private(class_data);
  
  	data->enabled = false;
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++	udc_nrf_out_fast_stop();
++#endif
 +	sp1_midi_usb_port(false);
  	LOG_DBG("USB-MIDI 1.0 disabled");
  }
  
-@@ -528,6 +512,7 @@
+@@ -528,6 +539,7 @@
  	struct usb_midi1_data *data = usbd_class_get_private(class_data);
  
  	data->enabled = false;
@@ -70,7 +108,7 @@
  	LOG_DBG("USB-MIDI 1.0 suspended");
  }
  
-@@ -536,6 +521,7 @@
+@@ -536,6 +548,7 @@
  	struct usb_midi1_data *data = usbd_class_get_private(class_data);
  
  	data->enabled = true;

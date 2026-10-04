@@ -10,6 +10,7 @@
  */
 #include "sp1_usbd.h"
 
+#include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/usb/usbd.h>
@@ -77,8 +78,58 @@ static void msg_cb(struct usbd_context *const ctx, const struct usbd_msg *const 
 #endif
 }
 
+#if defined(CONFIG_SP1_USB_THREADS_BELOW_AUDIO)
+/* ---- the USB threads below the audio thread (#32) ----
+ * Zephyr starts its two USB threads -- the driver's `udc_nrfx` and the stack's `usbd` -- at
+ * K_PRIO_COOP(8), above the audio thread (K_PRIO_PREEMPT(0)), so every bit of their work
+ * lands inside an audio block: enumeration made one 2 ms block run ~5 ms over. MIDI no longer
+ * needs them (it is received and stamped in the USB interrupt, CONFIG_UDC_NRF_OUT_FAST), so
+ * they move to main's priority: enumeration, the console and control requests then run in
+ * the time audio leaves, and cannot push a block over. The stack synchronises them with
+ * mutexes, events and queues, because applications call it from preemptible threads. */
+static void usb_thread_find(const struct k_thread *t, void *user_data)
+{
+	k_tid_t *found = user_data;
+	const char *name = k_thread_name_get((k_tid_t)t);
+
+	if (name == NULL) {
+		return;
+	}
+	if (strcmp(name, "udc_nrfx") == 0) {
+		found[0] = (k_tid_t)t;
+	} else if (strcmp(name, "usbd") == 0) {
+		found[1] = (k_tid_t)t;
+	}
+}
+
+static int usb_threads_below_audio(void)
+{
+	k_tid_t found[2] = { NULL, NULL };
+	int n = 0;
+
+	k_thread_foreach_unlocked(usb_thread_find, found);
+	for (int i = 0; i < 2; i++) {
+		if (found[i] != NULL) {
+			k_thread_priority_set(found[i], K_PRIO_PREEMPT(CONFIG_MAIN_THREAD_PRIORITY));
+			n++;
+		}
+	}
+	return n;
+}
+#endif
+
+static int threads_demoted;   /* for the boot log: how many of the two were moved */
+
+int sp1_usbd_threads_demoted(void)
+{
+	return threads_demoted;
+}
+
 int sp1_usbd_init(void)
 {
+#if defined(CONFIG_SP1_USB_THREADS_BELOW_AUDIO)
+	threads_demoted = usb_threads_below_audio();
+#endif
 	int err = usbd_add_descriptor(&sp1_usbd, &sp1_lang);
 	if (err == 0) {
 		err = usbd_add_descriptor(&sp1_usbd, &sp1_mfr);
@@ -119,7 +170,8 @@ int sp1_usbd_init(void)
 }
 
 #if defined(CONFIG_SP1_MIDI)
-/* Packets nothing took (sp1_midi.h, sp1_midi_usb_rejects). USB thread writes, main reads. */
+/* Packets nothing took (sp1_midi.h, sp1_midi_usb_rejects). The USB interrupt writes (#32),
+ * main reads. */
 static volatile uint32_t rej_count;
 static volatile uint8_t rej_last[4];
 static volatile uint32_t rt_cin5;   /* real-time bytes taken from CIN 0x5 packets */

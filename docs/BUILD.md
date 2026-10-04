@@ -57,7 +57,11 @@ as of 2026-09-14.
 ```powershell
 cd C:\sp1-ws\zephyr
 git apply ..\wakes-sp1\zephyr-patches\nordic-cmsis-system-core-clock.patch
+git apply ..\wakes-sp1\zephyr-patches\udc_nrf-fast-paths.patch
 ```
+
+`udc_nrf-fast-paths.patch` (v0.5.1) is required too: `prj.conf` turns on its USB-MIDI fast
+path, so Kconfig stops with an unknown symbol without it.
 
 **Reapply after any `west update` that touches the Zephyr tree** — patches live outside
 west's manifest and do not survive. `zephyr-patches/README.md` has the details.

@@ -1039,6 +1039,12 @@ int main(void)
 			       (unsigned)CONFIG_I2S_NRFX_TX_BLOCK_COUNT,
 			       (unsigned)((CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3) *
 					  (CONFIG_SP1_AUDIO_BLOCK_FRAMES / 48)));
+			/* #32: which USB path this build takes, so every log says it. */
+			printk("USB midi=%s  threads=%s\n",
+			       IS_ENABLED(CONFIG_UDC_NRF_OUT_FAST) ? "in the interrupt (fast path)"
+								   : "usbd thread",
+			       sp1_usbd_threads_demoted() == 2 ? "below audio"
+							      : "above audio (stock)");
 		}
 		sp1_playrow_reset();
 		uint32_t aud_print = 0;

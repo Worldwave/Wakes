@@ -48,9 +48,10 @@ const uint32_t kBlocksPerMs = SP1_SYNTH_BLOCKS_PER_MS;
 const uint8_t kStackSize = 12;               // Yarns' mono_allocator_
 const float kTailEnd = 1e-3f;                // LPG gain at which the release has ended (-60 dB)
 
-// ---- the queue: USB thread -> audio thread ----------------------------------------------
-// Single producer (the usbd thread), single consumer (the audio thread), one core. The
-// producer outranks the consumer, so a push can land in the middle of a drain; that is
+// ---- the queue: USB interrupt -> audio thread ---------------------------------------------
+// Single producer (the USB interrupt since #32; the usbd thread before), single consumer (the
+// audio thread), one core. The producer outranks the consumer, so a push can land in the
+// middle of a drain; that is
 // safe because each side only ever writes its own index, and the slot is written before
 // the head moves (compiler fence; a Cortex-M4 needs no CPU barrier on one core).
 struct Event {
@@ -996,11 +997,11 @@ void Neutral() {
 
 }  // namespace
 
-// ==== USB thread ==========================================================================
+// ==== USB side (the interrupt) ============================================================
 // MMC out of USB-MIDI SysEx packets (sp1_midi.h). A SysEx arrives as CIN 0x4 packets (three
 // bytes, starting or continuing) and ends with CIN 0x5 / 0x6 / 0x7 (one, two or three bytes,
 // the last F7). Only the six-byte MMC command F0 7F <device> 06 <cmd> F7 is kept; anything
-// longer is skipped to its end. USB thread only (single caller), so plain statics.
+// longer is skipped to its end. USB interrupt only (single caller), so plain statics.
 namespace {
 uint8_t sx_buf[8];
 uint8_t sx_len;

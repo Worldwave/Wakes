@@ -78,6 +78,16 @@ config SP1_LOGBUF_KB
 	  terminal next opens the console -- so a session with the USB port in another host's
 	  hands (the OP-XY) is not lost (src/sp1_logbuf.h). 96 KB is ~14 minutes of a session.
 
+config SP1_USB_THREADS_BELOW_AUDIO
+	bool "Run Zephyr's USB threads below the audio thread (#32)"
+	default y
+	depends on UDC_NRF_OUT_FAST
+	help
+	  Moves the udc_nrfx and usbd threads from K_PRIO_COOP(8), above audio, to main's
+	  priority, so enumeration, the console and control requests cannot push an audio
+	  block over (src/sp1_usbd.c). Only with the MIDI fast path: MIDI must not wait on
+	  these threads, or its timestamps would be up to a block late.
+
 config SP1_MIDI
 	bool "USB-MIDI in: notes into Plaits, CCs onto both modules (M5a)"
 	default y

@@ -30,4 +30,8 @@ int sp1_usbd_init(void);
  * is asleep (suspended): it is still attached. Read from the control loop. */
 bool sp1_usbd_host(void);
 
+/* #32: how many of the two USB threads (udc_nrfx, usbd) were moved below the audio
+ * thread at init -- 2 with CONFIG_SP1_USB_THREADS_BELOW_AUDIO, 0 without. For the log. */
+int sp1_usbd_threads_demoted(void);
+
 #endif /* SP1_USBD_H */

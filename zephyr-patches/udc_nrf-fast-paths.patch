@@ -1,0 +1,446 @@
+diff --git a/drivers/usb/udc/Kconfig.nrf b/drivers/usb/udc/Kconfig.nrf
+index bcb0e1f017b..f3ca0882918 100644
+--- a/drivers/usb/udc/Kconfig.nrf
++++ b/drivers/usb/udc/Kconfig.nrf
+@@ -19,4 +19,19 @@ config UDC_NRF_THREAD_STACK_SIZE
+ 	help
+ 	  Size of the stack used in the driver for nRF USBD ISR event handling.
+ 
++config UDC_NRF_OUT_FAST
++	bool "Bulk OUT fast path (local patch, wakes-sp1)"
++	help
++	  Serve one bulk OUT endpoint from the USBD interrupt instead of the UDC API:
++	  udc_nrf_out_fast_start() in <zephyr/drivers/usb/udc_nrf_fast.h>. No thread is
++	  woken per packet. Built for USB-MIDI input.
++
++config UDC_NRF_ISO_IN_FAST
++	bool "ISO IN fast path (local patch, from sp1-usb-audio)"
++	help
++	  Fill the isochronous IN endpoint from the USBD interrupt at SOF:
++	  udc_nrf_iso_in_fast_set(). Ryan Gilmore's fast path, carried here with the two
++	  driver guards it relies on from the later nRF Connect SDK driver (a DMA left
++	  running across SOF; the dma_ep reset). Untested on this Zephyr until USB audio.
++
+ endif # UDC_NRF
+diff --git a/drivers/usb/udc/udc_nrf.c b/drivers/usb/udc/udc_nrf.c
+index 7b18862fa59..059efff1c14 100644
+--- a/drivers/usb/udc/udc_nrf.c
++++ b/drivers/usb/udc/udc_nrf.c
+@@ -18,6 +18,7 @@
+ #include <nrf_usbd_common_errata.h>
+ #include <hal/nrf_usbd.h>
+ #include <nrfx_power.h>
++#include <zephyr/drivers/usb/udc_nrf_fast.h>
+ #include "udc_common.h"
+ 
+ #include <zephyr/logging/log.h>
+@@ -188,6 +189,44 @@ static bool m_first_enable = true;
+ /* Bounce buffer for sending data from FLASH */
+ static uint32_t m_tx_buffer[NRFX_CEIL_DIV(NRF_USBD_COMMON_FEEDER_BUFFER_SIZE, sizeof(uint32_t))];
+ 
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++/* Bulk OUT fast path (udc_nrf_fast.h). While active, the endpoint's DMA-waiting bit stays
++ * set: each packet the host sends makes it ready, usbd_dmareq_process() DMAs it into
++ * out_fast_buf at the end of that same interrupt, and nrf_usbd_dma_finished() hands it to
++ * the callback. The peripheral re-arms an OUT endpoint by itself after its DMA, so the host's
++ * next packet is accepted with no thread involved. One buffer is enough: the callback returns
++ * before the interrupt that delivered it can start the next DMA.
++ */
++static udc_nrf_out_fast_cb_t out_fast_cb;
++static void *out_fast_user_data;
++static uint8_t out_fast_ep;
++static bool out_fast_active;
++/* True from DMA start until DMA end of a fast-path packet. */
++static bool out_fast_dma;
++static uint16_t out_fast_len;
++static uint32_t out_fast_buf[UDC_NRF_OUT_FAST_MAX / sizeof(uint32_t)];
++static struct udc_nrf_out_fast_stats out_fast_stats;
++#endif
++
++#if defined(CONFIG_UDC_NRF_ISO_IN_FAST)
++/* ISO IN fast path (udc_nrf_fast.h), Ryan Gilmore's, from sp1-usb-audio. When registered,
++ * ev_sof_handler() asks the application for the next ISO IN packet and usbd_dmareq_process()
++ * DMAs it from iso_fast_buf at the end of the same interrupt, so no thread is woken per
++ * frame. Two buffers: a DMA may still be running across SOF (see ev_sof_handler), and the
++ * next packet must not be written under it.
++ */
++static udc_nrf_iso_in_fill_t iso_fast_fill;
++static void *iso_fast_user_data;
++static bool iso_fast_suppress_sof;
++static uint32_t iso_fast_buf[2][UDC_NRF_ISO_IN_FAST_MAX / sizeof(uint32_t)];
++static uint8_t iso_fast_next;
++static uint8_t *iso_fast_ptr;
++static uint16_t iso_fast_len;
++/* True from DMA start until DMA end of a fast-path packet. */
++static bool iso_fast_dma;
++static struct udc_nrf_iso_in_fast_stats iso_fast_stats;
++#endif
++
+ /* Early declaration. Documentation above definition. */
+ static void usbd_dmareq_process(void);
+ static inline void usbd_int_rise(void);
+@@ -398,10 +437,29 @@ static void ev_usbreset_handler(void)
+ 
+ static void nrf_usbd_dma_finished(nrf_usbd_common_ep_t ep)
+ {
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++	bool out_fast_done = false;
++#endif
++
+ 	/* DMA finished, track if total bytes transferred is even or odd */
+ 	m_dma_odd ^= usbd_ep_amount_get(ep) & 1;
+ 	usbd_dma_pending_clear();
+ 
++#if defined(CONFIG_UDC_NRF_ISO_IN_FAST)
++	if (ep == NRF_USBD_COMMON_EPIN8 && iso_fast_dma) {
++		/* ISO IN fast path: no net_buf to complete, and no thread to wake */
++		iso_fast_dma = false;
++	} else
++#endif
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++	if (out_fast_dma && ep == out_fast_ep) {
++		/* Bulk OUT fast path: no net_buf, no thread. The waiting bit stays set
++		 * for the next packet; the callback runs below, once DMA is released.
++		 */
++		out_fast_dma = false;
++		out_fast_done = out_fast_active;
++	} else
++#endif
+ 	if ((m_ep_dma_waiting & BIT(ep2bit(ep))) == 0) {
+ 		if (NRF_USBD_COMMON_EP_IS_OUT(ep) || (ep == NRF_USBD_COMMON_EPIN8)) {
+ 			/* Send event to the user - for an ISO IN or any OUT endpoint,
+@@ -420,9 +478,65 @@ static void nrf_usbd_dma_finished(nrf_usbd_common_ep_t ep)
+ 		m_ep_armed |= BIT(ep2bit(ep));
+ 	}
+ 
++#if defined(CONFIG_UDC_NRF_ISO_IN_FAST)
++	/* From the later nRF Connect SDK driver, which the ISO IN fast path was written
++	 * against: a neutral dma_ep, so ev_sof_handler() and the EP0SETUP check do not
++	 * mistake a finished DMA for a running one while a thread holds dma_available.
++	 */
++	dma_ep = NRF_USBD_COMMON_EPIN1;
++#endif
++
+ 	k_sem_give(&dma_available);
++
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++	if (out_fast_done && out_fast_cb != NULL) {
++		out_fast_stats.packets++;
++		out_fast_cb((const uint8_t *)out_fast_buf, out_fast_len, out_fast_user_data);
++	}
++#endif
+ }
+ 
++#if defined(CONFIG_UDC_NRF_ISO_IN_FAST)
++/* ISO IN fast path at SOF: take this frame's packet from the application and request its
++ * DMA, which usbd_dmareq_process() starts at the end of this same interrupt. Returns true
++ * if the fast path is active.
++ */
++static bool iso_fast_sof(void)
++{
++	const udc_nrf_iso_in_fill_t fill = iso_fast_fill;
++	const uint32_t bit = BIT(ep2bit(NRF_USBD_COMMON_EPIN8));
++	uint8_t *buf;
++	uint16_t len;
++
++	if (fill == NULL ||
++	    !(NRF_USBD->EPINEN & BIT(NRF_USBD_COMMON_EP_NUM(NRF_USBD_COMMON_EPIN8)))) {
++		return false;
++	}
++
++	if (m_ep_dma_waiting & bit) {
++		/* Last frame's packet never got the DMA (another endpoint held it across
++		 * the whole frame): it is stale, send this frame's instead.
++		 */
++		iso_fast_stats.replaced++;
++	}
++
++	buf = (uint8_t *)iso_fast_buf[iso_fast_next];
++	len = fill(buf, UDC_NRF_ISO_IN_FAST_MAX, iso_fast_user_data);
++	if (len == 0) {
++		m_ep_dma_waiting &= ~bit;
++		iso_fast_stats.empty++;
++		return true;
++	}
++
++	iso_fast_ptr = buf;
++	iso_fast_len = MIN(len, UDC_NRF_ISO_IN_FAST_MAX);
++	iso_fast_next ^= 1;
++	m_ep_dma_waiting |= bit;
++
++	return true;
++}
++#endif
++
+ static void ev_sof_handler(void)
+ {
+ 	/* Process isochronous endpoints */
+@@ -432,10 +546,26 @@ static void ev_sof_handler(void)
+ 	if (NRF_USBD->SIZE.ISOOUT) {
+ 		iso_ready_mask |= (1U << ep2bit(NRF_USBD_COMMON_EPOUT8));
+ 	}
++
++#if defined(CONFIG_UDC_NRF_ISO_IN_FAST)
++	/* From the later nRF Connect SDK driver: a DMA may have been active across SOF,
++	 * in which case that isochronous endpoint's data may be corrupted -- do not mark
++	 * it ready.
++	 */
++	if (k_sem_count_get(&dma_available) == 0) {
++		iso_ready_mask &= ~BIT(ep2bit(dma_ep));
++	}
++#endif
+ 	m_ep_ready |= iso_ready_mask;
+ 
+ 	m_ep_armed &= ~USBD_EPISO_BIT_MASK;
+ 
++#if defined(CONFIG_UDC_NRF_ISO_IN_FAST)
++	if (iso_fast_sof() && iso_fast_suppress_sof) {
++		return;
++	}
++#endif
++
+ 	udc_submit_sof_event(udc_nrf_dev);
+ }
+ 
+@@ -588,6 +718,52 @@ static void usbd_dmareq_process(void)
+ 
+ 	nrf_usbd_common_ep_t ep = bit2ep(pos);
+ 
++#if defined(CONFIG_UDC_NRF_ISO_IN_FAST)
++	if (ep == NRF_USBD_COMMON_EPIN8 && iso_fast_fill != NULL) {
++		/* ISO IN fast path: the packet is in iso_fast_buf, not a net_buf */
++		m_ep_dma_waiting &= ~BIT(pos);
++		usbd_dma_pending_set();
++		m_ep_ready &= ~BIT(pos);
++		iso_fast_dma = true;
++		iso_fast_stats.packets++;
++		dma_ep = ep;
++		usbd_ep_dma_start(ep, (uint32_t)iso_fast_ptr, iso_fast_len);
++		return;
++	}
++#endif
++
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++	if (out_fast_active && ep == out_fast_ep) {
++		/* Bulk OUT fast path: the packet goes to out_fast_buf, not a net_buf, and
++		 * the waiting bit stays set for the next one.
++		 */
++		const size_t received = nrf_usbd_legacy_epout_size_get(ep);
++
++		m_ep_ready &= ~BIT(pos);
++		if (received == 0) {
++			/* Zero-length packet: nothing to DMA or deliver. Re-arm the
++			 * endpoint (as nrf_usbd_legacy_transfer_out_drop() does), release
++			 * the DMA and let any other waiting endpoint have it.
++			 */
++			out_fast_stats.zlps++;
++			NRF_USBD->SIZE.EPOUT[NRF_USBD_COMMON_EP_NUM(ep)] = 0;
++			m_ep_armed |= BIT(pos);
++			k_sem_give(&dma_available);
++			usbd_int_rise();
++			return;
++		}
++		if (received > UDC_NRF_OUT_FAST_MAX) {
++			out_fast_stats.truncated++;
++		}
++		out_fast_len = MIN(received, UDC_NRF_OUT_FAST_MAX);
++		usbd_dma_pending_set();
++		out_fast_dma = true;
++		dma_ep = ep;
++		usbd_ep_dma_start(ep, (uint32_t)out_fast_buf, out_fast_len);
++		return;
++	}
++#endif
++
+ 	ep_cfg = udc_get_ep_cfg(udc_nrf_dev, ep);
+ 	buf = udc_buf_peek(ep_cfg);
+ 
+@@ -1558,6 +1734,83 @@ static void udc_nrf_power_handler(nrfx_power_usb_evt_t pwr_evt)
+ 	}
+ }
+ 
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++int udc_nrf_out_fast_start(uint8_t ep, udc_nrf_out_fast_cb_t cb, void *user_data)
++{
++	unsigned int key;
++	uint32_t bit;
++
++	if (cb == NULL || ep < NRF_USBD_COMMON_EPOUT1 || ep > NRF_USBD_COMMON_EPOUT7) {
++		return -EINVAL;
++	}
++
++	bit = BIT(ep2bit(ep));
++	key = irq_lock();
++	out_fast_cb = cb;
++	out_fast_user_data = user_data;
++	out_fast_ep = ep;
++	out_fast_active = true;
++	/* Always waiting: whenever a packet makes the endpoint ready, it gets the DMA */
++	m_ep_dma_waiting |= bit;
++	if (!(m_ep_armed & bit) && !(m_ep_ready & bit)) {
++		/* Allow receiving DATA packet on OUT endpoint (nrf_usbd_start_transfer()) */
++		NRF_USBD->SIZE.EPOUT[NRF_USBD_COMMON_EP_NUM(ep)] = 0;
++		m_ep_armed |= bit;
++	}
++	/* A packet may already be waiting in the endpoint */
++	usbd_int_rise();
++	irq_unlock(key);
++
++	return 0;
++}
++
++void udc_nrf_out_fast_stop(void)
++{
++	unsigned int key = irq_lock();
++
++	if (out_fast_active) {
++		out_fast_active = false;
++		m_ep_dma_waiting &= ~BIT(ep2bit(out_fast_ep));
++	}
++	irq_unlock(key);
++}
++
++void udc_nrf_out_fast_stats_get(struct udc_nrf_out_fast_stats *stats)
++{
++	unsigned int key = irq_lock();
++
++	*stats = out_fast_stats;
++	irq_unlock(key);
++}
++#endif /* CONFIG_UDC_NRF_OUT_FAST */
++
++#if defined(CONFIG_UDC_NRF_ISO_IN_FAST)
++void udc_nrf_iso_in_fast_set(udc_nrf_iso_in_fill_t fill, void *user_data, bool suppress_sof)
++{
++	unsigned int key = irq_lock();
++
++	iso_fast_user_data = user_data;
++	iso_fast_suppress_sof = suppress_sof;
++	iso_fast_fill = fill;
++	if (fill == NULL) {
++		/* A packet requested but not yet DMA'd is dropped; one in flight
++		 * completes normally (iso_fast_dma).
++		 */
++		m_ep_dma_waiting &= ~BIT(ep2bit(NRF_USBD_COMMON_EPIN8));
++	}
++
++	irq_unlock(key);
++}
++
++void udc_nrf_iso_in_fast_stats_get(struct udc_nrf_iso_in_fast_stats *stats)
++{
++	unsigned int key = irq_lock();
++
++	*stats = iso_fast_stats;
++	irq_unlock(key);
++}
++#endif /* CONFIG_UDC_NRF_ISO_IN_FAST */
++
+ static int udc_nrf_ep_enqueue(const struct device *dev,
+ 			      struct udc_ep_config *cfg,
+ 			      struct net_buf *buf)
+diff --git a/include/zephyr/drivers/usb/udc_nrf_fast.h b/include/zephyr/drivers/usb/udc_nrf_fast.h
+new file mode 100644
+index 00000000000..c24cd9f5197
+--- /dev/null
++++ b/include/zephyr/drivers/usb/udc_nrf_fast.h
+@@ -0,0 +1,99 @@
++/*
++ * Copyright (c) 2026 Ryan Gilmore (ISO IN fast path)
++ * Copyright (c) 2026 Worldwave (bulk OUT fast path)
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++/**
++ * @file
++ * @brief nRF USBD fast paths: endpoints served from the USBD interrupt.
++ *
++ * Moving one packet through the UDC API costs, on the nRF52840, an interrupt, a wake of the
++ * driver thread, a message to the usbd thread, a net_buf free and alloc, and another wake of
++ * the driver thread to re-arm -- four thread switches per packet. These fast paths serve one
++ * endpoint each directly in the USBD interrupt, through the driver's own DMA scheduler, with
++ * a static buffer. The class driver still owns the endpoint (descriptors, enable/disable,
++ * alternate settings); while a fast path is active it must not enqueue buffers on that
++ * endpoint through the UDC API.
++ *
++ * Local patch for wakes-sp1 (zephyr-patches/udc_nrf-fast-paths.patch), Zephyr v4.3.1.
++ */
++
++#ifndef ZEPHYR_INCLUDE_DRIVERS_USB_UDC_NRF_FAST_H_
++#define ZEPHYR_INCLUDE_DRIVERS_USB_UDC_NRF_FAST_H_
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#if defined(CONFIG_UDC_NRF_OUT_FAST)
++
++/** Largest packet the bulk OUT fast path receives: a full-speed bulk packet. */
++#define UDC_NRF_OUT_FAST_MAX 64
++
++/**
++ * @brief Consume one received bulk OUT packet.
++ *
++ * Called from the USBD interrupt for every packet the host sends to the endpoint, after its
++ * DMA. Must not block and should be short: it runs at interrupt priority, and the endpoint
++ * NAKs the host's next packet until it returns. @p data is valid only during the call.
++ * Zero-length packets are not passed on.
++ */
++typedef void (*udc_nrf_out_fast_cb_t)(const uint8_t *data, uint16_t len, void *user_data);
++
++/**
++ * @brief Serve a bulk OUT endpoint (1-7) from the interrupt.
++ *
++ * Call after the endpoint is enabled -- from the class's enable callback. Arms the endpoint;
++ * every packet from then on goes to @p cb. One endpoint at a time.
++ *
++ * @return 0, or -EINVAL for an endpoint that is not bulk OUT 1-7.
++ */
++int udc_nrf_out_fast_start(uint8_t ep, udc_nrf_out_fast_cb_t cb, void *user_data);
++
++/** @brief Stop serving the endpoint (class disable). A packet in DMA is dropped. */
++void udc_nrf_out_fast_stop(void);
++
++/** Counters, for diagnostics. */
++struct udc_nrf_out_fast_stats {
++	uint32_t packets;   /**< packets passed to the callback */
++	uint32_t zlps;      /**< zero-length packets received and dropped */
++	uint32_t truncated; /**< packets longer than UDC_NRF_OUT_FAST_MAX (never at full speed) */
++};
++void udc_nrf_out_fast_stats_get(struct udc_nrf_out_fast_stats *stats);
++
++#endif /* CONFIG_UDC_NRF_OUT_FAST */
++
++#if defined(CONFIG_UDC_NRF_ISO_IN_FAST)
++
++/** Largest packet the ISO IN fast path sends: the ISO IN half of the ISO buffer. */
++#define UDC_NRF_ISO_IN_FAST_MAX 512
++
++/**
++ * @brief Produce the next ISO IN packet (Ryan Gilmore's fast path, sp1-usb-audio).
++ *
++ * Called from the USBD interrupt at every SOF while registered and the ISO IN endpoint is
++ * enabled. Must not block, and should be short. Return the bytes to send this frame (0:
++ * nothing).
++ */
++typedef uint16_t (*udc_nrf_iso_in_fill_t)(uint8_t *buf, uint16_t max, void *user_data);
++
++/**
++ * @brief Register (or remove, @p fill NULL) the ISO IN fast path.
++ *
++ * @param suppress_sof Also stop posting SOF to the stack while active; only valid when no
++ *                     class needs SOF events.
++ */
++void udc_nrf_iso_in_fast_set(udc_nrf_iso_in_fill_t fill, void *user_data, bool suppress_sof);
++
++/** Counters, for diagnostics. */
++struct udc_nrf_iso_in_fast_stats {
++	uint32_t packets;   /**< packets DMA'd to the ISO IN buffer */
++	uint32_t replaced;  /**< packets filled but not DMA'd before the next SOF */
++	uint32_t empty;     /**< frames where the fill function returned 0 */
++};
++void udc_nrf_iso_in_fast_stats_get(struct udc_nrf_iso_in_fast_stats *stats);
++
++#endif /* CONFIG_UDC_NRF_ISO_IN_FAST */
++
++#endif /* ZEPHYR_INCLUDE_DRIVERS_USB_UDC_NRF_FAST_H_ */

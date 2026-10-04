@@ -114,6 +114,13 @@ Zephyr RTOS — Apache-2.0 — https://github.com/zephyrproject-rtos/zephyr
   inherited from Zephyr's board template; they remain Apache-2.0.
   zephyr-patches/nordic-cmsis-system-core-clock.patch is a change to Zephyr
   itself and is Apache-2.0 like the file it patches.
+  zephyr-patches/udc_nrf-fast-paths.patch (#32) changes Zephyr's nRF USB
+  driver and adds include/zephyr/drivers/usb/udc_nrf_fast.h; Apache-2.0 like
+  the driver. Its ISO IN fast path is Ryan Gilmore's, from
+  https://github.com/ryanmgilmore/sp1-usb-audio (module/nrf-usbd-isofast,
+  Apache-2.0, Copyright (c) 2026 Ryan Gilmore), ported to Zephyr v4.3.1 with
+  the two guards it relies on from nRF Connect SDK's later copy of the driver.
+  The bulk OUT fast path is ours, written the same way.
   firmware/src/sp1_usbd.c (M5a) is derived from Zephyr's
   samples/subsys/usb/common/sample_usbd_init.c, Copyright (c) 2023 Nordic
   Semiconductor ASA, and is Apache-2.0: changed to set Wakes' own USB
