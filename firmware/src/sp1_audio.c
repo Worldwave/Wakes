@@ -14,17 +14,6 @@
 #include "sp1_synth.h"
 #endif
 
-#ifndef SP1_HOT
-#define SP1_HOT   /* the fallback build has no sp1_synth.h, and no RAM experiment */
-#endif
-/* fill_block is called once and would be inlined into the audio thread, which stays in
- * flash -- so the #32 RAM experiment keeps it a real function. Release builds unchanged. */
-#if defined(CONFIG_SP1_PERBLOCK_IN_RAM)
-#define SP1_HOT_CALL __attribute__((noinline)) SP1_HOT
-#else
-#define SP1_HOT_CALL SP1_HOT
-#endif
-
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/i2c.h>
@@ -36,19 +25,20 @@
  *  I2S stream
  * ========================================================================== */
 #define SR_HZ        48000u
-/* The audio block: CONFIG_SP1_AUDIO_BLOCK_FRAMES, 240 = 5 ms = 20 Plaits blocks of 12 (96 =
- * 2 ms was an M5b trial); M2 had 256, which Plaits' 12-sample block does not divide.
- * Nothing else here depends on the size: the gain ramp and the budget are computed from it.
+/* The audio block: CONFIG_SP1_AUDIO_BLOCK_FRAMES, 96 = 2 ms = 4 Plaits blocks of 24 (#32;
+ * 240 = 5 ms through v0.5.0). M2 had 256, which Plaits' block does not divide. Nothing else
+ * here depends on the size: the gain ramp and the budget are computed from it.
  *
- * ---- latency (Adara, M5b: "over 30 ms is a no-go") ----
+ * ---- latency (Adara, M5b: "over 30 ms is a no-go"; #32: 10 ms) ----
  * When a block starts rendering, the nrfx TX queue (CONFIG_I2S_NRFX_TX_BLOCK_COUNT) is full,
  * the DMA holds the next block and one is playing; and MIDI places each message one block
  * later, at its own moment inside it. So sound leaves Wakes (queue + 3) blocks after what
- * caused it: 5 ms x (4 + 3) = 35 ms through M5a; 2 ms x (2 + 3) = 10 ms was tried and paid
- * ~8 points of CPU in per-block overhead (i2s hand-off, switches, interrupts -- the THREADS
- * line against the block's own cycles); 5 ms x (2 + 3) = 25 ms now. The price is the
- * margin: a block that runs long has (queue + 1) blocks -- 15 ms, was 25 -- before the
- * output runs dry. */
+ * caused it: 5 ms x (4 + 3) = 35 ms through M5a, 5 ms x (2 + 3) = 25 ms in v0.5.0, and
+ * 2 ms x (2 + 3) = 10 ms now. 2 ms blocks cost ~6 points of per-block overhead with
+ * 12-sample Plaits blocks (cache refills and fixed setup at every block boundary, #32 step A);
+ * 24-sample Plaits blocks paid for it with room to spare (#32 B1: the heaviest patch at
+ * 76-79 %, no block over budget). The price is the margin: a block that runs long has
+ * (queue + 1) blocks -- 6 ms, was 15 -- before the output runs dry. */
 #define BLK_FRAMES   ((uint32_t)CONFIG_SP1_AUDIO_BLOCK_FRAMES)
 #define BLK_BYTES    (BLK_FRAMES * 2u * sizeof(int16_t))    /* stereo, 16-bit    */
 #define BLK_MS       (BLK_FRAMES / 48u)
@@ -142,7 +132,7 @@ static uint32_t over_run;         /* audio thread only: the run in progress */
 static uint32_t cyc_budget;       /* copy of st.cyc_budget for the audio thread */
 
 /* `miss`: flash-cache misses across the same fill_block (0 unless SP1_PROFILE_ICACHE). */
-static SP1_HOT void account_sections(uint32_t cyc, uint32_t miss)
+static void account_sections(uint32_t cyc, uint32_t miss)
 {
 	uint32_t s[SP1_SEC_N] = { 0u };
 #if defined(CONFIG_SP1_PLAITS)
@@ -241,7 +231,7 @@ static uint32_t      phase;
  * cleared by the control loop. */
 static atomic_t peak;
 
-static SP1_HOT void publish_peak(uint32_t p)
+static void publish_peak(uint32_t p)
 {
 	/* Atomic max. Bounded: the only other writer is the meter's once-per-tick swap,
 	 * so this retries at most a couple of times and cannot spin. */
@@ -301,7 +291,7 @@ static void tone_render(int16_t *out)
 #endif
 
 /* Fill one block. The meter's entire audio-path cost is the two lines marked METER. */
-static SP1_HOT_CALL void fill_block(int16_t *b)
+static void fill_block(int16_t *b)
 {
 	/* Read the controls ONCE per block, so a change lands on a block boundary and
 	 * a half-updated value is never seen mid-block. */

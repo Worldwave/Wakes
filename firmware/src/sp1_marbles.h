@@ -6,15 +6,16 @@
  * third_party/eurorack/marbles (random/, ramp/, resources). Only its generators are
  * used: no inputs, no external clock, no UI, no settings storage.
  *
- * ---- the 4 kHz rule ----
- * Marbles runs natively at 32 kHz. Here it runs ONCE PER PLAITS BLOCK (12 samples,
- * 4 kHz), because Plaits reads its modulation and TRIG inputs only once per block --
- * anything faster is thrown away. Host-verified: the same random
- * sequence as at 32 kHz; gate edges on a 0.25 ms grid.
+ * ---- the 4 kHz rule, now 2 kHz (#32) ----
+ * Marbles runs natively at 32 kHz. Here it runs ONCE PER PLAITS BLOCK, because Plaits reads
+ * its modulation and TRIG inputs only once per block -- anything faster is thrown away.
+ * That was 4 kHz with 12-sample blocks (host-verified: the same random sequence as at
+ * 32 kHz; gate edges on a 0.25 ms grid) and is 2 kHz with 24 (CONFIG_SP1_PLAITS_BLOCK;
+ * edges on a 0.5 ms grid). The sample rate it is given follows the block size.
  *
  * ---- X and Y at 1 kHz (issue #22) ----
- * t and the master ramp stay at 4 kHz; X1-X3 and Y are generated at 1 kHz, from every
- * fourth ramp sample, and brought back to 4 kHz. Marbles renders the whole block before
+ * t and the master ramp run at the Plaits block rate; X1-X3 and Y are generated at 1 kHz,
+ * from every SP1_SYNTH_BLOCKS_PER_MS-th ramp sample, and brought back to the block rate. Marbles renders the whole block before
  * Plaits sees any of it, so nothing is late: a STEPPED output changes on the exact 4 kHz
  * sample its clock wrapped (host: bit-identical to 4 kHz), and a SMOOTH one is
  * interpolated between its 1 kHz values. Glides therefore differ from 4 kHz in their

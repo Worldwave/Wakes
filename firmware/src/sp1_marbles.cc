@@ -179,7 +179,7 @@ uint8_t cur_range[4] = {
   marbles::VOLTAGE_RANGE_FULL, marbles::VOLTAGE_RANGE_FULL,
 };
 
-SP1_HOT marbles::VoltageRange IntelligentRange(uint8_t dest, uint8_t centre) {
+marbles::VoltageRange IntelligentRange(uint8_t dest, uint8_t centre) {
   // The bits are SP1_ENGINE_TABLE[].centre: 0x1 = HARMONICS (F4), 0x2 = TIMBRE (F2),
   // 0x4 = MORPH (F3). A detent means the parameter's centre is its neutral point, which
   // is exactly what makes it bipolar.
@@ -269,7 +269,7 @@ void InitGenerators() {
 // Audio thread. Put scale `s` in slot 0 of all four channels if it is not there
 // already. Quantizer::Init is a table recompute -- no allocation, ~a thousand cycles
 // for four channels -- and only runs when the selection changes.
-SP1_HOT void LoadScaleIfNeeded(int s) {
+void LoadScaleIfNeeded(int s) {
   if (s < 0 || s >= SP1_MARBLES_SCALES) {
     s = 0;
   }
@@ -293,7 +293,7 @@ namespace {
 // goes in on the very 4 kHz sample of that wrap -- known here because the whole block's
 // ramps exist before Plaits reads any of it -- and the result is bit-identical to 4 kHz.
 // A SMOOTH output is interpolated linearly across the four samples of its group.
-SP1_HOT void RenderXY1k(marbles::ClockSource clk, const GroupSettings& x,
+void RenderXY1k(marbles::ClockSource clk, const GroupSettings& x,
                 const GroupSettings& y, bool* reset, const marbles::Ramps& ramps,
                 uint32_t n) {
   const uint32_t groups = n / kXYDecim;
@@ -397,7 +397,7 @@ namespace marbles {
 // one ramp cycle per q/p beats. Returns true when the ramp starts afresh -- a reset, or the
 // clock just became external -- so the override aligns Marbles to it rather than reading the
 // jump from the last ramp as one enormous step of the clock.
-SP1_HOT bool sp1_mrb_external_ramp(const Ratio& ratio, bool* reset, float* ramp, size_t size) {
+bool sp1_mrb_external_ramp(const Ratio& ratio, bool* reset, float* ramp, size_t size) {
   const float k = static_cast<float>(ratio.p) / static_cast<float>(ratio.q);
   for (size_t i = 0; i < size; ++i) {
     const float x = (ext_beats ? ext_beats[i] : 0.0f) * k;
@@ -408,7 +408,7 @@ SP1_HOT bool sp1_mrb_external_ramp(const Ratio& ratio, bool* reset, float* ramp,
   return fresh;
 }
 
-SP1_HOT int sp1_mrb_channel_range(int channel, int group_range) {
+int sp1_mrb_channel_range(int channel, int group_range) {
   if (channel < 0 || channel > 3) {
     return group_range;
   }
@@ -459,7 +459,7 @@ extern "C" void sp1_marbles_run(bool on) {
   run_req = on;
 }
 
-extern "C" SP1_HOT void sp1_marbles_clock(const float* beats, int transport) {
+extern "C" void sp1_marbles_clock(const float* beats, int transport) {
   // Audio thread. The run state is PLAY's own, so either can change it (C6); a START is a
   // start_count like PLAY's, so the next render resets and puts the clock at the end of its
   // cycle -- and with the ramp still until beat 1, that cycle ends on beat 1's sample.
@@ -491,7 +491,7 @@ extern "C" bool sp1_marbles_running(void) {
   return run_req;
 }
 
-extern "C" SP1_HOT void sp1_marbles_render(uint32_t n) {
+extern "C" void sp1_marbles_render(uint32_t n) {
   if (n > kN) {
     n = kN;
   }

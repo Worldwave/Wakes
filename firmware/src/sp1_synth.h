@@ -107,12 +107,12 @@ void sp1_synth_set_params(const struct sp1_synth_params *p);
 
 /* Fire the TRIG input once (RWD pressed). Works whether or not Marbles runs; while it
  * runs, this and the routed t gates both reach TRIG, and a new edge that lands while
- * TRIG is already high is re-struck (one 0.25 ms low block) so it is never lost. */
+ * TRIG is already high is re-struck (one low Plaits block, 0.5 ms) so it is never lost. */
 void sp1_synth_trigger(void);
 
 /* ---- the TRIG burst (M3b; tempo from Marbles since M4; PHASE-LOCKED since M4e) ----
  * A BURST fires TRIGs at 1/div notes of the tempo for as long as it is held on. Timing is
- * quantised to Plaits' 12-sample block, 0.25 ms.
+ * quantised to Plaits' block: 24 samples, 0.5 ms (#32; 12 samples, 0.25 ms, before).
  *
  * ⚠️ Where the grid comes from depends on whether Marbles' clock is RUNNING (M4e, Adara):
  *
@@ -234,18 +234,6 @@ struct sp1_synth_profile {
 };
 void sp1_synth_set_cycle_counter(const volatile uint32_t *counter);
 
-/* ---- #32 experiment: the per-audio-block code from RAM (CONFIG_SP1_PERBLOCK_IN_RAM) ----
- * Marks a function for Zephyr's .ramfunc section: copied from flash at boot, executed from
- * RAM under Zephyr's own MPU region for it (both ends aligned; do not use
- * zephyr_code_relocate, which aligns only the end). The point is to stop the code that runs
- * at every audio-block boundary from evicting the engine's code from the flash cache. Empty
- * on the host and when the option is off. (#22's build C did the same for less code, at
- * 5 ms, without cache counters: it measured no change.) */
-#if defined(__ZEPHYR__) && defined(CONFIG_SP1_PERBLOCK_IN_RAM)
-#define SP1_HOT __attribute__((section(".ramfunc")))
-#else
-#define SP1_HOT
-#endif
 /* The flash cache's miss counter (NVMC IMISS), or NULL (the default: no miss profile). */
 void sp1_synth_set_miss_counter(const volatile uint32_t *counter);
 /* MIDI's clock (sp1_midi.h, "timing"): the same clock the USB side stamps messages with --

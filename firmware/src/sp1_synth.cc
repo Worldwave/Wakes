@@ -324,7 +324,7 @@ struct Routing {
   bool fm_patched, timbre_patched, morph_patched, harm_patched, level_routed;
 };
 
-SP1_HOT void AddRoute(Routing* r, int source, int dest) {
+void AddRoute(Routing* r, int source, int dest) {
   float scale;
   RouteDest d;
   switch (dest) {
@@ -342,7 +342,7 @@ SP1_HOT void AddRoute(Routing* r, int source, int dest) {
   ++r->count;
 }
 
-SP1_HOT Routing ResolveRouting(const sp1_synth_params& c) {
+Routing ResolveRouting(const sp1_synth_params& c) {
   Routing r = {};
   for (int t = 0; t < 3; ++t) {
     // A t output is a gate: V/Oct is not one of its destinations (as before).
@@ -440,7 +440,7 @@ inline uint32_t Miss() {
 }
 uint32_t (*midi_clock)(void);                // NULL = untimed (sp1_synth_set_midi_clock)
 
-extern "C" SP1_HOT void sp1_synth_render(int16_t* out, uint32_t frames) {
+extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
   const uint32_t prof_t0 = Now();
   const uint32_t miss_t0 = Miss();
   uint32_t prof_eng = 0u;

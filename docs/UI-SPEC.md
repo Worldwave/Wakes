@@ -355,7 +355,7 @@ The page breathes, like the PLAITS SETTINGS page. A single `••` tap returns.
 | HARMONICS | HARMONICS CV, `harmonics_patched` (ours) | ±5 V → ±1, **× the HARMONICS attenuverter** (PLAITS SHIFT F4, v0.10) |
 | LEVEL | LEVEL (`Modulations::level`), `level_patched` | 0 … 1; a t gate holds the VCA open for the gate's length. Adds to the SETTINGS F4 fader |
 | V/Oct | V/Oct (`Modulations::note`) | 12 semitones per volt, unattenuated |
-| TRIG | TRIG, as gates | t gates (their lengths reach Plaits), OR-ed; a new edge while TRIG is high is re-struck with one 0.25 ms low block |
+| TRIG | TRIG, as gates | t gates (their lengths reach Plaits), OR-ed; a new edge while TRIG is high is re-struck with one low Plaits block (0.5 ms) |
 
 Scaling is Plaits' own for its CV inputs (`plaits/settings.cc`, default calibration). A **t gate
 counts as 0 or +5 V** on any CV destination. Outputs on one destination add up (Adara: "attenuvert

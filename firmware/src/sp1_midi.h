@@ -108,14 +108,14 @@ extern "C" {
  *   1 block              the message is placed in the NEXT audio block, at its own moment
  *   queue + 2 blocks     when a block starts rendering, the I2S queue is full, the DMA holds
  *                        one more, and one is playing.
- * 5 ms x (4 + 3) = 35 ms through M5a; 2 ms x (2 + 3) = 10 ms tried in M5b (too costly: ~8
- * points of per-block overhead); 5 ms x (2 + 3) = 25 ms now. Taken from the build settings;
- * the host suites, which have none, get 25. Section 7 of the M5 test issue measures it. */
+ * 5 ms x (4 + 3) = 35 ms through M5a, 5 ms x (2 + 3) = 25 ms in v0.5.0, 2 ms x (2 + 3) =
+ * 10 ms since #32. Taken from the build settings; the host suites, which have none, get the
+ * default's 10. Section 7 of the M5 test issue measures it. */
 #if defined(CONFIG_SP1_AUDIO_BLOCK_FRAMES) && defined(CONFIG_I2S_NRFX_TX_BLOCK_COUNT)
 #define SP1_MIDI_OUTPUT_LATENCY_MS \
 	((CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3) * (CONFIG_SP1_AUDIO_BLOCK_FRAMES / 48))
 #else
-#define SP1_MIDI_OUTPUT_LATENCY_MS 25
+#define SP1_MIDI_OUTPUT_LATENCY_MS 10
 #endif
 
 #if defined(CONFIG_SP1_MIDI)

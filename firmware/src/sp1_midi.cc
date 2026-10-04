@@ -122,7 +122,11 @@ volatile uint8_t pub_held, pub_bend_range;
 // Smoothed in the audio thread, ONCE PER AUDIO BLOCK (Plaits) ...
 float smooth[SP1_MIDI_AUDIO_DESTS];
 float smooth_coef = 1.0f;
-uint32_t smooth_coef_blocks;                 // the block length smooth_coef was made for
+uint32_t smooth_coef_blocks;                 // the elapsed blocks smooth_coef was made for
+uint32_t smooth_due;                         // Plaits blocks since the last smoothing step
+// The smoothing runs once ~5 ms has passed, whatever the audio block (#32, Adara: a
+// consistent cost prediction): every block at 5 ms blocks, every third at 2 ms (6 ms).
+const uint32_t kSmoothBlocks = 5u * kBlocksPerMs;
 bool settled = true;                         // every smoothed offset is exactly zero
 
 // Yarns' lut_env_expo (yarns/resources/lookup_tables.py): 1 - exp(-4x) at 257 points,
@@ -176,7 +180,7 @@ const float kFollow = 1.0f / (8.0f * kBlocksPerMs);  // per Plaits block: closes
                                              // that moves at a tick never jumps the position
 // ---- the lead: Wakes' own delay, made up (Adara, M5b round 1) ----
 // A tick is rendered one audio block after it arrives, into the I2S queue behind the audio
-// already waiting (sp1_midi.h, SP1_MIDI_OUTPUT_LATENCY_MS: 25 ms at 5 ms x 2), so Marbles
+// already waiting (sp1_midi.h, SP1_MIDI_OUTPUT_LATENCY_MS: 10 ms at 2 ms x 2), so Marbles
 // following the ticks exactly is that late at the output. The line is read that far AHEAD,
 // so its beats leave Wakes on the host's beat. Only with a line: a tick cannot be predicted
 // from nothing.
@@ -318,7 +322,7 @@ void Glide(uint8_t note, uint8_t vel, int portamento, bool trigger) {
 }
 
 // Voice::Refresh: advance the glide one 4 kHz step.
-SP1_HOT void Refresh() {
+void Refresh() {
   if (porta_inc > 0.0f) {
     porta_phase += porta_inc;
     if (porta_phase >= 1.0f) {
@@ -533,7 +537,7 @@ volatile float pk_val[SP1_MIDI_AUDIO_DESTS]; // the offset while it catches up
 float pk_prev[SP1_MIDI_AUDIO_DESTS];         // the reading at the last counted movement
 
 // AUDIO THREAD, once per audio block: destination d's offset with pickup applied.
-SP1_HOT float PickupTarget(int d, uint8_t centre) {
+float PickupTarget(int d, uint8_t centre) {
   const float r = Target(d, centre);
   if ((SP1_MIDI_POLARITY[d] & 0x10u) == 0u) {
     return r;
@@ -691,7 +695,7 @@ void ControlChange(uint8_t cc, uint8_t v) {
 
 // noinline: this runs once per MESSAGE. Inlined into sp1_midi_audio_block, its register
 // pressure spilled ~30 instructions onto the path that runs every Plaits block.
-__attribute__((noinline)) SP1_HOT void Process(const Event& e) {
+__attribute__((noinline)) void Process(const Event& e) {
   const uint8_t status = e.msg[0];
   const uint8_t type = status & 0xF0u;
   if (SP1_MIDI_CHANNEL != SP1_MIDI_OMNI && (status & 0x0Fu) != SP1_MIDI_CHANNEL) {
@@ -913,7 +917,7 @@ float ClockTarget() {
 
 // AUDIO THREAD, once per audio block: the clock messages at their Plaits blocks, and the
 // position in beats at each. Every block costs the same, ticking or not (Adara's rule).
-SP1_HOT void ClockBlock(uint32_t blocks) {
+void ClockBlock(uint32_t blocks) {
   if (blocks > kMaxBlocks) {
     blocks = kMaxBlocks;
   }
@@ -1216,7 +1220,7 @@ extern "C" void sp1_midi_get_stats(struct sp1_midi_stats* out) {
 }
 
 // ==== audio thread ========================================================================
-extern "C" SP1_HOT bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t engine_centre,
+extern "C" bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t engine_centre,
                                      float off[SP1_MIDI_AUDIO_DESTS]) {
   engine_centre_now = engine_centre;
   static bool once;
@@ -1292,31 +1296,40 @@ extern "C" SP1_HOT bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, u
   prev_begin_valid = true;
   ClockBlock(blocks);
 
-  // ---- the CC offsets: smoothed ONCE PER AUDIO BLOCK (5 ms) ----
-  // A one-pole at 200 Hz with the script's time constant. That is a finer step than the
+  // ---- the CC offsets: smoothed every ~5 ms, whatever the audio block (#32) ----
+  // A one-pole at ~200 Hz with the script's time constant. That is a finer step than the
   // faders get (the control loop publishes every 8 ms), and Plaits interpolates each
-  // parameter across its own 12-sample block on top. Per Plaits block it cost ~260
-  // instructions x 20, for nothing audible. A message lands in the target at once and the
-  // smoothing picks it up at the next audio block: up to 5 ms more, on CCs only.
-  if (blocks != smooth_coef_blocks) {
-    smooth_coef_blocks = blocks;
-    const float tau = static_cast<float>(SP1_MIDI_SMOOTH_MS) * 1e-3f;
-    smooth_coef = tau <= 0.0f
-        ? 1.0f
-        : 1.0f - expf(-static_cast<float>(blocks) / (tau * kRefreshHz));
-  }
-  bool zero = true;
-  for (int d = 0; d < SP1_MIDI_AUDIO_DESTS; ++d) {
-    const float t = PickupTarget(d, engine_centre);
-    float v = smooth[d] + (t - smooth[d]) * smooth_coef;
-    if (fabsf(v - t) < 1e-6f) {
-      v = t;
+  // parameter across its own block on top. Per Plaits block it cost ~260 instructions x 20,
+  // for nothing audible. At 2 ms audio blocks running it every block cost 1.2 points with
+  // MIDI idle (#32 B1); on a 5 ms cadence it is a constant ~0.5 at any block size (Adara:
+  // a consistent cost prediction). A message lands in the target at once and the
+  // smoothing picks it up at the next step: up to ~6 ms more, on CCs only. Between steps
+  // the offsets hold.
+  smooth_due += blocks;
+  if (smooth_due >= kSmoothBlocks) {
+    if (smooth_due != smooth_coef_blocks) {
+      smooth_coef_blocks = smooth_due;
+      const float tau = static_cast<float>(SP1_MIDI_SMOOTH_MS) * 1e-3f;
+      smooth_coef = tau <= 0.0f
+          ? 1.0f
+          : 1.0f - expf(-static_cast<float>(smooth_due) / (tau * kRefreshHz));
     }
-    smooth[d] = v;
-    off[d] = v;
-    zero = zero && v == 0.0f;
+    smooth_due = 0;
+    bool zero = true;
+    for (int d = 0; d < SP1_MIDI_AUDIO_DESTS; ++d) {
+      const float t = PickupTarget(d, engine_centre);
+      float v = smooth[d] + (t - smooth[d]) * smooth_coef;
+      if (fabsf(v - t) < 1e-6f) {
+        v = t;
+      }
+      smooth[d] = v;
+      zero = zero && v == 0.0f;
+    }
+    settled = zero;
   }
-  settled = zero;
+  for (int d = 0; d < SP1_MIDI_AUDIO_DESTS; ++d) {
+    off[d] = smooth[d];
+  }
 
   const bool active = session || gate || tail;
   if (!active && note_target != 60.0f) {
@@ -1334,8 +1347,8 @@ extern "C" SP1_HOT bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, u
   return block_n > 0u || active || !settled;
 }
 
-extern "C" SP1_HOT void sp1_midi_audio_block(uint32_t j, sp1_midi_frame* f) {
-  // ---- the minimum gate: one Plaits block (0.25 ms) ----
+extern "C" void sp1_midi_audio_block(uint32_t j, sp1_midi_frame* f) {
+  // ---- the minimum gate: one Plaits block (0.5 ms at 24 samples) ----
   // A strike ends this block's messages; the rest wait for the next block. Otherwise a
   // note-off landing in the same block as its note-on -- a very short note, or one that
   // shares a USB packet (one timestamp) with its own note-off -- struck TRIG with LEVEL
@@ -1354,13 +1367,13 @@ extern "C" SP1_HOT void sp1_midi_audio_block(uint32_t j, sp1_midi_frame* f) {
   f->gate = gate ? GateHeight() : 0.0f;
 }
 
-extern "C" SP1_HOT void sp1_midi_audio_clock(sp1_midi_clock* out) {
+extern "C" void sp1_midi_audio_clock(sp1_midi_clock* out) {
   out->external = clk_ext;
   out->transport = clk_op;
   out->beats = clk_beats;
 }
 
-extern "C" SP1_HOT void sp1_midi_audio_lpg(float gain, bool bypassed) {
+extern "C" void sp1_midi_audio_lpg(float gain, bool bypassed) {
   if (tail && !gate && (bypassed || gain < kTailEnd)) {
     tail = false;
   }
