@@ -142,6 +142,11 @@ struct sp1_audio_sections {
 	uint32_t miss_pre;
 	uint32_t blocks;
 	uint32_t icache_hit, icache_miss;
+	/* #32: the slowest single engine call in the window (cycles), its Plaits engine, and
+	 * whether it was the first call after an engine change. */
+	uint32_t eng_worst;
+	uint8_t eng_worst_engine;
+	bool eng_worst_first;
 };
 void sp1_audio_take_sections(struct sp1_audio_sections *out);
 

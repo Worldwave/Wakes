@@ -212,10 +212,12 @@ def parse(path):
     v = m.get('clock_lead', 'auto').strip().lower()
     if v == 'auto':
         cfg['clock_lead'] = -1
+    elif v == 'notes':                      # #32: learnt from the host's quantised notes
+        cfg['clock_lead'] = -2
     elif v.isdigit() and int(v) <= 200:
         cfg['clock_lead'] = int(v)
     else:
-        err('midi', 'clock_lead', 'clock_lead must be auto or 0-200 (ms), not "%s"' % v)
+        err('midi', 'clock_lead', 'clock_lead must be notes, auto or 0-200 (ms), not "%s"' % v)
 
     def cc_value(sec, key, raw, allow_none):
         raw = raw.strip().lower()
@@ -306,7 +308,7 @@ def generate(ini, out, chart_dir):
          '#define SP1_MIDI_PICKUP      %d' % cfg['pickup'],
          '#define SP1_MIDI_CLOCK       %d   /* 1 = Marbles follows MIDI clock + transport */'
          % cfg['clock'],
-         '#define SP1_MIDI_CLOCK_LEAD_MS (%d)   /* ms; -1 = auto: SP1_MIDI_OUTPUT_LATENCY_MS */'
+         '#define SP1_MIDI_CLOCK_LEAD_MS (%d)   /* ms; -1 = auto: Wakes\' own delay; -2 = notes */'
          % cfg['clock_lead'], '',
          'enum sp1_midi_dest {']
     L += ['\t%s,' % e for e in enum]
@@ -379,7 +381,9 @@ def write_charts(d, cfg, ccs, binds):
           '- Sustain pedal: %s' % ('CC %d' % cfg['sustain'] if cfg['sustain'] >= 0 else 'off'),
           '- MIDI clock: %s' % (('Marbles follows the host\'s clock, Start / Continue / Stop; '
                                  'RATE picks the ratio (1/4 … 4); running %s ahead'
-                                 % ("Wakes' own delay (auto)" if cfg['clock_lead'] < 0
+                                 % ("Wakes' own delay (auto)" if cfg['clock_lead'] == -1
+                                    else "as far as the host's notes say (notes)"
+                                    if cfg['clock_lead'] == -2
                                     else '%d ms' % cfg['clock_lead']))
                                 if cfg['clock'] else 'ignored')]
     md += how

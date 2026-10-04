@@ -1927,10 +1927,14 @@ int main(void)
 						sc.pre_midi_avg * 1000u) / as.cyc_budget) : 0u;
 					const uint32_t prt = as.cyc_budget ? (uint32_t)(((uint64_t)
 						sc.pre_route_avg * 1000u) / as.cyc_budget) : 0u;
-					printk("BLK pre=%u.%u/%u.%u (midi=%u.%u route=%u.%u) plaits block %u\n",
+					/* #32: the slowest single engine call, in microseconds. */
+					const uint32_t wus = sc.eng_worst / 64u;
+					printk("BLK pre=%u.%u/%u.%u (midi=%u.%u route=%u.%u) plaits block %u"
+					       "  slowest engine call %u us (plaits %u%s)\n",
 					       pa / 10u, pa % 10u, pm / 10u, pm % 10u,
 					       pmi / 10u, pmi % 10u, prt / 10u, prt % 10u,
-					       (unsigned)SP1_SYNTH_BLOCK);
+					       (unsigned)SP1_SYNTH_BLOCK, wus, sc.eng_worst_engine,
+					       sc.eng_worst_first ? ", first after a change" : "");
 #if defined(CONFIG_SP1_PROFILE_ICACHE)
 					/* Audio ms in the window: blocks x the block, which is the
 					 * budget over 64 000 cycles per ms. */
@@ -2000,10 +2004,12 @@ int main(void)
 							const int32_t a = ms.skew_avg_us;
 							const uint32_t m = (uint32_t)(a < 0 ? -a : a);
 							printk("MIDI notes vs clock: %c%u.%u ms (sd %u.%u ms, n=%u)"
-							       "  - = notes before their tick: the clock leaves late\n",
+							       "  - = notes before their tick: the clock leaves late."
+							       "  Marbles leads by %u.%u ms\n",
 							       a < 0 ? '-' : '+', m / 1000u, (m % 1000u) / 100u,
 							       ms.skew_sd_us / 1000u,
-							       (ms.skew_sd_us % 1000u) / 100u, ms.skew_n);
+							       (ms.skew_sd_us % 1000u) / 100u, ms.skew_n,
+							       ms.lead_us / 1000u, (ms.lead_us % 1000u) / 100u);
 						}
 					}
 				}

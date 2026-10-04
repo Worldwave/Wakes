@@ -448,6 +448,7 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
   uint32_t miss_eng = 0u;
   uint32_t miss_post = 0u;
   prof = sp1_synth_profile{};
+  static int engine_prev = -1;                 // #32: the engine change, for eng_worst
   if (!voice) {
     for (uint32_t i = 0; i < frames; ++i) {
       out[i] = 0;
@@ -475,6 +476,9 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
   // TRIG vs VCA held open = drone). A Marbles output routed to LEVEL patches it too;
   // that is decided per block below.
   const bool level_fader_patched = c.level_patched != 0;
+  const bool engine_changed = c.engine != engine_prev;
+  engine_prev = c.engine;
+  prof.eng_worst_engine = static_cast<uint8_t>(c.engine);
 
   // Which t outputs go to TRIG this block. Built here rather than carried as a mask so
   // the t destinations are one list with one meaning (Adara, M4a).
@@ -780,6 +784,10 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
     const uint32_t prof_e1 = Now();
     const uint32_t miss_e1 = Miss();
     prof_eng += prof_e1 - prof_e0;
+    if (prof_e1 - prof_e0 > prof.eng_worst) {
+      prof.eng_worst = prof_e1 - prof_e0;
+      prof.eng_worst_first = engine_changed && j == 1u;
+    }
     miss_eng += miss_e1 - miss_e0;
 #if defined(CONFIG_SP1_MIDI)
     // When a released note's LPG has closed, MIDI lets go of LEVEL (sp1_midi.h).

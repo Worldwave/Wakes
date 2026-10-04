@@ -117,14 +117,17 @@ Marbles locks to the host, the way a Eurorack Marbles does with a cable in its C
   arrive a few ms early or late. Wakes fits a straight line through the last two beats of
   ticks and follows the line, not each tick: ±8 ms of tick jitter comes out as under 1 ms on
   Marbles' beats.
-- **On time at the output.** Wakes plays everything about 8.5 ms after the MIDI that caused it
-  (it places each message on time inside the next 2 ms audio block, audio is queued ahead of
-  the output, and Plaits waits 0.5 ms after a TRIG). A clock is steady, so Marbles reads it that far **ahead** and its beats leave
-  Wakes on the host's beat. Beat 1 after a Start is the exception — nothing said when it
-  would come — so Marbles is on time from beat 2. `clock_lead` in the script sets the lead
-  (`auto` = 8.5 ms); **leave your DAW's own clock offset for Wakes at 0**, or set `clock_lead = 0`
-  and use the DAW's instead. Notes cannot be played early: give Wakes' track the DAW's usual
-  hardware latency compensation for those.
+- **On time with your notes.** Wakes plays everything about 8.5 ms after the MIDI that caused
+  it (it places each message on time inside the next 2 ms audio block, audio is queued ahead of
+  the output, and Plaits waits 0.5 ms after a TRIG). A clock is steady, so Marbles can read it
+  **ahead**. Many hosts send their clock later than their notes (Bitwig: ~23 ms), so with the
+  default `clock_lead = notes` Wakes measures where the host's quantised notes fall on its
+  clock and leads by exactly that: Marbles' beats land with the notes, and **the host needs no
+  clock offset for Wakes — leave it at 0**. Until notes arrive (or with notes off the 16th grid:
+  swing, triplets, playing by hand) it leads by Wakes' own delay (`auto`, 8.5 ms). The console's
+  `MIDI notes vs clock` line shows the measurement and the lead in use. Beat 1 after a Start is
+  the exception — nothing said when it would come — so Marbles is on time from beat 2. Notes
+  cannot be played early: give Wakes' track the DAW's usual hardware latency compensation.
 - **Unplug** while the host is clocking Marbles: Marbles stops and goes back to its own RATE
   tempo.
 - FFWD's burst follows the host's tempo too.
@@ -210,7 +213,8 @@ What it sets:
   steps into a smooth movement instead of zipper noise.
 - `pickup` — `shared` (default), `sum` or `takeover` (above).
 - `clock` — `on` (default): Marbles follows MIDI clock and transport (above); `off` ignores them.
-- `clock_lead` — `auto` (8.5 ms, Wakes' own delay) or 0–200 ms: how far ahead of the host's
+- `clock_lead` — `notes` (default: as far as the host's notes say), `auto` (8.5 ms, Wakes' own
+  delay) or 0–200 ms: how far ahead of the host's
   clock Marbles runs (above).
 - one line per parameter — `name = cc N`, or `none`.
 - `[bind]` — `velocity` and `aftertouch` (channel pressure) can push a parameter by a depth

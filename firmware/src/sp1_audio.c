@@ -128,6 +128,9 @@ static volatile uint32_t sec_sum[SP1_SEC_N], sec_max[SP1_SEC_N], sec_n;
 static volatile uint32_t over_n, over_run_max;
 static volatile uint32_t pre_sum, pre_max;            /* #32: rte's once-per-block part */
 static volatile uint32_t pre_midi_sum, pre_route_sum; /* #32 B1: two parts of it */
+static volatile uint32_t eng_worst;                   /* #32: slowest engine call */
+static volatile uint8_t eng_worst_engine;
+static volatile bool eng_worst_first;
 static volatile uint32_t miss_sum[SP1_SEC_N], miss_pre_sum;  /* #32, SP1_PROFILE_ICACHE */
 static uint32_t over_run;         /* audio thread only: the run in progress */
 static uint32_t cyc_budget;       /* copy of st.cyc_budget for the audio thread */
@@ -145,6 +148,11 @@ static void account_sections(uint32_t cyc, uint32_t miss)
 	s[SP1_SEC_RTE]  = p.total - p.mrb - p.eng - p.post;
 	s[SP1_SEC_OUT]  = cyc - p.total;
 	pre_sum += p.pre;
+	if (p.eng_worst > eng_worst) {
+		eng_worst = p.eng_worst;
+		eng_worst_engine = p.eng_worst_engine;
+		eng_worst_first = p.eng_worst_first;
+	}
 	pre_midi_sum += p.pre_midi;
 	pre_route_sum += p.pre_route;
 	if (p.pre > pre_max) { pre_max = p.pre; }
@@ -874,6 +882,10 @@ void sp1_audio_take_sections(struct sp1_audio_sections *out)
 	}
 	out->miss_pre = miss_pre_sum;
 	miss_pre_sum = 0u;
+	out->eng_worst = eng_worst;
+	out->eng_worst_engine = eng_worst_engine;
+	out->eng_worst_first = eng_worst_first;
+	eng_worst = 0u;
 #if defined(CONFIG_SP1_PROFILE_ICACHE)
 	out->icache_hit = NRF_NVMC->IHIT;
 	out->icache_miss = NRF_NVMC->IMISS;

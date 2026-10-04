@@ -192,9 +192,14 @@ const float kTrigDelayBlocks =
 #else
 const float kTrigDelayBlocks = 0.0f;
 #endif
-const float kLeadBlocks = SP1_MIDI_CLOCK_LEAD_MS < 0
-    ? static_cast<float>(SP1_MIDI_OUTPUT_LATENCY_MS * kBlocksPerMs) + kTrigDelayBlocks
-    : static_cast<float>(SP1_MIDI_CLOCK_LEAD_MS * kBlocksPerMs);
+const float kLeadAutoBlocks =
+    static_cast<float>(SP1_MIDI_OUTPUT_LATENCY_MS * kBlocksPerMs) + kTrigDelayBlocks;
+// notes (#32, -2): the lead the host's notes ask for -- see "notes vs clock" below -- until
+// they have said, auto. A fixed number of ms otherwise.
+float lead_blocks = SP1_MIDI_CLOCK_LEAD_MS < 0
+    ? kLeadAutoBlocks
+    : static_cast<float>(SP1_MIDI_CLOCK_LEAD_MS) * static_cast<float>(kBlocksPerMs);
+volatile uint32_t pub_lead_us;               // the lead in use, for the log
 Event rt_ev[kQueue];                         // this block's clock / transport messages
 uint8_t rt_at[kQueue];
 uint32_t rt_n;
@@ -862,7 +867,7 @@ void ClockTick(uint32_t cycles) {
     // position has to MOVE on this block for Marbles to strike beat 1 on it.
     clk_pos = 1e-3f;
     if (clk_line) {
-      const float d = (kLeadBlocks - clk_a) / clk_b;
+      const float d = (lead_blocks - clk_a) / clk_b;
       clk_pos = d > clk_pos ? d : clk_pos;
     }
     clk_op = SP1_MIDI_TP_START;
@@ -948,15 +953,15 @@ void ClockRealTime(uint8_t b, uint32_t cycles) {
   }
 }
 
-// Where the clock is now, in ticks since beat 1: the line read kLeadBlocks ahead, never more
+// Where the clock is now, in ticks since beat 1: the line read lead_blocks ahead, never more
 // than a tick past where the line put the next tick (a host that stops sending stops it).
 // Without a line yet, the ticks themselves, held at the next one.
 float ClockTarget() {
   const float since = static_cast<float>(clk_now - ClockArrival(0));
   const float t = static_cast<float>(clk_ticks);
   if (clk_line) {
-    const float d = (since + kLeadBlocks - clk_a) / clk_b;
-    const float most = 1.0f + kLeadBlocks / clk_b;
+    const float d = (since + lead_blocks - clk_a) / clk_b;
+    const float most = 1.0f + lead_blocks / clk_b;
     return t + (d < most ? d : most);
   }
   if (clk_n >= 2u && clk_b > 0.0f) {
@@ -1019,9 +1024,20 @@ void ClockBlock(uint32_t blocks) {
     if (sk_n > 0u) {
       const float mean = sk_sum_us / static_cast<float>(sk_n);
       const float var = sk_sq_us / static_cast<float>(sk_n) - mean * mean;
+      const float sd = var > 0.0f ? sqrtf(var) : 0.0f;
       pub_sk_avg_us = static_cast<int32_t>(mean);
-      pub_sk_sd_us = static_cast<uint32_t>(var > 0.0f ? sqrtf(var) : 0.0f);
+      pub_sk_sd_us = static_cast<uint32_t>(sd);
+      // clock_lead = notes (#32): Marbles' beat and a note both sound Wakes' own delay after
+      // they ARRIVE, so a note that arrives `mean` before its tick lines up with Marbles when
+      // Marbles leads the tick by -mean. Only from quantised notes (a tight window); a lead
+      // never goes below 0 (a clock sent EARLY would need Marbles to lag) or past 200 ms.
+      if (SP1_MIDI_CLOCK_LEAD_MS == -2 && sk_n >= 8u && sd < 1000.0f) {
+        float lead_ms = -mean * 1e-3f;
+        lead_ms = lead_ms < 0.0f ? 0.0f : (lead_ms > 200.0f ? 200.0f : lead_ms);
+        lead_blocks = lead_ms * static_cast<float>(kBlocksPerMs);
+      }
     }
+    pub_lead_us = static_cast<uint32_t>(lead_blocks * 1000.0f / static_cast<float>(kBlocksPerMs));
     pub_sk_n = sk_n;
     sk_n = 0;
     sk_sum_us = sk_sq_us = 0.0f;
@@ -1043,6 +1059,9 @@ void Neutral() {
   clk_b = 0.0f;
   ClockForgetTempo();
   pub_bpm10 = 0;
+  if (SP1_MIDI_CLOCK_LEAD_MS == -2) {
+    lead_blocks = kLeadAutoBlocks;             // notes: a new host has said nothing yet
+  }
   session = false;
   AllNotesOff();
   ResetControllers();
@@ -1280,6 +1299,7 @@ extern "C" void sp1_midi_get_stats(struct sp1_midi_stats* out) {
   out->skew_n = pub_sk_n;
   out->skew_avg_us = pub_sk_avg_us;
   out->skew_sd_us = pub_sk_sd_us;
+  out->lead_us = pub_lead_us;
 }
 
 // ==== audio thread ========================================================================

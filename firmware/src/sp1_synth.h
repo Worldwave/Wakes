@@ -231,6 +231,11 @@ struct sp1_synth_profile {
 	uint32_t pre_midi, pre_route;
 	/* #32, CONFIG_SP1_PROFILE_ICACHE: flash-cache misses over the same spans (0 if off). */
 	uint32_t miss_total, miss_mrb, miss_eng, miss_post, miss_pre;
+	/* #32: the slowest single voice->Render() in this audio block, its engine (Plaits
+	 * number) and whether it was the first call after an engine change. */
+	uint32_t eng_worst;
+	uint8_t eng_worst_engine;
+	bool eng_worst_first;
 };
 void sp1_synth_set_cycle_counter(const volatile uint32_t *counter);
 

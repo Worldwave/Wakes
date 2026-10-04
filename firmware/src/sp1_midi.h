@@ -188,6 +188,7 @@ struct sp1_midi_stats {
 	uint32_t skew_n;
 	int32_t skew_avg_us;
 	uint32_t skew_sd_us;
+	uint32_t lead_us;             /* #32: the clock lead in use (clock_lead = notes learns it) */
 };
 /* USB packets neither validator took (not channel voice, not clock / transport), and the
  * last of them -- sp1_usbd.c. Diagnostics: what a host sends that Wakes ignores. */
