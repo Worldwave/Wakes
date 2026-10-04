@@ -22,10 +22,10 @@ IMPORTANT: Flashing custom firmware on the SP-1 is at your own risk. SP-1s are a
 
 ## Flashing
 
-1. Download `wakes-sp1-v0.5.0.bin` from the
-   [latest release](https://github.com/Worldwave/Wakes/releases).
+1. **[Download the latest `wakes-sp1.bin`](https://github.com/Worldwave/Wakes/releases/latest/download/wakes-sp1.bin)**.
+   Older versions and release notes are on the [releases page](https://github.com/Worldwave/Wakes/releases).
 2. Open <https://solderless.engineering>. Hold down **T1+T4** while connecting the SP-1 over USB-C.
-4. Select the `.bin` in Solderless Engineering's page, flash it, and once done, you can unplug.
+3. Select the `.bin` in Solderless Engineering's page, flash it, and once done, you can unplug.
 
 The T1+T4 recovery trigger in step 2 lives in Teenage Engineering's bootloader, not in Wakes, so it
 works with whatever firmware is installed. Wakes never writes below `0x20000` (and neither should your CFW's),

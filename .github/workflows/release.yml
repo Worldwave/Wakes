@@ -6,6 +6,11 @@
 #
 # The .bin attached is the exact file that passed check_image.py in this run. It is
 # never rebuilt between the check and the release.
+#
+# It is attached twice: versioned, and as plain `wakes-sp1.bin`, so that
+# releases/latest/download/wakes-sp1.bin (the README's download link) always names
+# the newest PUBLISHED release. GitHub's "latest" skips drafts and pre-releases, so
+# that link moves only when a person publishes a full release.
 name: release
 
 on:
@@ -79,6 +84,7 @@ jobs:
           t=$GITHUB_REF_NAME
           mkdir dist
           cp in/wakes-sp1-plaits/build/zephyr/wakes-sp1.bin   "dist/wakes-sp1-$t.bin"
+          cp in/wakes-sp1-plaits/build/zephyr/wakes-sp1.bin   dist/wakes-sp1.bin
           cp in/wakes-sp1-fallback/build/zephyr/wakes-sp1.bin "dist/wakes-sp1-$t-fallback.bin"
           # The MIDI CC chart for exactly this build's script (M5a, tools/gen_midi.py).
           cp in/wakes-sp1-plaits/build/zephyr/wakes-sp1-midi.md  "dist/wakes-sp1-$t-midi.md"
@@ -97,6 +103,7 @@ jobs:
             echo "2. Hold Track 1 + Track 4 while plugging in. The four track lights go solid."
             echo "3. Select \`wakes-sp1-$t.bin\`, flash, then unplug and replug."
             echo
+            echo "\`wakes-sp1.bin\` is the same file under a fixed name, for the README's download link."
             echo "Check the file against \`SHA256SUMS\` before flashing."
             echo "\`wakes-sp1-$t-fallback.bin\` is the test-tone build without Plaits or Marbles,"
             echo "for diagnosing hardware only. It is not the instrument."
