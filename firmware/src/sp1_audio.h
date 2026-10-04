@@ -132,6 +132,16 @@ struct sp1_audio_sections {
 	uint32_t max[SP1_SEC_N];
 	uint32_t over;
 	uint32_t over_run;
+	/* #32: the once-per-audio-block part of rte (sp1_synth.h, `pre`), avg/max cycles. */
+	uint32_t pre_avg, pre_max;
+	uint32_t pre_midi_avg, pre_route_avg;   /* #32 B1: parts of pre, avg cycles */
+	/* #32, CONFIG_SP1_PROFILE_ICACHE (zeros otherwise): flash-cache misses SUMMED over the
+	 * window per section (index SP1_SEC_*; rte excludes pre, which is miss_pre), the blocks
+	 * they came from, and the cache's own totals for every thread (NVMC IHIT / IMISS). */
+	uint32_t miss[SP1_SEC_N];
+	uint32_t miss_pre;
+	uint32_t blocks;
+	uint32_t icache_hit, icache_miss;
 };
 void sp1_audio_take_sections(struct sp1_audio_sections *out);
 

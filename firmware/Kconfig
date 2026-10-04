@@ -45,6 +45,41 @@ config SP1_AUDIO_BLOCK_FRAMES
 	  groups of four for Marbles' 1 kHz X/Y. Latency is (CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3)
 	  blocks -- see prj.conf.
 
+config SP1_PLAITS_BLOCK
+	int "Plaits block, in samples (12 or 24)"
+	default 24
+	range 12 24
+	depends on SP1_PLAITS
+	help
+	  How many samples Plaits renders per call (upstream: 12). 24 (#32) halves Plaits'
+	  per-call work and our per-Plaits-block glue; modulation, TRIG and MIDI placement move
+	  to a 0.5 ms grid and Marbles runs at 2 kHz instead of 4. Every time constant of ours
+	  that counted blocks (the TRIG pulse, Plaits' trigger delay, Additive's spectrum
+	  update, Chords' crossfade, MIDI's clock and smoothing, Marbles' rate) is expressed in
+	  time, so it is the same at either size. Only 12 and 24 are valid.
+
+config SP1_PERBLOCK_IN_RAM
+	bool "Experiment: the per-audio-block code runs from RAM"
+	default n
+	depends on SP1_PLAITS
+	help
+	  #32: puts the code that runs between two Plaits engine calls at an audio-block
+	  boundary (the render loop and routing, Marbles' and MIDI's per-block glue, the output
+	  pass) in Zephyr's .ramfunc section, so it stops evicting the engine's code from the
+	  flash cache. Measures whether the engine's extra misses at short blocks come back.
+	  Costs RAM: the section is padded to a power of two for the MPU.
+
+config SP1_PROFILE_ICACHE
+	bool "Diagnostics: flash-cache misses per audio section"
+	default n
+	depends on SP1_PLAITS
+	help
+	  Adds a BLK log line with the flash cache's misses per millisecond of audio, by
+	  section (#32): whether 2 ms blocks cost more because of per-call work or because the
+	  instruction cache refills each time the code switches between Marbles, MIDI and the
+	  engine. Reads the NVMC counter a few times per Plaits block (~0.05 % CPU). Off in
+	  release builds.
+
 config SP1_LOGBUF_KB
 	int "Stored log, in KB of RAM"
 	default 96

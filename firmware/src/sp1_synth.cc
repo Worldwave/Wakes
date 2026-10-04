@@ -48,10 +48,10 @@ volatile uint32_t trig_count;          // incremented by main
 uint32_t trig_seen;                    // audio thread only
 int trig_blocks_left;                  // audio thread only
 
-// A TRIG is held high for this many Plaits blocks: 8 x 12 samples = 2 ms. Plaits
-// delays its trigger input by kTriggerDelay (5) blocks and needs one block above 0.3
-// to fire; 2 ms is also a normal eurorack trigger width.
-const int kTrigBlocks = 8;
+// A TRIG is held high for 2 ms of Plaits blocks (8 x 12 samples, 4 x 24). Plaits
+// delays its trigger input by kTriggerDelay and needs one block above 0.3 to fire; 2 ms
+// is also a normal eurorack trigger width.
+const int kTrigBlocks = static_cast<int>(2u * SP1_SYNTH_BLOCKS_PER_MS);
 
 // ---- running clock / burst (audio thread owns the state; main writes the requests) ----
 volatile uint32_t samples_per_32nd = 3600;   // burst period, samples (name kept:
@@ -324,7 +324,7 @@ struct Routing {
   bool fm_patched, timbre_patched, morph_patched, harm_patched, level_routed;
 };
 
-void AddRoute(Routing* r, int source, int dest) {
+SP1_HOT void AddRoute(Routing* r, int source, int dest) {
   float scale;
   RouteDest d;
   switch (dest) {
@@ -342,7 +342,7 @@ void AddRoute(Routing* r, int source, int dest) {
   ++r->count;
 }
 
-Routing ResolveRouting(const sp1_synth_params& c) {
+SP1_HOT Routing ResolveRouting(const sp1_synth_params& c) {
   Routing r = {};
   for (int t = 0; t < 3; ++t) {
     // A t output is a gate: V/Oct is not one of its destinations (as before).
@@ -434,13 +434,20 @@ sp1_synth_profile prof;                      // audio thread: spans of the last 
 inline uint32_t Now() {
   return cyc_counter ? *cyc_counter : 0u;
 }
+const volatile uint32_t* miss_counter;       // NULL = no miss profile (#32, diagnostics only)
+inline uint32_t Miss() {
+  return miss_counter ? *miss_counter : 0u;
+}
 uint32_t (*midi_clock)(void);                // NULL = untimed (sp1_synth_set_midi_clock)
 
-extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
+extern "C" SP1_HOT void sp1_synth_render(int16_t* out, uint32_t frames) {
   const uint32_t prof_t0 = Now();
+  const uint32_t miss_t0 = Miss();
   uint32_t prof_eng = 0u;
   uint32_t prof_post = 0u;
-  prof.total = prof.mrb = prof.eng = prof.post = 0u;
+  uint32_t miss_eng = 0u;
+  uint32_t miss_post = 0u;
+  prof = sp1_synth_profile{};
   if (!voice) {
     for (uint32_t i = 0; i < frames; ++i) {
       out[i] = 0;
@@ -490,6 +497,7 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
   // ---- MIDI (M5a): this audio block's messages, each placed at its Plaits block, and the
   // CC offsets, smoothed once per audio block (sp1_midi.h). Taken BEFORE Marbles renders:
   // this block's clock ticks and transport are Marbles' clock (M5b). ----
+  const uint32_t prof_mi0 = Now();
   float moff[SP1_MIDI_AUDIO_DESTS];
   const bool midi = sp1_midi_audio_begin(midi_clock ? midi_clock() : 0u, frames / plaits::kBlockSize, c.engine_centre,
                                          moff);
@@ -501,19 +509,24 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
     sp1_midi_audio_clock(&clk);
     sp1_marbles_clock(clk.external ? clk.beats : nullptr, clk.transport);
   }
+  prof.pre_midi = Now() - prof_mi0;
 #endif
 
   // Marbles, one sample per Plaits block (the 4 kHz rule, sp1_marbles.h). Stopped,
   // it renders nothing and every Marbles input below stays unpatched.
   const bool mrb = sp1_marbles_running();
   const uint32_t prof_m0 = Now();
+  const uint32_t miss_m0 = Miss();
   sp1_marbles_render(frames / plaits::kBlockSize);
   prof.mrb = Now() - prof_m0;
+  prof.miss_mrb = Miss() - miss_m0;
   if (!mrb) {
     mrb_gates_prev = 0u;
   }
   // This block's routing and Marbles' frames (issue #22: see ResolveRouting).
+  const uint32_t prof_r0 = Now();
   const Routing routing = ResolveRouting(c);
+  prof.pre_route = Now() - prof_r0;
   const uint8_t* const mrb_gates = sp1_marbles_gate_frames();
   const float* const mrb_volts = sp1_marbles_volt_frames();
   const float* const mrb_ramp = sp1_marbles_ramp_frames();
@@ -578,6 +591,10 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
       : 0.0f;
   const float midi_freq = midi ? moff[SP1_MIDI_D_FREQUENCY] * c.freq_per_travel : 0.0f;
 #endif
+
+  // Everything above runs once per audio block (#32: `pre`, Marbles excluded).
+  prof.pre = Now() - prof_t0 - prof.mrb;
+  prof.miss_pre = Miss() - miss_t0 - prof.miss_mrb;
 
   float v[plaits::kBlockSize];
   uint32_t j = 0;                      // Plaits block index = Marbles frame index
@@ -752,6 +769,7 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
 #endif
     ++j;
     const uint32_t prof_e0 = Now();
+    const uint32_t miss_e0 = Miss();
     if (fading) {
       const float t0 = static_cast<float>(j - 1u) * fade_step;
       voice->Render(patch, mods, MixLerp(mix_was, mix_now, t0),
@@ -760,7 +778,9 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
       voice->Render(patch, mods, mix_now, mix_now, v, plaits::kBlockSize);
     }
     const uint32_t prof_e1 = Now();
+    const uint32_t miss_e1 = Miss();
     prof_eng += prof_e1 - prof_e0;
+    miss_eng += miss_e1 - miss_e0;
 #if defined(CONFIG_SP1_MIDI)
     // When a released note's LPG has closed, MIDI lets go of LEVEL (sp1_midi.h).
     if (midi) {
@@ -776,6 +796,7 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
       }
     }
     prof_post += Now() - prof_e1;
+    miss_post += Miss() - miss_e1;
     out += plaits::kBlockSize;
     frames -= plaits::kBlockSize;
   }
@@ -783,10 +804,17 @@ extern "C" void sp1_synth_render(int16_t* out, uint32_t frames) {
   prof.eng = prof_eng;
   prof.post = prof_post;
   prof.total = Now() - prof_t0;
+  prof.miss_eng = miss_eng;
+  prof.miss_post = miss_post;
+  prof.miss_total = Miss() - miss_t0;
 }
 
 extern "C" void sp1_synth_set_cycle_counter(const volatile uint32_t* counter) {
   cyc_counter = counter;
+}
+
+extern "C" void sp1_synth_set_miss_counter(const volatile uint32_t* counter) {
+  miss_counter = counter;
 }
 
 extern "C" void sp1_synth_set_midi_clock(uint32_t (*now)(void)) {
@@ -862,6 +890,8 @@ extern "C" uint32_t sp1_synth_burst_count(void) {
 
 static_assert(SP1_SYNTH_BLOCK == plaits::kBlockSize,
               "SP1_SYNTH_BLOCK must match Plaits' kBlockSize");
+static_assert(plaits::kBlockSize == 12 || plaits::kBlockSize == 24,
+              "#32: only 12 and 24 are valid -- the time constants divide 48 by it");
 
 // M3e trims (firmware/CMakeLists.txt, "Plaits overrides"): prove the generated header
 // is the one every Plaits file compiled against.

@@ -22,7 +22,8 @@ static int fails;
 #define CHECK(cond, ...) do { if (!(cond)) { printf("  FAIL: "); \
   printf(__VA_ARGS__); printf("\n"); fails++; } } while (0)
 
-static const uint32_t kBlocks = 20;          // Plaits blocks per audio block
+static const uint32_t kBlocks = 240u / SP1_SYNTH_BLOCK;   // Plaits blocks per 5 ms audio block
+                                                         // (20 of 12 samples, 10 of 24; #32)
 static const double kHz = SP1_MIDI_STAMP_HZ;            // the stamp clock
 static const double kBlockCyc = kHz / 200.0;             // counts per audio block (5 ms)
 static const uint32_t kJust = static_cast<uint32_t>(std::ceil(kHz / 64000.0));   // ~15 us
@@ -190,7 +191,7 @@ int main() {
     for (uint32_t j = 0; j < kBlocks; ++j) {
       if (clk.beats[j] > 0.0f && first < 0) first = static_cast<int>(j);
     }
-    CHECK(first == 10, "the position holds at 0 until beat 1's own Plaits block (10), moved "
+    CHECK(first == int(kBlocks / 2), "the position holds at 0 until beat 1's own Plaits block (half way), moved "
           "at %d", first);
   }
 
@@ -221,7 +222,7 @@ int main() {
     for (uint32_t j = 0; j < kBlocks; ++j) {
       if ((g[j] & 2u) && rise < 0) rise = static_cast<int>(j);
     }
-    CHECK(rise == 5, "Marbles' first beat lands on beat 1's own Plaits block (5), got %d",
+    CHECK(rise == int(kBlocks / 4), "Marbles' first beat lands on beat 1's own Plaits block (a quarter in), got %d",
           rise);
   }
   {

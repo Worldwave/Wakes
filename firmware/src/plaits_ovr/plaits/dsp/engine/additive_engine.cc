@@ -119,10 +119,11 @@ void AdditiveEngine::UpdateAmplitudes(
 
     int j = harmonic_indices[i];
 
-    // Upstream: ONE_POLE(amplitudes[j], gain, 0.001f), called every block. Called
-    // every kAmplitudeUpdatePeriod blocks here, so the coefficient is scaled by the
-    // same factor to keep the same time constant.
-    ONE_POLE(amplitudes[j], gain, 0.001f * kAmplitudeUpdatePeriod);
+    // Upstream: ONE_POLE(amplitudes[j], gain, 0.001f), called every 12-sample block.
+    // Called every kAmplitudeUpdatePeriod blocks of kBlockSize here, so the coefficient
+    // is scaled by the samples between updates over 12, to keep the same time constant.
+    ONE_POLE(amplitudes[j], gain,
+             0.001f * kAmplitudeUpdatePeriod * (static_cast<float>(kBlockSize) / 12.0f));
     sum += amplitudes[j];
   }
 

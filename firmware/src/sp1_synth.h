@@ -32,7 +32,14 @@ extern "C" {
 #endif
 
 /* Plaits renders in blocks of this many samples; sp1_synth_render() needs a multiple. */
+#if defined(CONFIG_SP1_PLAITS_BLOCK)
+#define SP1_SYNTH_BLOCK ((uint32_t)CONFIG_SP1_PLAITS_BLOCK)
+#else
 #define SP1_SYNTH_BLOCK 12u
+#endif
+/* Plaits blocks per millisecond (4 at 12 samples, 2 at 24): the unit every block-counted
+ * time constant of ours is scaled by (#32). */
+#define SP1_SYNTH_BLOCKS_PER_MS (48u / SP1_SYNTH_BLOCK)
 
 /* Engine the voice is constructed with, before the UI publishes its first parameters
  * (plaits/dsp/voice.cc order): virtual analog. Only a placeholder: the UI starts on the
@@ -215,8 +222,32 @@ int  sp1_synth_drive_db(int step);     /* the dB at `step`, 0 at step 0 */
  * About 45 counter reads per DMA block, under 0.1 % of the budget. */
 struct sp1_synth_profile {
 	uint32_t total, mrb, eng, post;
+	/* #32: the part of `total - mrb - eng - post` spent BEFORE the Plaits loop -- once per
+	 * audio block (params, MIDI begin, Marbles' clock, routing) -- so the per-block cost
+	 * can be told from the per-Plaits-block glue. */
+	uint32_t pre;
+	/* ...and two parts of it (#32, B1): MIDI's per-block work (begin + the clock handed to
+	 * Marbles) and routing's (ResolveRouting). The rest is params, mixes and drive setup. */
+	uint32_t pre_midi, pre_route;
+	/* #32, CONFIG_SP1_PROFILE_ICACHE: flash-cache misses over the same spans (0 if off). */
+	uint32_t miss_total, miss_mrb, miss_eng, miss_post, miss_pre;
 };
 void sp1_synth_set_cycle_counter(const volatile uint32_t *counter);
+
+/* ---- #32 experiment: the per-audio-block code from RAM (CONFIG_SP1_PERBLOCK_IN_RAM) ----
+ * Marks a function for Zephyr's .ramfunc section: copied from flash at boot, executed from
+ * RAM under Zephyr's own MPU region for it (both ends aligned; do not use
+ * zephyr_code_relocate, which aligns only the end). The point is to stop the code that runs
+ * at every audio-block boundary from evicting the engine's code from the flash cache. Empty
+ * on the host and when the option is off. (#22's build C did the same for less code, at
+ * 5 ms, without cache counters: it measured no change.) */
+#if defined(__ZEPHYR__) && defined(CONFIG_SP1_PERBLOCK_IN_RAM)
+#define SP1_HOT __attribute__((section(".ramfunc")))
+#else
+#define SP1_HOT
+#endif
+/* The flash cache's miss counter (NVMC IMISS), or NULL (the default: no miss profile). */
+void sp1_synth_set_miss_counter(const volatile uint32_t *counter);
 /* MIDI's clock (sp1_midi.h, "timing"): the same clock the USB side stamps messages with --
  * NOT the cycle counter, which stops while the CPU sleeps. NULL (the default) = untimed. */
 void sp1_synth_set_midi_clock(uint32_t (*now)(void));

@@ -155,6 +155,11 @@ if(CONFIG_SP1_PLAITS)
 		endif()
 	endfunction()
 
+	# #32: Plaits' block size, CONFIG_SP1_PLAITS_BLOCK samples (upstream 12). Its buffers
+	# are sized for 24 already (kMaxBlockSize); sp1_synth.cc static_asserts the match.
+	sp1_plaits_override(plaits/dsp/dsp.h
+		"const size_t kBlockSize = 12;"
+		"const size_t kBlockSize = ${CONFIG_SP1_PLAITS_BLOCK};")
 	# M3e: String rings CONFIG_SP1_STRING_VOICES strings (upstream 3).
 	sp1_plaits_override(plaits/dsp/engine/string_engine.h
 		"const int kNumStrings = 3;"

@@ -58,8 +58,9 @@ const int kNumAuxHarmonics = 12;    // AUX: harmonics 1..12 (8 organ drawbars)
 // later), which is inaudible. The AUDIBLE defect was somewhere else -- the
 // unramped coefficients below -- and Adara reported it from hardware as zipper
 // noise on TIMBRE. So the update period pays for the ramp instead.
+// #32: counted in blocks, so it is 48 samples (1 ms) worth of blocks: 4 of 12, 2 of 24.
 #ifndef SP1_ADD_UPDATE_PERIOD
-#define SP1_ADD_UPDATE_PERIOD 4
+#define SP1_ADD_UPDATE_PERIOD (48 / static_cast<int>(kBlockSize))
 #endif
 const int kAmplitudeUpdatePeriod = SP1_ADD_UPDATE_PERIOD;
 

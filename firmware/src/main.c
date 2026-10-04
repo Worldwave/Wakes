@@ -1905,6 +1905,43 @@ int main(void)
 				       a10[SP1_SEC_OUT] / 10u, a10[SP1_SEC_OUT] % 10u,
 				       m10[SP1_SEC_OUT] / 10u, m10[SP1_SEC_OUT] % 10u,
 				       sc.over, sc.over_run);
+				/* #32: rte's once-per-audio-block part (`pre`: params, MIDI begin,
+				 * Marbles' clock, routing) as avg/max percent of the budget -- the
+				 * cost that grows as blocks get shorter -- and, in a diagnostic build,
+				 * flash-cache misses per ms of audio by section (rte here is the
+				 * per-Plaits-block glue only) and for every thread. */
+				{
+					const uint32_t pa = as.cyc_budget ? (uint32_t)(((uint64_t)
+						sc.pre_avg * 1000u) / as.cyc_budget) : 0u;
+					const uint32_t pm = as.cyc_budget ? (uint32_t)(((uint64_t)
+						sc.pre_max * 1000u) / as.cyc_budget) : 0u;
+					/* B1: two parts of pre, avg percent: MIDI's begin + clock,
+					 * and routing. The rest is params, mixes and the drive ramp. */
+					const uint32_t pmi = as.cyc_budget ? (uint32_t)(((uint64_t)
+						sc.pre_midi_avg * 1000u) / as.cyc_budget) : 0u;
+					const uint32_t prt = as.cyc_budget ? (uint32_t)(((uint64_t)
+						sc.pre_route_avg * 1000u) / as.cyc_budget) : 0u;
+					printk("BLK pre=%u.%u/%u.%u (midi=%u.%u route=%u.%u) plaits block %u\n",
+					       pa / 10u, pa % 10u, pm / 10u, pm % 10u,
+					       pmi / 10u, pmi % 10u, prt / 10u, prt % 10u,
+					       (unsigned)SP1_SYNTH_BLOCK);
+#if defined(CONFIG_SP1_PROFILE_ICACHE)
+					/* Audio ms in the window: blocks x the block, which is the
+					 * budget over 64 000 cycles per ms. */
+					const uint32_t ms = (uint32_t)(((uint64_t)sc.blocks *
+						as.cyc_budget) / 64000u);
+					const uint32_t d = ms ? ms : 1u;
+					const uint32_t all = sc.icache_hit + sc.icache_miss;
+					const uint32_t pc10 = all ? (uint32_t)(((uint64_t)
+						sc.icache_miss * 1000u) / all) : 0u;
+					printk("MISS/ms eng=%u mrb=%u pre=%u rte=%u"
+					       " post=%u out=%u  all=%u (%u.%u%% of fetches)\n",
+					       sc.miss[SP1_SEC_ENG] / d, sc.miss[SP1_SEC_MRB] / d,
+					       sc.miss_pre / d, sc.miss[SP1_SEC_RTE] / d,
+					       sc.miss[SP1_SEC_POST] / d, sc.miss[SP1_SEC_OUT] / d,
+					       sc.icache_miss / d, pc10 / 10u, pc10 % 10u);
+#endif
+				}
 				/* ...and where the whole CPU went, per thread: the USB stack runs above
 				 * audio, so the sections above cannot show its share (sp1_threads.h). */
 				sp1_threads_report();

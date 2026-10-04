@@ -20,7 +20,8 @@ static int fails;
 #define CHECK(cond, ...) do { if (!(cond)) { printf("  FAIL: "); \
   printf(__VA_ARGS__); printf("\n"); fails++; } } while (0)
 
-static const uint32_t kBlocks = 20;          // Plaits blocks per audio block
+static const uint32_t kBlocks = 240u / SP1_SYNTH_BLOCK;   // Plaits blocks per 5 ms audio block
+                                                         // (20 of 12 samples, 10 of 24; #32)
 static sp1_midi_frame fr[kBlocks];
 static float moff[SP1_MIDI_AUDIO_DESTS];      // this audio block's smoothed CC offsets
 static bool work;                            // sp1_midi_audio_begin: anything to do
@@ -423,13 +424,14 @@ int main() {
   block(2000);
   int at = -1;
   for (uint32_t j = 0; j < kBlocks; ++j) { if (fr[j].trig && at < 0) at = int(j); }
-  CHECK(at == 10, "half-way message should strike at block 10, struck at %d", at);
+  CHECK(at == int(kBlocks / 2), "half-way message should strike half way in (%u), struck at %d",
+        kBlocks / 2, at);
   send(0x80, 60, 0, 2500);
   send(0x90, 62, 100, 2999);
   block(3000);
   at = -1;
   for (uint32_t j = 0; j < kBlocks; ++j) { if (fr[j].trig && at < 0) at = int(j); }
-  CHECK(at == 19, "a message just before the block began goes last, struck at %d", at);
+  CHECK(at == int(kBlocks) - 1, "a message just before the block began goes last, struck at %d", at);
   reset();
 
   // ---- §10 the queue: full means dropped and counted, never blocked ----

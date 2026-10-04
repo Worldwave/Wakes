@@ -8,7 +8,9 @@ txt  = open(os.path.join(ROOT, 'firmware/CMakeLists.txt'), encoding='utf-8').rea
 
 # CONFIG_* substitutions the Kconfig would supply.
 CFG = {'CONFIG_SP1_STRING_VOICES': '2', 'CONFIG_SP1_PARTICLES': '2',
-       'CONFIG_SP1_MODAL_MODES': '12'}
+       'CONFIG_SP1_MODAL_MODES': '12',
+       # #32: hostbuild.sh exports the block size it builds for (default 24, the firmware's).
+       'CONFIG_SP1_PLAITS_BLOCK': os.environ.get('SP1_PLAITS_BLOCK', '24')}
 
 def unquote(s):
     # CMake's own unescaping for a quoted argument, in ONE pass: \n \t \" \\.

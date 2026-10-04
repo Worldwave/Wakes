@@ -6,13 +6,15 @@
 
 extern "C" {
 #include "sp1_midi.h"
+#include "sp1_synth.h"
 }
 
 static int fails;
 #define CHECK(cond, ...) do { if (!(cond)) { printf("  FAIL: "); \
   printf(__VA_ARGS__); printf("\n"); fails++; } } while (0)
 
-static const uint32_t kBlocks = 20;
+static const uint32_t kBlocks = 240u / SP1_SYNTH_BLOCK;   // Plaits blocks per 5 ms audio block
+                                                         // (20 of 12 samples, 10 of 24; #32)
 static sp1_midi_frame fr[kBlocks];
 static float off[SP1_MIDI_AUDIO_DESTS];
 
@@ -58,20 +60,21 @@ int main() {
   const float a = powf(3.0f / 4000.0f, 0.25f), b = powf(6.0f, 0.25f);
   const float r = a + (b - a) * 40.0f / 127.0f;
   const float t = r * r * r * r;
-  const int steps = int(t * 4000.0f + 0.5f);
+  const float refresh = 48000.0f / float(SP1_SYNTH_BLOCK);   // one MIDI refresh per Plaits block
+  const int steps = int(t * refresh + 0.5f);
   printf("   glide time %.1f ms = %d Plaits blocks\n", t * 1000.0f, steps);
   send(0x95, 60, 0);                           // release the first note
   block();
   send(0x95, 72, 100);                         // from silence: glides up from 60
   int k = 0;
   float half = -100.0f;
-  for (int i = 0; i < steps / 20 + 3; ++i) {
+  for (int i = 0; i < steps / int(kBlocks) + 3; ++i) {
     block();
     for (uint32_t j = 0; j < kBlocks; ++j) {
       if (++k == steps / 2) half = fr[j].note;
     }
   }
-  const float x = float(steps / 2) / (t * 4000.0f);
+  const float x = float(steps / 2) / (t * refresh);
   // Yarns' lut_env_expo: 1 - exp(-4x), normalised at x = 255/256 (its last two entries).
   const float expect = 12.0f * (1.0f - expf(-4.0f * x)) /
                        (1.0f - expf(-4.0f * 255.0f / 256.0f));

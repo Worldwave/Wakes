@@ -11,9 +11,14 @@ mkdir -p "$SP"
 ER=$ROOT/third_party/eurorack
 SRC=$ROOT/firmware/src
 FELDD=$ROOT/third_party/feldd
-OVR=$SP/hostovr
+# #32: Plaits' block size, as CONFIG_SP1_PLAITS_BLOCK (default 24, the firmware's). The
+# overrides and the cached archive live in a directory per size, so switching sizes can
+# never link an archive built for the other one.
+SP1_PLAITS_BLOCK=${SP1_PLAITS_BLOCK:-24}
+export SP1_PLAITS_BLOCK
+OVR=$SP/hostovr$SP1_PLAITS_BLOCK
 GEN=$SP/hostgen
-OBJ=$SP/hostobj
+OBJ=$SP/hostobj$SP1_PLAITS_BLOCK
 
 python3 "$HERE/mkovr.py" "$OVR" >/dev/null
 mkdir -p "$GEN" "$OBJ"
@@ -37,9 +42,9 @@ python3 "$ROOT/tools/gen_midi.py" "$GEN/midi-sum.ini" "$GEN/sp1_midi_gen.h" >/de
 INC="-I$OVR -I$SRC/plaits_ovr -I$SRC/plaits_shim -I$ER -I$SRC -I$GEN"
 CXXFLAGS="-std=gnu++14 -O2 -funroll-loops -D_DEFAULT_SOURCE -DTEST -DCONFIG_SP1_PLAITS=1 \
 -DCONFIG_SP1_MIDI=1 -DCONFIG_SP1_STRING_VOICES=2 -DCONFIG_SP1_PARTICLES=2 \
--DCONFIG_SP1_MODAL_MODES=12 \
+-DCONFIG_SP1_MODAL_MODES=12 -DCONFIG_SP1_PLAITS_BLOCK=$SP1_PLAITS_BLOCK \
 -Wno-unused-variable -Wno-unused-parameter -Wno-unused-local-typedefs -Wno-sign-compare"
-CFLAGS="-std=gnu11 -O2 -DCONFIG_SP1_PLAITS=1 -DCONFIG_SP1_MIDI=1"
+CFLAGS="-std=gnu11 -O2 -DCONFIG_SP1_PLAITS=1 -DCONFIG_SP1_MIDI=1 -DCONFIG_SP1_PLAITS_BLOCK=$SP1_PLAITS_BLOCK"
 
 # The Plaits/Marbles source list, with an overridden or replaced .cc swapped in.
 list_sources() {

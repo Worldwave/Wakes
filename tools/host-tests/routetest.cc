@@ -434,7 +434,12 @@ int main() {
     }
     printf("   OUT+AUX at +%d dB: peak %d (limiter ceiling %d)\n",
            sp1_synth_drive_db(SP1_DRIVE_STEPS - 1), sum_peak, int(0.8f * 32768.0f));
-    CHECK(sum_peak <= int32_t(0.8f * 32768.0f) + 64,
+    // The limiter's peak follower attacks at 0.05 per sample (Plaits' constants), so a fast
+    // transient gets a few samples past the ceiling before the gain catches it: measured
+    // +41 LSB with 12-sample Plaits blocks and +68 with 24 (#32), where the engine's
+    // transients differ slightly. 128 LSB (0.5 %, 0.04 dB) is that overshoot with room; a
+    // limiter that was NOT after the drive would sit at full scale, 6500 LSB higher.
+    CHECK(sum_peak <= int32_t(0.8f * 32768.0f) + 128,
           "the OUT+AUX limiter is not after the drive: peak %d", sum_peak);
     CHECK(sum_peak > int32_t(0.7f * 32768.0f),
           "OUT+AUX at the top drive step should reach the limiter, peak %d", sum_peak);

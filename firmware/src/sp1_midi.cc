@@ -18,6 +18,7 @@
 // and nowhere else; sp1_midi.h includes the same header for the enum, so ask first.
 #define SP1_MIDI_GEN_TABLES
 #include "sp1_midi.h"
+#include "sp1_synth.h"          // SP1_SYNTH_BLOCK: MIDI runs once per Plaits block (#32)
 
 #include <atomic>
 #include <cmath>
@@ -40,7 +41,10 @@ static_assert(SP1_MIDI_D_FREQUENCY == 0 && SP1_MIDI_D_LEVEL == 10 &&
 namespace {
 
 // ---- facts ----------------------------------------------------------------------------
-const float kRefreshHz = 4000.0f;            // one Plaits block: Yarns refreshes at 4 kHz too
+// One refresh per Plaits block: 4 kHz at 12 samples (Yarns refreshes at 4 kHz too), 2 kHz
+// at 24 (#32). Every rate below is scaled by it, so the times are the same at either size.
+const float kRefreshHz = 48000.0f / static_cast<float>(SP1_SYNTH_BLOCK);
+const uint32_t kBlocksPerMs = SP1_SYNTH_BLOCKS_PER_MS;
 const uint8_t kStackSize = 12;               // Yarns' mono_allocator_
 const float kTailEnd = 1e-3f;                // LPG gain at which the release has ended (-60 dB)
 
@@ -154,7 +158,7 @@ uint32_t model_since_ms = kModelStepMs;      // since model_held last moved
 const uint32_t kPpqn = 24;                   // MIDI clock: ticks per beat
 const uint32_t kClockWrap = kPpqn * 48;      // 48 beats: a whole period of every ratio
                                              // Marbles can ask for (q in 1,2,3,4,8,12,16)
-const uint32_t kClockLost = 8000;            // 2 s without a tick: a pause, whatever the tempo
+const uint32_t kClockLost = 2000u * kBlocksPerMs;   // 2 s without a tick: a pause, any tempo
 const uint32_t kMaxBlocks = 64;              // Plaits blocks per audio block, at most
 // ---- jitter: a straight line through the ticks (Adara, M5b round 1) ----
 // Bitwig at 164 BPM measured 160.9 .. 168.9 BPM over one-beat windows: a DAW makes clock in
@@ -166,8 +170,9 @@ const uint32_t kMaxBlocks = 64;              // Plaits blocks per audio block, a
 // of ~5 ms, two beats of ticks.
 const uint32_t kFitTicks = 2u * kPpqn;       // the line: the last two beats of ticks
 const uint32_t kFitMin = 6;                  // fewer than this: follow the ticks themselves
-const float kFollow = 1.0f / 32.0f;          // per Plaits block: closes 1/32 of the gap to
-                                             // the line (an 8 ms time constant), so a line
+const float kFollow = 1.0f / (8.0f * kBlocksPerMs);  // per Plaits block: closes 1/32 (1/16
+                                             // at 24) of the gap to the line -- an 8 ms
+                                             // time constant either way -- so a line
                                              // that moves at a tick never jumps the position
 // ---- the lead: Wakes' own delay, made up (Adara, M5b round 1) ----
 // A tick is rendered one audio block after it arrives, into the I2S queue behind the audio
@@ -176,7 +181,8 @@ const float kFollow = 1.0f / 32.0f;          // per Plaits block: closes 1/32 of
 // so its beats leave Wakes on the host's beat. Only with a line: a tick cannot be predicted
 // from nothing.
 const float kLeadBlocks = (SP1_MIDI_CLOCK_LEAD_MS < 0 ? SP1_MIDI_OUTPUT_LATENCY_MS
-                                                       : SP1_MIDI_CLOCK_LEAD_MS) * 4.0f;
+                                                       : SP1_MIDI_CLOCK_LEAD_MS) *
+                          static_cast<float>(kBlocksPerMs);
 Event rt_ev[kQueue];                         // this block's clock / transport messages
 uint8_t rt_at[kQueue];
 uint32_t rt_n;
@@ -197,7 +203,7 @@ volatile uint32_t pub_clk_ext, pub_bpm10, st_ticks, st_starts, st_conts, st_stop
 // Tick spacing from the USB timestamps (SP1_MIDI_STAMP_HZ), in microseconds, over 5 s
 // windows; the transport bytes as they ARRIVE (st_starts counts the beat 1 a Start leads to);
 // and how often the line had to start afresh after a gap.
-const uint32_t kDiagBlocks = 20000;          // 5 s of Plaits blocks
+const uint32_t kDiagBlocks = 5000u * kBlocksPerMs;  // 5 s of Plaits blocks
 uint32_t dg_blocks, dg_n, dg_min, dg_max;
 uint64_t dg_sum;
 uint32_t dg_last_cyc;
@@ -210,8 +216,11 @@ volatile uint32_t st_mmc_play, st_mmc_stop;
 // of BPM (a Start there read 476 BPM and set Marbles' first beats from it), and as a reference
 // for the pause test it made every ordinary tick look like a pause (316 restarts in seconds).
 // The line, and the tempo it gives, are used only between these.
-const float kMinBlocksPerTick = 10000.0f / 300.0f;   // 300 BPM (bpm = 10000 / blocks per tick)
-const float kMaxBlocksPerTick = 10000.0f / 20.0f;    //  20 BPM
+// bpm = 60 s / (24 ticks x blocks per tick x block length) = kBpmBlocks / blocks per tick:
+// 10000 at 12-sample blocks, 5000 at 24 (#32).
+const float kBpmBlocks = 120000.0f / static_cast<float>(SP1_SYNTH_BLOCK);
+const float kMinBlocksPerTick = kBpmBlocks / 300.0f;   // 300 BPM
+const float kMaxBlocksPerTick = kBpmBlocks / 20.0f;    //  20 BPM
 inline bool Plausible(float b) { return b >= kMinBlocksPerTick && b <= kMaxBlocksPerTick; }
 // ---- MMC (MIDI Machine Control) transport (Adara's OP-XY log, M5b round 2) ----
 // The OP-XY sends its play / stop as MMC -- Universal Real Time SysEx F0 7F <device> 06 <cmd>
@@ -220,7 +229,7 @@ inline bool Plausible(float b) { return b >= kMinBlocksPerTick && b <= kMaxBlock
 // undefined, so they travel the same queue as clock and transport and are placed like them.
 const uint8_t kMmcPlay = 0xF9;               // internal only (undefined in MIDI 1.0)
 const uint8_t kMmcStop = 0xFD;               // internal only (undefined in MIDI 1.0)
-const uint32_t kMmcRecent = 8000;            // ticks in the last 2 s: the host owns the tempo
+const uint32_t kMmcRecent = 2000u * kBlocksPerMs;   // ticks in the last 2 s: the host owns it
 
 // This audio block's events, each placed at a Plaits block.
 Event block_ev[kQueue];
@@ -309,7 +318,7 @@ void Glide(uint8_t note, uint8_t vel, int portamento, bool trigger) {
 }
 
 // Voice::Refresh: advance the glide one 4 kHz step.
-void Refresh() {
+SP1_HOT void Refresh() {
   if (porta_inc > 0.0f) {
     porta_phase += porta_inc;
     if (porta_phase >= 1.0f) {
@@ -524,7 +533,7 @@ volatile float pk_val[SP1_MIDI_AUDIO_DESTS]; // the offset while it catches up
 float pk_prev[SP1_MIDI_AUDIO_DESTS];         // the reading at the last counted movement
 
 // AUDIO THREAD, once per audio block: destination d's offset with pickup applied.
-float PickupTarget(int d, uint8_t centre) {
+SP1_HOT float PickupTarget(int d, uint8_t centre) {
   const float r = Target(d, centre);
   if ((SP1_MIDI_POLARITY[d] & 0x10u) == 0u) {
     return r;
@@ -682,7 +691,7 @@ void ControlChange(uint8_t cc, uint8_t v) {
 
 // noinline: this runs once per MESSAGE. Inlined into sp1_midi_audio_block, its register
 // pressure spilled ~30 instructions onto the path that runs every Plaits block.
-__attribute__((noinline)) void Process(const Event& e) {
+__attribute__((noinline)) SP1_HOT void Process(const Event& e) {
   const uint8_t status = e.msg[0];
   const uint8_t type = status & 0xF0u;
   if (SP1_MIDI_CHANNEL != SP1_MIDI_OMNI && (status & 0x0Fu) != SP1_MIDI_CHANNEL) {
@@ -774,7 +783,7 @@ void ClockFit() {
     clk_line = false;
     return;
   }
-  pub_bpm10 = static_cast<uint32_t>(100000.0f / clk_b + 0.5f);   // 10000 / blocks per tick
+  pub_bpm10 = static_cast<uint32_t>(10.0f * kBpmBlocks / clk_b + 0.5f);   // BPM x 10
 }
 
 // One tick, at the Plaits block being built (clk_now).
@@ -797,7 +806,8 @@ void ClockTick(uint32_t cycles) {
   if (clk_n > 0u) {
     const uint32_t iv = clk_now - ClockArrival(0);
     if (iv >= kClockLost ||
-        (Plausible(clk_b) && static_cast<float>(iv) > 3.0f * clk_b + 40.0f)) {
+        (Plausible(clk_b) &&
+         static_cast<float>(iv) > 3.0f * clk_b + 10.0f * static_cast<float>(kBlocksPerMs))) {
       ClockForgetTempo();
       st_line_resets = st_line_resets + 1u;
     }
@@ -903,7 +913,7 @@ float ClockTarget() {
 
 // AUDIO THREAD, once per audio block: the clock messages at their Plaits blocks, and the
 // position in beats at each. Every block costs the same, ticking or not (Adara's rule).
-void ClockBlock(uint32_t blocks) {
+SP1_HOT void ClockBlock(uint32_t blocks) {
   if (blocks > kMaxBlocks) {
     blocks = kMaxBlocks;
   }
@@ -1206,7 +1216,7 @@ extern "C" void sp1_midi_get_stats(struct sp1_midi_stats* out) {
 }
 
 // ==== audio thread ========================================================================
-extern "C" bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t engine_centre,
+extern "C" SP1_HOT bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t engine_centre,
                                      float off[SP1_MIDI_AUDIO_DESTS]) {
   engine_centre_now = engine_centre;
   static bool once;
@@ -1324,7 +1334,7 @@ extern "C" bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t e
   return block_n > 0u || active || !settled;
 }
 
-extern "C" void sp1_midi_audio_block(uint32_t j, sp1_midi_frame* f) {
+extern "C" SP1_HOT void sp1_midi_audio_block(uint32_t j, sp1_midi_frame* f) {
   // ---- the minimum gate: one Plaits block (0.25 ms) ----
   // A strike ends this block's messages; the rest wait for the next block. Otherwise a
   // note-off landing in the same block as its note-on -- a very short note, or one that
@@ -1344,13 +1354,13 @@ extern "C" void sp1_midi_audio_block(uint32_t j, sp1_midi_frame* f) {
   f->gate = gate ? GateHeight() : 0.0f;
 }
 
-extern "C" void sp1_midi_audio_clock(sp1_midi_clock* out) {
+extern "C" SP1_HOT void sp1_midi_audio_clock(sp1_midi_clock* out) {
   out->external = clk_ext;
   out->transport = clk_op;
   out->beats = clk_beats;
 }
 
-extern "C" void sp1_midi_audio_lpg(float gain, bool bypassed) {
+extern "C" SP1_HOT void sp1_midi_audio_lpg(float gain, bool bypassed) {
   if (tail && !gate && (bypassed || gain < kTailEnd)) {
     tail = false;
   }

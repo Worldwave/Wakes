@@ -14,6 +14,17 @@
 #include "sp1_synth.h"
 #endif
 
+#ifndef SP1_HOT
+#define SP1_HOT   /* the fallback build has no sp1_synth.h, and no RAM experiment */
+#endif
+/* fill_block is called once and would be inlined into the audio thread, which stays in
+ * flash -- so the #32 RAM experiment keeps it a real function. Release builds unchanged. */
+#if defined(CONFIG_SP1_PERBLOCK_IN_RAM)
+#define SP1_HOT_CALL __attribute__((noinline)) SP1_HOT
+#else
+#define SP1_HOT_CALL SP1_HOT
+#endif
+
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/i2c.h>
@@ -124,10 +135,14 @@ static volatile uint32_t win_max, win_sum, win_n;
  * window and the one above can be read-and-cleared independently. */
 static volatile uint32_t sec_sum[SP1_SEC_N], sec_max[SP1_SEC_N], sec_n;
 static volatile uint32_t over_n, over_run_max;
+static volatile uint32_t pre_sum, pre_max;            /* #32: rte's once-per-block part */
+static volatile uint32_t pre_midi_sum, pre_route_sum; /* #32 B1: two parts of it */
+static volatile uint32_t miss_sum[SP1_SEC_N], miss_pre_sum;  /* #32, SP1_PROFILE_ICACHE */
 static uint32_t over_run;         /* audio thread only: the run in progress */
 static uint32_t cyc_budget;       /* copy of st.cyc_budget for the audio thread */
 
-static void account_sections(uint32_t cyc)
+/* `miss`: flash-cache misses across the same fill_block (0 unless SP1_PROFILE_ICACHE). */
+static SP1_HOT void account_sections(uint32_t cyc, uint32_t miss)
 {
 	uint32_t s[SP1_SEC_N] = { 0u };
 #if defined(CONFIG_SP1_PLAITS)
@@ -138,8 +153,21 @@ static void account_sections(uint32_t cyc)
 	s[SP1_SEC_POST] = p.post;
 	s[SP1_SEC_RTE]  = p.total - p.mrb - p.eng - p.post;
 	s[SP1_SEC_OUT]  = cyc - p.total;
+	pre_sum += p.pre;
+	pre_midi_sum += p.pre_midi;
+	pre_route_sum += p.pre_route;
+	if (p.pre > pre_max) { pre_max = p.pre; }
+#if defined(CONFIG_SP1_PROFILE_ICACHE)
+	miss_sum[SP1_SEC_ENG]  += p.miss_eng;
+	miss_sum[SP1_SEC_MRB]  += p.miss_mrb;
+	miss_sum[SP1_SEC_POST] += p.miss_post;
+	miss_sum[SP1_SEC_RTE]  += p.miss_total - p.miss_mrb - p.miss_eng - p.miss_post - p.miss_pre;
+	miss_pre_sum           += p.miss_pre;
+	miss_sum[SP1_SEC_OUT]  += miss - p.miss_total;
+#endif
 #else
 	s[SP1_SEC_OUT]  = cyc;
+	ARG_UNUSED(miss);
 #endif
 	for (int i = 0; i < SP1_SEC_N; i++) {
 		sec_sum[i] += s[i];
@@ -213,7 +241,7 @@ static uint32_t      phase;
  * cleared by the control loop. */
 static atomic_t peak;
 
-static void publish_peak(uint32_t p)
+static SP1_HOT void publish_peak(uint32_t p)
 {
 	/* Atomic max. Bounded: the only other writer is the meter's once-per-tick swap,
 	 * so this retries at most a couple of times and cannot spin. */
@@ -273,7 +301,7 @@ static void tone_render(int16_t *out)
 #endif
 
 /* Fill one block. The meter's entire audio-path cost is the two lines marked METER. */
-static void fill_block(int16_t *b)
+static SP1_HOT_CALL void fill_block(int16_t *b)
 {
 	/* Read the controls ONCE per block, so a change lands on a block boundary and
 	 * a half-updated value is never seen mid-block. */
@@ -405,13 +433,21 @@ static void audio_thread(void *a, void *b, void *c)
 			}
 
 			const uint32_t c0 = DWT->CYCCNT;
+#if defined(CONFIG_SP1_PROFILE_ICACHE)
+			const uint32_t m0 = NRF_NVMC->IMISS;
+#endif
 			fill_block((int16_t *)blk);
 			const uint32_t cyc = DWT->CYCCNT - c0;
+#if defined(CONFIG_SP1_PROFILE_ICACHE)
+			const uint32_t miss = NRF_NVMC->IMISS - m0;
+#else
+			const uint32_t miss = 0u;
+#endif
 			if (cyc > st.cyc_max) { st.cyc_max = cyc; }
 			if (cyc > win_max) { win_max = cyc; }
 			win_sum += cyc;
 			win_n++;
-			account_sections(cyc);
+			account_sections(cyc, miss);
 
 			if (i2s_write(i2s_dev, blk, BLK_BYTES) != 0) {
 				k_mem_slab_free(&tx_slab, blk);
@@ -651,6 +687,15 @@ void sp1_audio_init(void)
 	cyc_budget = st.cyc_budget;
 #if defined(CONFIG_SP1_PLAITS)
 	sp1_synth_set_cycle_counter(&DWT->CYCCNT);
+#if defined(CONFIG_SP1_PROFILE_ICACHE)
+	/* #32 diagnostics: the flash cache's hit/miss counters, read per section by the synth
+	 * and zeroed with each CPU line. Profiling changes nothing about what the cache does.
+	 * Zeroing is safe against a block in progress: main only runs while audio is blocked. */
+	NRF_NVMC->ICACHECNF |= NVMC_ICACHECNF_CACHEPROFEN_Msk;
+	NRF_NVMC->IHIT = 0u;
+	NRF_NVMC->IMISS = 0u;
+	sp1_synth_set_miss_counter(&NRF_NVMC->IMISS);
+#endif
 #endif
 #if defined(CONFIG_SP1_MIDI)
 	sp1_synth_set_midi_clock(midi_now);
@@ -823,6 +868,29 @@ void sp1_audio_take_sections(struct sp1_audio_sections *out)
 	out->over_run = over_run_max;
 	over_n = 0u;
 	over_run_max = 0u;
+	out->blocks = n;
+	out->pre_avg = n ? (pre_sum / n) : 0u;
+	out->pre_max = pre_max;
+	pre_sum = 0u;
+	pre_max = 0u;
+	out->pre_midi_avg = n ? (pre_midi_sum / n) : 0u;
+	out->pre_route_avg = n ? (pre_route_sum / n) : 0u;
+	pre_midi_sum = 0u;
+	pre_route_sum = 0u;
+	for (int i = 0; i < SP1_SEC_N; i++) {
+		out->miss[i] = miss_sum[i];
+		miss_sum[i] = 0u;
+	}
+	out->miss_pre = miss_pre_sum;
+	miss_pre_sum = 0u;
+#if defined(CONFIG_SP1_PROFILE_ICACHE)
+	out->icache_hit = NRF_NVMC->IHIT;
+	out->icache_miss = NRF_NVMC->IMISS;
+	NRF_NVMC->IHIT = 0u;
+	NRF_NVMC->IMISS = 0u;
+#else
+	out->icache_hit = out->icache_miss = 0u;
+#endif
 	k_sched_unlock();
 
 	for (int i = 0; i < SP1_SEC_N; i++) {

@@ -96,8 +96,9 @@ class ChordEngine : public Engine {
  public:
   static const bool kSp1BoundedCrossfade = true;   // checked in sp1_synth.cc
  private:
-  static const int kSp1RestBlocks = 200;           // 50 ms of 12-sample blocks
-  static constexpr float kSp1Slew = 1.0f / 200.0f; // 0 -> 1 in 50 ms
+  // #32: 50 ms in blocks of kBlockSize (200 of 12, 100 of 24).
+  static const int kSp1RestBlocks = 2400 / static_cast<int>(kBlockSize);
+  static constexpr float kSp1Slew = static_cast<float>(kBlockSize) / 2400.0f; // 0 -> 1 in 50 ms
   static constexpr float kSp1Moved = 0.25f;        // of the slice: fader noise is ~0.12
   float sp1_xf_[kChordNumVoices] = { };
   float sp1_ref_[kChordNumVoices] = { };
