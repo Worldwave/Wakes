@@ -1042,6 +1042,14 @@ int main(void)
 			       (unsigned)CONFIG_I2S_NRFX_TX_BLOCK_COUNT,
 			       (unsigned)((CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3) *
 					  (CONFIG_SP1_AUDIO_BLOCK_FRAMES / 48)));
+#if defined(CONFIG_SP1_MIDI) && defined(CONFIG_SP1_USB_AUDIO)
+			/* M5c: the same count for USB audio out (sp1_midi.h): what the MIDI clock
+			 * makes up for while a host takes it. */
+			printk("AUD USB audio out: ~%u.%u ms in to out (speaker ~%u)\n",
+			       (unsigned)(SP1_MIDI_USB_OUTPUT_LATENCY_US / 1000),
+			       (unsigned)((SP1_MIDI_USB_OUTPUT_LATENCY_US % 1000) / 100),
+			       (unsigned)SP1_MIDI_OUTPUT_LATENCY_MS);
+#endif
 			/* #32: which USB path this build takes, so every log says it. */
 			printk("USB midi=%s  threads=%s  audio out=%s\n",
 			       IS_ENABLED(CONFIG_UDC_NRF_OUT_FAST) ? "in the interrupt (fast path)"
@@ -1797,6 +1805,11 @@ int main(void)
 			}
 
 			/* ---- headphones in -> speaker off (M3) ---- */
+#if defined(CONFIG_SP1_MIDI) && defined(CONFIG_SP1_USB_AUDIO)
+			/* M5c: the delay the MIDI clock makes up for is the path the host hears --
+			 * USB audio out while a host takes it, the speaker / headphones otherwise. */
+			sp1_midi_set_output_usb(sp1_uac_live());
+#endif
 			switch (sp1_audio_jack_poll(dt)) {
 			case 1:
 				printk("JACK headphones in: speaker off\n");

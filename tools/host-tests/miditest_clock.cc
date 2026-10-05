@@ -516,6 +516,82 @@ int main() {
     tempo(0.0);
   }
 
+  // ---- §14 USB audio out (M5c): the lead follows the output the host hears ----
+  // A host taking USB audio out hears Wakes later than the speaker (sp1_midi.h,
+  // SP1_MIDI_USB_OUTPUT_LATENCY_US), so `auto` -- and `notes` until it has learnt -- leads by
+  // that instead. Beats are timed as in §10. Then the host stops taking USB audio mid-play:
+  // the lead goes back to the speaker's, and Marbles gets there without skipping or doubling
+  // a beat (a skipped beat would put every later one ~500 ms off the host's).
+  {
+    printf("§14 USB audio out: the lead becomes the USB path's delay, and back\n");
+    sp1_midi_port(false);                      // a new host: nothing learnt yet (notes)
+    synth();
+    sp1_midi_port(true);
+    sp1_midi_set_output_usb(true);
+    jitter_cyc = 0;
+    tempo(120.0);
+    rt(0xFA, now_cyc + kJust);
+    next_tick = now_cyc + 0.6 * kBlockCyc;     // beat 1's true time
+    const double b1 = next_tick, bc = tick_cyc * 24.0;
+    int bt = -1;
+    bool was = false;
+    // Marbles' t2 beats over n blocks, in ms against the host's beats, from beat `from` on.
+    auto measure = [&](int n, int from, std::vector<double>* off) {
+      for (int i = 0; i < n; ++i) {
+        synth();
+        const uint8_t* g = sp1_marbles_gate_frames();
+        for (uint32_t j = 0; j < kBlocks; ++j) {
+          const bool t2 = (g[j] & 2u) != 0u;
+          if (t2 && !was) {
+            ++bt;
+            const double at =
+                static_cast<double>(now_cyc) - kBlockCyc + j * (kBlockCyc / kBlocks);
+            if (bt >= from) {
+              off->push_back((at - (b1 + bt * bc)) / (kHz / 1000.0));
+            }
+          }
+          was = t2;
+        }
+      }
+    };
+    auto mean = [](const std::vector<double>& v) {
+      double m = 0.0;
+      for (double o : v) m += o;
+      return v.empty() ? 0.0 : m / v.size();
+    };
+    const double trig = CONFIG_SP1_TRIGGER_DELAY_SAMPLES / 48.0;
+    const double usb_lead = SP1_MIDI_USB_OUTPUT_LATENCY_US / 1000.0 + trig;
+    const double spk_lead = SP1_MIDI_OUTPUT_LATENCY_MS + trig;
+
+    std::vector<double> usb, spk;
+    measure(200 * 15, 8, &usb);                // 15 s, from beat 8 (the line settled)
+    sp1_midi_stats st;
+    sp1_midi_get_stats(&st);
+    printf("   USB audio out: %zu beats, %.2f ms vs the host's (lead %.1f ms in use, want %.1f)\n",
+           usb.size(), mean(usb), st.lead_us / 1000.0, usb_lead);
+    // Within 1 ms, as §10: timing a beat at its Plaits block reads ~0.5 ms early here too.
+    CHECK(usb.size() >= 20u && fabs(mean(usb) + usb_lead) < 1.0,
+          "with USB audio out, the lead is the USB path's: %.2f ms (want -%.1f)", mean(usb),
+          usb_lead);
+    CHECK(fabs(st.lead_us / 1000.0 - usb_lead) < 0.1, "the lead reported: %.1f ms (want %.1f)",
+          st.lead_us / 1000.0, usb_lead);
+
+    sp1_midi_set_output_usb(false);            // the host stops taking USB audio
+    measure(200 * 15, bt + 8, &spk);
+    printf("   speaker again: %zu beats, %.2f ms vs the host's (want -%.1f)\n", spk.size(),
+           mean(spk), spk_lead);
+    CHECK(spk.size() >= 20u && fabs(mean(spk) + spk_lead) < 1.0,
+          "USB audio closed: back to the speaker's lead, no beat skipped or doubled: %.2f ms "
+          "(want -%.1f)", mean(spk), spk_lead);
+    // The point of it, measured tightly: the two leads differ by the USB path's extra delay
+    // (the same ~0.5 ms reading cancels).
+    const double diff = mean(spk) - mean(usb);
+    CHECK(fabs(diff - (usb_lead - spk_lead)) < 0.2,
+          "USB audio out leads by its extra delay: %.2f ms more (want %.2f)", diff,
+          usb_lead - spk_lead);
+    tempo(0.0);
+  }
+
   printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "all checks passed", fails,
          fails == 1 ? "" : "s");
   return fails ? 1 : 0;

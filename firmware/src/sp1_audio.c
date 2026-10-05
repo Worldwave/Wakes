@@ -982,8 +982,7 @@ static bool speaker_driver(bool on)
 }
 
 /* What the speaker should be doing: on, unless headphones are in or a host is taking USB
- * audio out. An unknown jack (-1, before the first debounced read) counts as out.
- * ⚠️ sp1_uac_live() remembers its last count: call this only from the bring-up and the poll. */
+ * audio out. An unknown jack (-1, before the first debounced read) counts as out. */
 static bool speaker_wanted(void)
 {
 #if defined(CONFIG_SP1_USB_AUDIO)

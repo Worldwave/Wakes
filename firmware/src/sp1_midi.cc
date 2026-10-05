@@ -194,8 +194,27 @@ const float kTrigDelayBlocks = 0.0f;
 #endif
 const float kLeadAutoBlocks =
     static_cast<float>(SP1_MIDI_OUTPUT_LATENCY_MS * kBlocksPerMs) + kTrigDelayBlocks;
+// ...and when the host hears USB audio out (M5c): that path's delay instead.
+const float kLeadAutoUsbBlocks =
+    static_cast<float>(SP1_MIDI_USB_OUTPUT_LATENCY_US) * static_cast<float>(kBlocksPerMs) /
+        1000.0f + kTrigDelayBlocks;
+volatile bool out_usb;                       // main: a host is taking USB audio out
 // notes (#32, -2): the lead the host's notes ask for -- see "notes vs clock" below -- until
-// they have said, auto. A fixed number of ms otherwise.
+// they have said, auto (lead_learned < 0). A fixed number of ms otherwise.
+float lead_learned = -1.0f;
+float Lead() {
+  if (SP1_MIDI_CLOCK_LEAD_MS >= 0) {
+    return static_cast<float>(SP1_MIDI_CLOCK_LEAD_MS) * static_cast<float>(kBlocksPerMs);
+  }
+  if (SP1_MIDI_CLOCK_LEAD_MS == -2 && lead_learned >= 0.0f) {
+    return lead_learned;
+  }
+  return out_usb ? kLeadAutoUsbBlocks : kLeadAutoBlocks;
+}
+// The lead in use, taken once per audio block (ClockBlock) so a whole block reads one value.
+// A change -- USB audio opening or closing, a lead learned -- moves where the line is read;
+// the position follows it at kFollow, never backwards, so Marbles does not jump.
+// Initialised as a constant (no function call at static-init time); ClockBlock sets it.
 float lead_blocks = SP1_MIDI_CLOCK_LEAD_MS < 0
     ? kLeadAutoBlocks
     : static_cast<float>(SP1_MIDI_CLOCK_LEAD_MS) * static_cast<float>(kBlocksPerMs);
@@ -977,6 +996,7 @@ void ClockBlock(uint32_t blocks) {
   if (blocks > kMaxBlocks) {
     blocks = kMaxBlocks;
   }
+  lead_blocks = Lead();
   const float wrap = static_cast<float>(kClockWrap);
   uint32_t r = 0;
   for (uint32_t j = 0; j < blocks; ++j) {
@@ -1034,7 +1054,8 @@ void ClockBlock(uint32_t blocks) {
       if (SP1_MIDI_CLOCK_LEAD_MS == -2 && sk_n >= 8u && sd < 1000.0f) {
         float lead_ms = -mean * 1e-3f;
         lead_ms = lead_ms < 0.0f ? 0.0f : (lead_ms > 200.0f ? 200.0f : lead_ms);
-        lead_blocks = lead_ms * static_cast<float>(kBlocksPerMs);
+        lead_learned = lead_ms * static_cast<float>(kBlocksPerMs);
+        lead_blocks = Lead();
       }
     }
     pub_lead_us = static_cast<uint32_t>(lead_blocks * 1000.0f / static_cast<float>(kBlocksPerMs));
@@ -1060,7 +1081,8 @@ void Neutral() {
   ClockForgetTempo();
   pub_bpm10 = 0;
   if (SP1_MIDI_CLOCK_LEAD_MS == -2) {
-    lead_blocks = kLeadAutoBlocks;             // notes: a new host has said nothing yet
+    lead_learned = -1.0f;                      // notes: a new host has said nothing yet
+    lead_blocks = Lead();
   }
   session = false;
   AllNotesOff();
@@ -1156,6 +1178,10 @@ extern "C" void sp1_midi_port(bool up) {
 }
 
 // ==== main thread =========================================================================
+extern "C" void sp1_midi_set_output_usb(bool usb) {
+  out_usb = usb;
+}
+
 extern "C" void sp1_midi_on_enter(void) {
   reset_req = reset_req + 1u;
 }

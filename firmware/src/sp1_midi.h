@@ -121,6 +121,21 @@ extern "C" {
 #define SP1_MIDI_OUTPUT_LATENCY_MS 8
 #endif
 
+/* The same, when the sound a host hears is USB audio out (M5c), in microseconds. Counted from
+ * the ring (sp1_uac_tuning.h), not measured on hardware:
+ *   1 block              the message is placed in the next audio block, as above
+ *   TARGET + BLK/2 - BLK the frame's wait in the ring from its block's render start: the
+ *                        regulator holds the fill, counted from that moment (the claim), at
+ *                        TARGET, and the fill saw-tooths a block above it -- half a block on
+ *                        average. The regulator samples the fill just BEFORE each packet
+ *                        leaves, half a packet (0.5 ms) above its time average, which cancels
+ *                        the half of the 1 ms USB frame the packet spends in transit.
+ * = TARGET + BLK/2 frames = (384 + 48) / 48 = 9.0 ms, against the speaker's 8 -- `auto` 9.5
+ * against 8.5. uactest measures the ring's part (7.0 ms at 0 ppm); clock drift moves it by up
+ * to the dead band, +/-0.67 ms. sp1_uac.c checks this number against the tuning at build
+ * time. */
+#define SP1_MIDI_USB_OUTPUT_LATENCY_US 9000
+
 #if defined(CONFIG_SP1_MIDI)
 
 /* ---- USB side (the interrupt, and the usbd thread for port changes) ---- */
@@ -143,6 +158,13 @@ void sp1_midi_push(const uint8_t msg[3], uint8_t len, uint32_t cycles);
 uint8_t sp1_midi_mmc_feed(const uint8_t pkt[4]);
 /* The host enabled (up) or lost (down) our MIDI interface. */
 void sp1_midi_port(bool up);
+
+/* ---- main thread, every control tick (M5c) ----
+ * Which output a host hears: true while it is taking USB audio out (sp1_uac_live), so the
+ * clock's `auto` lead is the USB path's delay (SP1_MIDI_USB_OUTPUT_LATENCY_US) instead of
+ * the speaker's. A learned `notes` lead does not depend on it (notes and Marbles take the
+ * same path); its starting value does. */
+void sp1_midi_set_output_usb(bool usb);
 
 /* ---- main thread ---- */
 /* On every entry to ON: forget anything that queued while OFF and start from neutral. */

@@ -381,7 +381,8 @@ def write_charts(d, cfg, ccs, binds):
           '- Sustain pedal: %s' % ('CC %d' % cfg['sustain'] if cfg['sustain'] >= 0 else 'off'),
           '- MIDI clock: %s' % (('Marbles follows the host\'s clock, Start / Continue / Stop; '
                                  'RATE picks the ratio (1/4 … 4); running %s ahead'
-                                 % ("Wakes' own delay (auto)" if cfg['clock_lead'] == -1
+                                 % ("Wakes' own delay, speaker or USB audio (auto)"
+                                    if cfg['clock_lead'] == -1
                                     else "as far as the host's notes say (notes)"
                                     if cfg['clock_lead'] == -2
                                     else '%d ms' % cfg['clock_lead']))

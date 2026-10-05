@@ -51,6 +51,9 @@
 
 #include "sp1_uac_tuning.h"     /* before uacring.h, as the ring itself is built */
 #include "uacring.h"
+#if defined(CONFIG_SP1_MIDI)
+#include "sp1_midi.h"           /* the USB path's delay, for the clock's lead */
+#endif
 
 /* ---- USB Device Class Definition for Audio Devices, Release 1.0 ---- */
 #define UAC_CLASS               0x01    /* bInterfaceClass: Audio */
@@ -97,6 +100,16 @@
 BUILD_ASSERT(MAX_PACKET <= UDC_NRF_ISO_IN_FAST_MAX, "a packet must fit the fast path's buffer");
 BUILD_ASSERT(AUDIO_BLK_FRAMES == CONFIG_SP1_AUDIO_BLOCK_FRAMES,
 	     "the ring is tuned for another block (sp1_uac_tuning.h)");
+#if defined(CONFIG_SP1_MIDI)
+/* The delay MIDI's clock makes up for when a host takes USB audio (sp1_midi.h): the ring's
+ * average wait from a block's render start, TARGET + BLK/2 - BLK frames (uactest measures
+ * it), plus the one block a message waits to be placed. The same rule as sp1_audio.c's check
+ * of SP1_MIDI_OUTPUT_LATENCY_MS: re-tune the ring and this fails until the number is set. */
+BUILD_ASSERT(SP1_MIDI_USB_OUTPUT_LATENCY_US ==
+	     (UACRING_TARGET + AUDIO_BLK_FRAMES / 2u) * 1000u / 48u,
+	     "the USB ring's tuning changed: set SP1_MIDI_USB_OUTPUT_LATENCY_US in sp1_midi.h to "
+	     "(UACRING_TARGET + AUDIO_BLK_FRAMES / 2) frames, in us");
+#endif
 
 struct uac_ac_header {
 	uint8_t bLength;
@@ -323,7 +336,10 @@ USBD_DESC_STRING_DEFINE(uac_name, "Wakes Audio Out", USBD_DUT_STRING_INTERFACE);
 static struct uacring ring;
 static volatile bool stream_open;
 static volatile uint32_t opens;
-static volatile uint32_t fills;         /* packets handed to the driver (the interrupt) */
+/* When the interrupt last handed a packet over (system clock, k_cycle_get_32). */
+static volatile uint32_t last_fill;
+/* Live: a packet within the last 20 ms. The host takes one every 1 ms while it runs frames. */
+#define LIVE_CYCLES     ((uint32_t)(CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC / 50))
 static volatile uint32_t sr_requests;
 
 /* ---- the fast path: the USB interrupt, once a millisecond while the stream is open ----
@@ -334,7 +350,7 @@ static uint16_t fill(uint8_t *buf, uint16_t max, void *user_data)
 	ARG_UNUSED(user_data);
 	uint32_t frames = uacring_packet_frames(&ring);
 
-	fills = fills + 1u;     /* the host is running frames: sp1_uac_live() */
+	last_fill = k_cycle_get_32();   /* the host is running frames: sp1_uac_live() */
 
 	if (frames * FRAME_BYTES > max) {
 		frames = max / FRAME_BYTES;
@@ -357,6 +373,7 @@ static void ring_restart(void)
 
 static void stream_on(void)
 {
+	last_fill = k_cycle_get_32() - 2u * LIVE_CYCLES;   /* not live until a packet goes */
 	ring_restart();
 	stream_open = true;
 	opens = opens + 1u;
@@ -414,14 +431,10 @@ bool sp1_uac_live(void)
 {
 	/* "Open" is only what the host last SAID. A host that opened the stream and then
 	 * stopped running the bus -- asleep, suspended, or stalled -- calls fill() no more,
-	 * because fill() runs at each start-of-frame. So: live while fill() has run since the
-	 * previous call. One caller (sp1_audio.c's speaker check, every 40 ms ~ 40 frames). */
-	static uint32_t seen;
-	const uint32_t n = fills;
-	const bool moved = (n != seen);
-
-	seen = n;
-	return stream_open && moved;
+	 * because fill() runs at each start-of-frame. So: live while fill() ran in the last
+	 * 20 ms. No state of its own, so any thread may ask: the speaker check and the MIDI
+	 * clock's lead both do. */
+	return stream_open && (k_cycle_get_32() - last_fill) < LIVE_CYCLES;
 }
 
 /* ---- the producer (the audio thread) ---- */

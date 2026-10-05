@@ -125,7 +125,8 @@ Marbles locks to the host, the way a Eurorack Marbles does with a cable in its C
   default `clock_lead = notes` Wakes measures where the host's quantised notes fall on its
   clock and leads by exactly that: Marbles' beats land with the notes, and **the host needs no
   clock offset for Wakes — leave it at 0**. Until notes arrive (or with notes off the 16th grid:
-  swing, triplets, playing by hand) it leads by Wakes' own delay (`auto`, 8.5 ms). The console's
+  swing, triplets, playing by hand) it leads by Wakes' own delay (`auto`, 8.5 ms; 9.5 ms while the
+  host records Wakes over USB audio, which leaves Wakes 1 ms later than the speaker). The console's
   `MIDI notes vs clock` line shows the measurement and the lead in use. Beat 1 after a Start is
   the exception — nothing said when it would come — so Marbles is on time from beat 2. Notes
   cannot be played early: give Wakes' track the DAW's usual hardware latency compensation.
@@ -215,7 +216,7 @@ What it sets:
 - `pickup` — `shared` (default), `sum` or `takeover` (above).
 - `clock` — `on` (default): Marbles follows MIDI clock and transport (above); `off` ignores them.
 - `clock_lead` — `notes` (default: as far as the host's notes say), `auto` (8.5 ms, Wakes' own
-  delay) or 0–200 ms: how far ahead of the host's
+  delay; 9.5 ms while a host records Wakes over USB audio) or 0–200 ms: how far ahead of the host's
   clock Marbles runs (above).
 - one line per parameter — `name = cc N`, or `none`.
 - `[bind]` — `velocity` and `aftertouch` (channel pressure) can push a parameter by a depth

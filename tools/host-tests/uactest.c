@@ -59,9 +59,19 @@ static void pattern(int16_t *lr, uint32_t first, uint32_t frames)
 /* The worst case must leave this much in the ring, not just not run dry: ~0.7 ms. */
 #define MARGIN_FRAMES 32u
 
+/* The delay MIDI's clock makes up for over USB (firmware/src/sp1_midi.h,
+ * SP1_MIDI_USB_OUTPUT_LATENCY_US = this + one block, checked by sp1_uac.c at build time) rests
+ * on this: a frame reaches the host, on average, TARGET + BLK/2 - BLK frames after its block
+ * starts rendering. (The regulator holds the fill sampled just before each packet, half a
+ * packet above its average; that cancels the half USB frame in transit.) Measured here, to the
+ * middle of the 1 ms frame that carries it. */
+#define RING_DELAY_MS ((UACRING_TARGET + BLK / 2u - BLK) / 48.0)
+
 struct result {
 	uint32_t under, over, lost, fixes, n47, n49, win_max, fill_min;
 	bool heard;
+	double delay_sum, delay_min, delay_max;     /* render start -> USB, us, once settled */
+	uint64_t delay_n;
 };
 
 static struct result run_ppm(int ppm, bool steps)
@@ -73,7 +83,9 @@ static struct result run_ppm(int ppm, bool steps)
 	double next_slot = 0.0, busy_until = 0.0, push_at = 0.0;
 	bool rendering = false;
 	uint32_t win_fix = 0, last_fix = 0;
-	struct result s = { .fill_min = UINT32_MAX };
+	struct result s = { .fill_min = UINT32_MAX, .delay_min = 1e12, .delay_max = -1e12 };
+	/* When each block started rendering, by block index (a window wider than the ring). */
+	static double claim_t[256];
 
 	uacring_init(&r);
 	uacring_stream(&r, true);
@@ -97,6 +109,7 @@ static struct result run_ppm(int ppm, bool steps)
 				if (steps && ++blocks % 997u == 0u) {
 					render = RENDER_PEAK;
 				}
+				claim_t[(produced / BLK) & 255u] = start;
 				uacring_claim(&r, BLK);
 				rendering = true;
 				push_at = start + render;
@@ -119,6 +132,21 @@ static struct result run_ppm(int ppm, bool steps)
 				    out[i * 2u + 1u] != (int16_t)~expected) {
 					s.lost++;
 					expected = (uint16_t)out[i * 2u];
+				}
+				if (ms > 20000u) {
+					/* The frame's full index, from its low 16 bits and `produced`. */
+					uint32_t f = (produced & ~0xFFFFu) | (uint16_t)out[i * 2u];
+					if (f >= produced) {
+						f -= 0x10000u;
+					}
+					const double t0 = claim_t[(f / BLK) & 255u] +
+							  (f % BLK) * 1000.0 / 48.0;
+					/* The packet goes out in this 1 ms frame: half way, on average. */
+					const double d = now + 500.0 - t0;
+					s.delay_sum += d;
+					s.delay_n++;
+					if (d < s.delay_min) s.delay_min = d;
+					if (d > s.delay_max) s.delay_max = d;
 				}
 				expected++;
 			}
@@ -182,8 +210,10 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	printf("== uactest: %u-frame blocks, TARGET %u (%.2f ms), dead band +/-%u\n",
-	       (unsigned)BLK, UACRING_TARGET, UACRING_TARGET / 48.0, UACRING_HYSTERESIS);
+	printf("== uactest: %u-frame blocks, TARGET %u (%.2f ms), dead band +/-%u;"
+	       " render start -> USB %.2f ms\n",
+	       (unsigned)BLK, UACRING_TARGET, UACRING_TARGET / 48.0, UACRING_HYSTERESIS,
+	       RING_DELAY_MS);
 
 	for (uint32_t i = 0; i < sizeof ppms / sizeof ppms[0]; i++) {
 		for (int steps = 0; steps < 2; steps++) {
@@ -209,9 +239,18 @@ int main(int argc, char **argv)
 				CHECK(s.fixes <= 60,
 				      "load steps and 200 % blocks are not read as drift");
 			}
-			printf("  %+4d ppm %-6s under %u  47s %u  49s %u  fixes/s max %u  lowest fill %u\n",
+			const double delay = s.delay_sum / (double)s.delay_n / 1000.0;
+			if (ppm == 0) {
+				CHECK(delay > RING_DELAY_MS - 0.25 && delay < RING_DELAY_MS + 0.25,
+				      "at 0 ppm the ring's delay is the one MIDI's clock makes up for");
+			}
+			CHECK(delay > RING_DELAY_MS - UACRING_HYSTERESIS / 48.0 - 0.1 &&
+			      delay < RING_DELAY_MS + UACRING_HYSTERESIS / 48.0 + 0.1,
+			      "with drift, the ring's delay stays within the dead band of it");
+			printf("  %+4d ppm %-6s under %u  47s %u  49s %u  fixes/s max %u  lowest fill %u"
+			       "  delay %.2f ms (%.2f .. %.2f)\n",
 			       ppm, steps ? "steps" : "steady", s.under, s.n47, s.n49, s.win_max,
-			       s.fill_min);
+			       s.fill_min, delay, s.delay_min / 1000.0, s.delay_max / 1000.0);
 		}
 	}
 
