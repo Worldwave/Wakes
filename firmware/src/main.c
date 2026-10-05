@@ -1807,10 +1807,10 @@ int main(void)
 				       sp1_audio_speaker_on() ? "on" : "off");
 				break;
 			case 3:
-				printk("SPEAKER off: a host has USB audio out open\n");
+				printk("SPEAKER off: a host is taking USB audio out\n");
 				break;
 			case 4:
-				printk("SPEAKER on: USB audio out closed\n");
+				printk("SPEAKER on: no host is taking USB audio out\n");
 				break;
 			case 2:
 				printk("JACK detect failed 3x: disabled, speaker on\n");

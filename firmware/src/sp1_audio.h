@@ -105,10 +105,12 @@ bool sp1_audio_tone_on(void);
 /* ---- headphone detect -> speaker mute (M3), and the USB audio mute (M5c) ----
  * Call from the main loop every tick while ON, after sp1_audio_start(). Polls the
  * CS42L42 jack sense every 40 ms, debounced, and powers the speaker down while a plug
- * is in -- or while a host has USB audio out open. Headphones always play. Returns -1
+ * is in -- or while a host is taking USB audio out (stream open AND packets flowing).
+ * Headphones always play. Returns -1
  * (nothing new), 0 (unplugged), 1 (plugged), 2 (detect failed repeatedly: disabled for
- * this session, speaker ON -- the USB mute with it), 3 (USB audio opened: speaker off)
- * or 4 (USB audio closed: speaker back on, unless headphones are in). */
+ * this session, speaker ON -- the USB mute with it), 3 (a host started taking USB audio:
+ * speaker off) or 4 (no host is taking it any more: speaker back on, unless headphones
+ * are in). */
 int sp1_audio_jack_poll(uint32_t elapsed_ms);
 int sp1_audio_jack_state(void);        /* 1 in, 0 out, -1 unknown */
 bool sp1_audio_speaker_on(void);       /* what the speaker amp is actually set to */

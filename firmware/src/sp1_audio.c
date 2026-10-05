@@ -930,9 +930,12 @@ void sp1_audio_take_sections(struct sp1_audio_sections *out)
  *  Tim Knapen's sequence). DET_STATUS1 (0x1B77) bit 7 reads 1 while a plug is in.
  *  While it is, the TAS2505's class-D driver is powered down (page 1, reg 0x2D).
  *
- *  M5c (Adara, 2026-10-05): the speaker is also off while a host has USB audio out open
- *  (sp1_uac_open) -- recording Wakes over USB, the speaker would only be a second, room
- *  copy. Headphones are untouched: they still monitor. The jack is debounced as before;
+ *  M5c (Adara, 2026-10-05): the speaker is also off while a host is TAKING USB audio out
+ *  (sp1_uac_live: the stream open AND packets going out since the last poll) -- recording
+ *  Wakes over USB, the speaker would only be a second, room copy. Anything short of that
+ *  defaults to the speaker (Adara): a charger, a host without USB audio or that rejects
+ *  ours, a host using only MIDI, one that has not opened the input, and one that opened it
+ *  and then went to sleep. Headphones are untouched: they still monitor. The jack is debounced as before;
  *  the speaker is then reconciled on EVERY poll with what it should be doing
  *  (speaker_wanted), so a stream closing -- the host stops, the cable is pulled -- brings
  *  it back within one poll (40 ms). The USB mute rides on this same machinery and its
@@ -978,12 +981,13 @@ static bool speaker_driver(bool on)
 	return ok;
 }
 
-/* What the speaker should be doing: on, unless headphones are in or a host is recording
- * USB audio out. An unknown jack (-1, before the first debounced read) counts as out. */
+/* What the speaker should be doing: on, unless headphones are in or a host is taking USB
+ * audio out. An unknown jack (-1, before the first debounced read) counts as out.
+ * ⚠️ sp1_uac_live() remembers its last count: call this only from the bring-up and the poll. */
 static bool speaker_wanted(void)
 {
 #if defined(CONFIG_SP1_USB_AUDIO)
-	if (sp1_uac_open()) {
+	if (sp1_uac_live()) {
 		return false;
 	}
 #endif

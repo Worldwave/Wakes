@@ -27,8 +27,13 @@ void sp1_uac_push(const int16_t *lr, uint32_t frames);
  * re-primes it (the ring filled while the host slept). Takes enum usbd_msg_type. */
 void sp1_uac_bus_event(int type);
 
-/* The host has the stream open (alternate setting 1): sp1_audio.c mutes the speaker. */
+/* The host has the stream open (alternate setting 1). */
 bool sp1_uac_open(void);
+
+/* ...and is actually taking packets: open, and at least one went out since the previous
+ * call. sp1_audio.c mutes the speaker only while this is true, so a host that opened the
+ * stream and then went to sleep gets the speaker back. ONE caller: it remembers the count. */
+bool sp1_uac_live(void);
 
 struct sp1_uac_stats {
 	bool open;              /* the host has the stream open (alternate setting 1) */

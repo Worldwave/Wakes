@@ -323,6 +323,7 @@ USBD_DESC_STRING_DEFINE(uac_name, "Wakes Audio Out", USBD_DUT_STRING_INTERFACE);
 static struct uacring ring;
 static volatile bool stream_open;
 static volatile uint32_t opens;
+static volatile uint32_t fills;         /* packets handed to the driver (the interrupt) */
 static volatile uint32_t sr_requests;
 
 /* ---- the fast path: the USB interrupt, once a millisecond while the stream is open ----
@@ -332,6 +333,8 @@ static uint16_t fill(uint8_t *buf, uint16_t max, void *user_data)
 {
 	ARG_UNUSED(user_data);
 	uint32_t frames = uacring_packet_frames(&ring);
+
+	fills = fills + 1u;     /* the host is running frames: sp1_uac_live() */
 
 	if (frames * FRAME_BYTES > max) {
 		frames = max / FRAME_BYTES;
@@ -405,6 +408,20 @@ void sp1_uac_bus_event(int type)
 bool sp1_uac_open(void)
 {
 	return stream_open;
+}
+
+bool sp1_uac_live(void)
+{
+	/* "Open" is only what the host last SAID. A host that opened the stream and then
+	 * stopped running the bus -- asleep, suspended, or stalled -- calls fill() no more,
+	 * because fill() runs at each start-of-frame. So: live while fill() has run since the
+	 * previous call. One caller (sp1_audio.c's speaker check, every 40 ms ~ 40 frames). */
+	static uint32_t seen;
+	const uint32_t n = fills;
+	const bool moved = (n != seen);
+
+	seen = n;
+	return stream_open && moved;
 }
 
 /* ---- the producer (the audio thread) ---- */
