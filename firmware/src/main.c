@@ -1802,7 +1802,15 @@ int main(void)
 				printk("JACK headphones in: speaker off\n");
 				break;
 			case 0:
-				printk("JACK headphones out: speaker on\n");
+				/* Stays off while a host records USB audio out (event 3/4). */
+				printk("JACK headphones out: speaker %s\n",
+				       sp1_audio_speaker_on() ? "on" : "off");
+				break;
+			case 3:
+				printk("SPEAKER off: a host has USB audio out open\n");
+				break;
+			case 4:
+				printk("SPEAKER on: USB audio out closed\n");
 				break;
 			case 2:
 				printk("JACK detect failed 3x: disabled, speaker on\n");

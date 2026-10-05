@@ -402,6 +402,11 @@ void sp1_uac_bus_event(int type)
 	}
 }
 
+bool sp1_uac_open(void)
+{
+	return stream_open;
+}
+
 /* ---- the producer (the audio thread) ---- */
 void sp1_uac_claim(uint32_t frames)
 {
