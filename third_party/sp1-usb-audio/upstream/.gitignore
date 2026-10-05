@@ -1,0 +1,3 @@
+# Build output: sp1/prep.sh builds into sp1/.build/ by default; west into build/.
+.build/
+build/

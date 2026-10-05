@@ -1,0 +1,20 @@
+sp1-usb-audio
+
+module/nrf-usbd-isofast/src/udc_nrf.c is Nordic Semiconductor ASA's nRF USBD
+device-controller driver from Zephyr (drivers/usb/udc/udc_nrf.c), as carried by
+nRF Connect SDK's Zephyr (sdk-zephyr, commit fd9204a0), Copyright (c) 2021
+Nordic Semiconductor ASA, Apache-2.0. It has been MODIFIED: the changes are
+exactly module/nrf-usbd-isofast/patches/udc_nrf-iso-in-fast.patch against the
+unmodified copy in module/nrf-usbd-isofast/patches/udc_nrf.c.upstream.
+
+sp1/fw/src/audio.c ports the SP-1 audio bring-up (TAS2505 and CS42L42
+configuration, clock topology, init order, audio thread) from
+chattock/sp1-tape-looper, firmware/src/main.c, at commit 2565e79,
+Copyright (c) 2026 chattock, MIT License. The licence text is in
+LICENSES/sp1-tape-looper-MIT.txt. The CS42L42 register sequence is Tim
+Knapen's (github.com/timknapen/SP-1-dev/wiki/I2C).
+
+sp1/prep.sh builds against two projects it fetches at build time and does not
+include here: marisko's sp1 board definition (github.com/softmodded/marisko)
+and feldd's hardware files (github.com/bnjreece/feldd-sp1-firmware, MIT,
+Copyright (c) 2026 Benjamin Reece). Their licences govern those files.

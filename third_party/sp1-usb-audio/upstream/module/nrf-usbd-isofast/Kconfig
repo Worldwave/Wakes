@@ -1,0 +1,20 @@
+# nRF USBD driver with the ISO IN fast path, built out of tree in place of
+# Zephyr's drivers/usb/udc/udc_nrf.c. Set CONFIG_UDC_NRF=n and this =y.
+
+config UDC_NRF_ISOFAST
+	bool "nRF USBD driver with ISO IN fast path (out-of-tree copy of udc_nrf.c)"
+	depends on DT_HAS_NORDIC_NRF_USBD_ENABLED
+	depends on !UDC_NRF
+	select NRF_USBD_COMMON
+	select NRFX_POWER
+	select EVENTS
+	help
+	  The same driver as Zephyr's UDC_NRF plus udc_nrf_iso_in_fast_set():
+	  isochronous IN packets produced and DMA'd in the USBD interrupt at SOF,
+	  with no thread wake-up per frame. See nrf-usbd-isofast/README.md.
+
+# Zephyr defines this only inside `if UDC_NRF`, which is off here.
+config UDC_NRF_THREAD_STACK_SIZE
+	int "nRF UDC driver internal thread stack size"
+	default 512
+	depends on UDC_NRF_ISOFAST

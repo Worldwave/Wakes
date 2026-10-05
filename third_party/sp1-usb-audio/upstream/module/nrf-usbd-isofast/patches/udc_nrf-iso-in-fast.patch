@@ -1,0 +1,153 @@
+--- a/drivers/usb/udc/udc_nrf.c
++++ b/drivers/usb/udc/udc_nrf.c
+@@ -19,6 +19,7 @@
+ #include <hal/nrf_usbd.h>
+ #include <nrfx_power.h>
+ #include "udc_common.h"
++#include "udc_nrf_iso_in_fast.h"
+ 
+ #include <zephyr/logging/log.h>
+ LOG_MODULE_REGISTER(udc_nrf, CONFIG_UDC_DRIVER_LOG_LEVEL);
+@@ -194,6 +195,23 @@
+ /* Bounce buffer for sending data from FLASH */
+ static uint32_t m_tx_buffer[NRFX_CEIL_DIV(NRF_USBD_COMMON_FEEDER_BUFFER_SIZE, sizeof(uint32_t))];
+ 
++/* ISO IN fast path (udc_nrf_iso_in_fast.h). When registered, ev_sof_handler()
++ * asks the application for the next ISO IN packet and usbd_dmareq_process()
++ * DMAs it from iso_fast_buf at the end of the same interrupt, so no thread is
++ * woken per frame. Two buffers: a DMA may still be running across SOF (see
++ * ev_sof_handler), and the next packet must not be written under it.
++ */
++static udc_nrf_iso_in_fill_t iso_fast_fill;
++static void *iso_fast_user_data;
++static bool iso_fast_suppress_sof;
++static uint32_t iso_fast_buf[2][UDC_NRF_ISO_IN_FAST_MAX / sizeof(uint32_t)];
++static uint8_t iso_fast_next;
++static uint8_t *iso_fast_ptr;
++static uint16_t iso_fast_len;
++/* True from DMA start until DMA end of a fast-path packet. */
++static bool iso_fast_dma;
++static struct udc_nrf_iso_in_fast_stats iso_fast_stats;
++
+ /* Early declaration. Documentation above definition. */
+ static void usbd_dmareq_process(void);
+ static inline void usbd_int_rise(void);
+@@ -408,7 +426,10 @@
+ 	m_dma_odd ^= usbd_ep_amount_get(ep) & 1;
+ 	usbd_dma_pending_clear();
+ 
+-	if ((m_ep_dma_waiting & BIT(ep2bit(ep))) == 0) {
++	if (ep == NRF_USBD_COMMON_EPIN8 && iso_fast_dma) {
++		/* ISO IN fast path: no net_buf to complete, and no thread to wake */
++		iso_fast_dma = false;
++	} else if ((m_ep_dma_waiting & BIT(ep2bit(ep))) == 0) {
+ 		if (NRF_USBD_COMMON_EP_IS_OUT(ep) || (ep == NRF_USBD_COMMON_EPIN8)) {
+ 			/* Send event to the user - for an ISO IN or any OUT endpoint,
+ 			 * the whole transfer is finished in this moment
+@@ -436,6 +457,44 @@
+ 	dma_ep = NRF_USBD_COMMON_EPIN1;
+ 
+ 	k_sem_give(&dma_available);
++}
++
++/* ISO IN fast path at SOF: take this frame's packet from the application and
++ * request its DMA, which usbd_dmareq_process() starts at the end of this same
++ * interrupt. Returns true if the fast path is active.
++ */
++static bool iso_fast_sof(void)
++{
++	const udc_nrf_iso_in_fill_t fill = iso_fast_fill;
++	const uint32_t bit = BIT(ep2bit(NRF_USBD_COMMON_EPIN8));
++	uint8_t *buf;
++	uint16_t len;
++
++	if (fill == NULL || !(NRF_USBD->EPINEN & BIT(NRF_USBD_COMMON_EP_NUM(NRF_USBD_COMMON_EPIN8)))) {
++		return false;
++	}
++
++	if (m_ep_dma_waiting & bit) {
++		/* Last frame's packet never got the DMA (another endpoint held it
++		 * across the whole frame): it is stale, send this frame's instead.
++		 */
++		iso_fast_stats.replaced++;
++	}
++
++	buf = (uint8_t *)iso_fast_buf[iso_fast_next];
++	len = fill(buf, UDC_NRF_ISO_IN_FAST_MAX, iso_fast_user_data);
++	if (len == 0) {
++		m_ep_dma_waiting &= ~bit;
++		iso_fast_stats.empty++;
++		return true;
++	}
++
++	iso_fast_ptr = buf;
++	iso_fast_len = MIN(len, UDC_NRF_ISO_IN_FAST_MAX);
++	iso_fast_next ^= 1;
++	m_ep_dma_waiting |= bit;
++
++	return true;
+ }
+ 
+ static void ev_sof_handler(void)
+@@ -460,6 +519,10 @@
+ 
+ 	m_ep_armed &= ~USBD_EPISO_BIT_MASK;
+ 
++	if (iso_fast_sof() && iso_fast_suppress_sof) {
++		return;
++	}
++
+ 	udc_submit_sof_event(udc_nrf_dev);
+ }
+ 
+@@ -611,6 +674,18 @@
+ 	}
+ 
+ 	nrf_usbd_common_ep_t ep = bit2ep(pos);
++
++	if (ep == NRF_USBD_COMMON_EPIN8 && iso_fast_fill != NULL) {
++		/* ISO IN fast path: the packet is in iso_fast_buf, not a net_buf */
++		m_ep_dma_waiting &= ~BIT(pos);
++		usbd_dma_pending_set();
++		m_ep_ready &= ~BIT(pos);
++		iso_fast_dma = true;
++		iso_fast_stats.packets++;
++		dma_ep = ep;
++		usbd_ep_dma_start(ep, (uint32_t)iso_fast_ptr, iso_fast_len);
++		return;
++	}
+ 
+ 	ep_cfg = udc_get_ep_cfg(udc_nrf_dev, ep);
+ 	buf = udc_buf_peek(ep_cfg);
+@@ -1547,6 +1622,31 @@
+ 	}
+ }
+ 
++void udc_nrf_iso_in_fast_set(udc_nrf_iso_in_fill_t fill, void *user_data, bool suppress_sof)
++{
++	unsigned int key = irq_lock();
++
++	iso_fast_user_data = user_data;
++	iso_fast_suppress_sof = suppress_sof;
++	iso_fast_fill = fill;
++	if (fill == NULL) {
++		/* A packet requested but not yet DMA'd is dropped; one in flight
++		 * completes normally (iso_fast_dma).
++		 */
++		m_ep_dma_waiting &= ~BIT(ep2bit(NRF_USBD_COMMON_EPIN8));
++	}
++
++	irq_unlock(key);
++}
++
++void udc_nrf_iso_in_fast_stats_get(struct udc_nrf_iso_in_fast_stats *stats)
++{
++	unsigned int key = irq_lock();
++
++	*stats = iso_fast_stats;
++	irq_unlock(key);
++}
++
+ static int udc_nrf_ep_enqueue(const struct device *dev,
+ 			      struct udc_ep_config *cfg,
+ 			      struct net_buf *buf)

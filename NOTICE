@@ -107,6 +107,17 @@ USB-MIDI 1.0 device class (M5a) — vendored unmodified in third_party/feldd/
   instead of feldd's clock router and MIDI-thru. Commit and file list:
   third_party/feldd/README.md.
 
+USB audio out (M5c) — vendored unmodified in third_party/sp1-usb-audio/upstream/
+  ryanmgilmore/sp1-usb-audio — Copyright (c) 2026 Ryan Gilmore — Apache-2.0
+  https://github.com/ryanmgilmore/sp1-usb-audio
+  Licence text: LICENSES/Apache-2.0.txt (and upstream/LICENSE).
+  The whole repository at one commit; its own NOTICE
+  (third_party/sp1-usb-audio/upstream/NOTICE) is carried forward with it: it
+  credits Nordic Semiconductor ASA (Apache-2.0) for the modified driver in
+  module/nrf-usbd-isofast/, and chattock/sp1-tape-looper (MIT) for the SP-1
+  audio bring-up in sp1/fw/src/audio.c. Not yet compiled into Wakes. Commit
+  and what each part is for: third_party/sp1-usb-audio/README.md.
+
 Zephyr RTOS — Apache-2.0 — https://github.com/zephyrproject-rtos/zephyr
   Licence text: LICENSES/Apache-2.0.txt
   boards/teenageengineering/stem_player/Kconfig.defconfig, Kconfig.stem_player

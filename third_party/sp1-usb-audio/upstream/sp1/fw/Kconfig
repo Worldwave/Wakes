@@ -1,0 +1,6 @@
+# Copyright (c) 2026 Ryan Gilmore
+# SPDX-License-Identifier: Apache-2.0
+
+source "samples/subsys/usb/common/Kconfig.sample_usbd"
+rsource "isofast/Kconfig"
+source "Kconfig.zephyr"

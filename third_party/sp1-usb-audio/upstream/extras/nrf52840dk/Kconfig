@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# CONFIG_SAMPLE_USBD_VID/PID/PRODUCT/..., consumed by sample_usbd_init.c.
+source "samples/subsys/usb/common/Kconfig.sample_usbd"
+
+# CONFIG_UDC_NRF_ISOFAST: the optional fast-path driver.
+rsource "../../module/nrf-usbd-isofast/Kconfig"
+
+source "Kconfig.zephyr"

@@ -12,7 +12,7 @@ what was changed.
 | `MIT-sp1-tape-looper.txt` | chattock | the board definition, power-off and watchdog sequence, and codec bring-up adapted from chattock/sp1-tape-looper |
 | `MIT-SP-1-dev.txt` | Tim Knapen | the SP-1 pin map and hardware documentation from timknapen/SP-1-dev |
 | `MIT-sp1-midi.txt` | Eric Lewis | the original `stem_player` Zephyr board that the board definition descends from |
-| `Apache-2.0.txt` | the Zephyr Project contributors | `boards/teenageengineering/stem_player/Kconfig.defconfig`, `Kconfig.stem_player` and `stem_player_defconfig` (inherited from Zephyr's board template), `zephyr-patches/`, `firmware/src/sp1_usbd.c` (derived from Zephyr's USB sample helper), and the Zephyr RTOS compiled into every firmware image |
+| `Apache-2.0.txt` | the Zephyr Project contributors; Ryan Gilmore | `third_party/sp1-usb-audio/` (USB audio out; it also carries its own `LICENSE` and `NOTICE`), `boards/teenageengineering/stem_player/Kconfig.defconfig`, `Kconfig.stem_player` and `stem_player_defconfig` (inherited from Zephyr's board template), `zephyr-patches/`, `firmware/src/sp1_usbd.c` (derived from Zephyr's USB sample helper), and the Zephyr RTOS compiled into every firmware image |
 
 A built firmware image also contains other Zephyr modules (CMSIS, Nordic's `hal_nordic`) under
 their own licences. Release archives will carry a generated bill of materials listing them.
