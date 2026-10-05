@@ -15,6 +15,10 @@
 #include <zephyr/device.h>
 #include <zephyr/usb/usbd.h>
 
+#if defined(CONFIG_SP1_USB_AUDIO)
+#include "sp1_uac.h"
+#endif
+
 #if defined(CONFIG_SP1_MIDI)
 #include <cmsis_core.h>
 #include "sp1_midi.h"
@@ -75,6 +79,10 @@ static void msg_cb(struct usbd_context *const ctx, const struct usbd_msg *const 
 	default:
 		break;
 	}
+#endif
+#if defined(CONFIG_SP1_USB_AUDIO)
+	/* M5c: a pulled cable or a bus reset closes the audio stream, a resume re-primes it. */
+	sp1_uac_bus_event(msg->type);
 #endif
 }
 
@@ -146,8 +154,9 @@ int sp1_usbd_init(void)
 		err = usbd_add_configuration(&sp1_usbd, USBD_SPEED_FS, &sp1_fs_config);
 	}
 	if (err == 0) {
-		/* Every compiled-in class: CDC ACM (devicetree) and feldd's MIDI class
-		 * (USBD_DEFINE_CLASS in usb_midi1.c). */
+		/* Every compiled-in class: CDC ACM (devicetree), feldd's MIDI class
+		 * (USBD_DEFINE_CLASS in usb_midi1.c) and USB audio out (wakes_uac, sp1_uac.c),
+		 * in that order -- linker order is by name (sp1_uac.c says why it matters). */
 		err = usbd_register_all_classes(&sp1_usbd, USBD_SPEED_FS, 1, NULL);
 	}
 	if (err != 0) {

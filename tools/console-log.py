@@ -45,10 +45,11 @@ try:
 except ImportError:
     sys.exit("pyserial is missing:  python -m pip install --user pyserial")
 
-# CONFIG_SP1_USB_PID in firmware/Kconfig: 0x5212 from M5a (console + MIDI), 0x5211 before
-# (console only) -- both, so the logger works with either firmware. The VID is Zephyr's
+# CONFIG_SP1_USB_PID in firmware/Kconfig: 0x5213 from M5c (+ audio out), 0x5212 from M5a
+# (console + MIDI), 0x5211 before (console only) -- all of them, so the logger works with
+# any firmware. The VID is Zephyr's
 # test VID until pid.codes grants one and may change, so match on PID.
-WANT_PIDS = (0x5212, 0x5211)
+WANT_PIDS = (0x5213, 0x5212, 0x5211)
 PIDS_TEXT = " or ".join(f"{x:04x}" for x in WANT_PIDS)
 
 

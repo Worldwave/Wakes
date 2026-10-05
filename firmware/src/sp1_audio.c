@@ -51,6 +51,10 @@ BUILD_ASSERT(BLK_FRAMES % 48u == 0u,
  * re-prime. tape-looper measured the structural peak at exactly queue + 3 (7 at 4). */
 K_MEM_SLAB_DEFINE_STATIC(tx_slab, BLK_BYTES, TX_QUEUE + 4, 4);
 
+#if defined(CONFIG_SP1_USB_AUDIO)
+#include "sp1_uac.h"        /* M5c: the same blocks, to the host */
+#endif
+
 #if defined(CONFIG_SP1_MIDI)
 #include "sp1_midi.h"
 /* The MIDI clock leads by Wakes' own output delay (sp1_midi.h, SP1_MIDI_OUTPUT_LATENCY_MS),
@@ -431,6 +435,12 @@ static void audio_thread(void *a, void *b, void *c)
 				continue;                     /* slept 100 ms; re-check stop */
 			}
 
+#if defined(CONFIG_SP1_USB_AUDIO)
+			/* M5c: this block's place on the audio clock, taken as its render starts --
+			 * the slot I2S just freed. USB audio's regulator steers on these claims, so
+			 * a long render is not mistaken for clock drift (sp1_uac_tuning.h). */
+			sp1_uac_claim(BLK_FRAMES);
+#endif
 			const uint32_t c0 = DWT->CYCCNT;
 #if defined(CONFIG_SP1_PROFILE_ICACHE)
 			const uint32_t m0 = NRF_NVMC->IMISS;
@@ -447,6 +457,10 @@ static void audio_thread(void *a, void *b, void *c)
 			win_sum += cyc;
 			win_n++;
 			account_sections(cyc, miss);
+#if defined(CONFIG_SP1_USB_AUDIO)
+			/* ...and the block itself, after VOL: what the codecs get, to the host. */
+			sp1_uac_push((const int16_t *)blk, BLK_FRAMES);
+#endif
 
 			if (i2s_write(i2s_dev, blk, BLK_BYTES) != 0) {
 				k_mem_slab_free(&tx_slab, blk);

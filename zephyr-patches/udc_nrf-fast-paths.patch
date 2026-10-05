@@ -23,7 +23,7 @@ index bcb0e1f017b..f3ca0882918 100644
 +
  endif # UDC_NRF
 diff --git a/drivers/usb/udc/udc_nrf.c b/drivers/usb/udc/udc_nrf.c
-index 7b18862fa59..059efff1c14 100644
+index 7b18862fa59..ba0170ecf80 100644
 --- a/drivers/usb/udc/udc_nrf.c
 +++ b/drivers/usb/udc/udc_nrf.c
 @@ -18,6 +18,7 @@
@@ -175,7 +175,7 @@ index 7b18862fa59..059efff1c14 100644
  static void ev_sof_handler(void)
  {
  	/* Process isochronous endpoints */
-@@ -432,10 +546,26 @@ static void ev_sof_handler(void)
+@@ -432,10 +546,32 @@ static void ev_sof_handler(void)
  	if (NRF_USBD->SIZE.ISOOUT) {
  		iso_ready_mask |= (1U << ep2bit(NRF_USBD_COMMON_EPOUT8));
  	}
@@ -194,7 +194,13 @@ index 7b18862fa59..059efff1c14 100644
  	m_ep_armed &= ~USBD_EPISO_BIT_MASK;
  
 +#if defined(CONFIG_UDC_NRF_ISO_IN_FAST)
-+	if (iso_fast_sof() && iso_fast_suppress_sof) {
++	/* The SOF interrupt is on only while a fill is registered (udc_nrf_iso_in_fast_set),
++	 * so with suppression no SOF event reaches the stack at all -- including the moments
++	 * around an alternate-setting change, when the endpoint is not enabled yet and
++	 * iso_fast_sof() has nothing to send.
++	 */
++	(void)iso_fast_sof();
++	if (iso_fast_fill != NULL && iso_fast_suppress_sof) {
 +		return;
 +	}
 +#endif
@@ -202,7 +208,7 @@ index 7b18862fa59..059efff1c14 100644
  	udc_submit_sof_event(udc_nrf_dev);
  }
  
-@@ -588,6 +718,52 @@ static void usbd_dmareq_process(void)
+@@ -588,6 +724,52 @@ static void usbd_dmareq_process(void)
  
  	nrf_usbd_common_ep_t ep = bit2ep(pos);
  
@@ -255,7 +261,20 @@ index 7b18862fa59..059efff1c14 100644
  	ep_cfg = udc_get_ep_cfg(udc_nrf_dev, ep);
  	buf = udc_buf_peek(ep_cfg);
  
-@@ -1558,6 +1734,83 @@ static void udc_nrf_power_handler(nrfx_power_usb_evt_t pwr_evt)
+@@ -910,6 +1092,12 @@ static void nrf_usbd_legacy_start(bool enable_sof)
+ 		USBD_INTEN_USBEVENT_Msk | USBD_INTEN_EP0SETUP_Msk |
+ 		USBD_INTEN_EPDATA_Msk;
+ 
++#if defined(CONFIG_UDC_NRF_ISO_IN_FAST)
++	/* A restart while the ISO IN fast path is registered keeps its SOF interrupt. */
++	if (iso_fast_fill != NULL) {
++		enable_sof = true;
++	}
++#endif
+ 	if (enable_sof) {
+ 		int_mask |= USBD_INTEN_SOF_Msk;
+ 	}
+@@ -1558,6 +1746,96 @@ static void udc_nrf_power_handler(nrfx_power_usb_evt_t pwr_evt)
  	}
  }
  
@@ -323,6 +342,19 @@ index 7b18862fa59..059efff1c14 100644
 +		 */
 +		m_ep_dma_waiting &= ~BIT(ep2bit(NRF_USBD_COMMON_EPIN8));
 +	}
++#if !defined(CONFIG_UDC_ENABLE_SOF)
++	/* The 1 kHz SOF interrupt runs only while a fill is registered, so a device that is
++	 * not streaming pays nothing for it. With the peripheral disabled (cable out) the
++	 * next nrf_usbd_legacy_start() sets the mask instead.
++	 */
++	if (NRF_USBD->ENABLE) {
++		if (fill != NULL) {
++			NRF_USBD->INTENSET = USBD_INTEN_SOF_Msk;
++		} else {
++			NRF_USBD->INTENCLR = USBD_INTEN_SOF_Msk;
++		}
++	}
++#endif
 +
 +	irq_unlock(key);
 +}
@@ -341,10 +373,10 @@ index 7b18862fa59..059efff1c14 100644
  			      struct net_buf *buf)
 diff --git a/include/zephyr/drivers/usb/udc_nrf_fast.h b/include/zephyr/drivers/usb/udc_nrf_fast.h
 new file mode 100644
-index 00000000000..c24cd9f5197
+index 00000000000..d56854eadb9
 --- /dev/null
 +++ b/include/zephyr/drivers/usb/udc_nrf_fast.h
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,103 @@
 +/*
 + * Copyright (c) 2026 Ryan Gilmore (ISO IN fast path)
 + * Copyright (c) 2026 Worldwave (bulk OUT fast path)
@@ -428,8 +460,12 @@ index 00000000000..c24cd9f5197
 +/**
 + * @brief Register (or remove, @p fill NULL) the ISO IN fast path.
 + *
-+ * @param suppress_sof Also stop posting SOF to the stack while active; only valid when no
-+ *                     class needs SOF events.
++ * Without CONFIG_UDC_ENABLE_SOF, this also switches the 1 kHz SOF interrupt on and off: it
++ * runs only while a fill is registered. So register when the host opens the stream and remove
++ * when it closes, not once for good.
++ *
++ * @param suppress_sof Also stop posting SOF to the stack while registered; only valid when
++ *                     no class needs SOF events.
 + */
 +void udc_nrf_iso_in_fast_set(udc_nrf_iso_in_fill_t fill, void *user_data, bool suppress_sof);
 +

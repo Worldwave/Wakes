@@ -414,4 +414,31 @@ if(CONFIG_SP1_PLAITS)
 		target_sources(app PRIVATE ${FELDD_OUT} ${FELDD}/src/usb_rt_parse.c)
 		target_include_directories(app PRIVATE ${FELDD}/src)
 	endif()
+
+	if(CONFIG_SP1_USB_AUDIO)
+		# M5c: USB audio out. The class is ours (src/sp1_uac.c); the ring and packet
+		# regulator are Ryan Gilmore's uacring.c, vendored unmodified in
+		# third_party/sp1-usb-audio, with Wakes' patch (word copies instead of picolibc's
+		# byte-loop memcpy) applied to a copy STRICTLY, as for feldd above.
+		set(UAC ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/sp1-usb-audio)
+		set(UAC_OUT ${CMAKE_CURRENT_BINARY_DIR}/sp1-usb-audio/uacring.c)
+		execute_process(
+			COMMAND ${Python3_EXECUTABLE}
+				${CMAKE_CURRENT_SOURCE_DIR}/../tools/apply_patch.py
+				${UAC}/upstream/usb-audio/uacring.c ${UAC}/patches/uacring.patch ${UAC_OUT}
+			RESULT_VARIABLE uac_rc)
+		if(NOT uac_rc EQUAL 0)
+			message(FATAL_ERROR "third_party/sp1-usb-audio/patches/uacring.patch does not apply")
+		endif()
+		set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+			${UAC}/upstream/usb-audio/uacring.c ${UAC}/patches/uacring.patch
+			${CMAKE_CURRENT_SOURCE_DIR}/../tools/apply_patch.py)
+		target_sources(app PRIVATE src/sp1_uac.c ${UAC_OUT})
+		target_include_directories(app PRIVATE ${UAC}/upstream/usb-audio)
+		# Wakes' tuning (96-frame blocks) ahead of uacring.h, exactly as uactest builds it;
+		# and no loop distribution, or GCC turns the word copies back into memcpy/memset
+		# calls (tools/ci/check_image.py checks the image).
+		set_source_files_properties(${UAC_OUT} PROPERTIES COMPILE_OPTIONS
+			"-include;${CMAKE_CURRENT_SOURCE_DIR}/src/sp1_uac_tuning.h;-fno-tree-loop-distribute-patterns;-fno-unroll-loops")
+	endif()
 endif()

@@ -92,6 +92,9 @@
 #include "sp1_release_guard.h"
 #include "sp1_midi.h"
 #endif
+#if defined(CONFIG_SP1_USB_AUDIO)
+#include "sp1_uac.h"
+#endif
 
 #define WDT_NODE DT_ALIAS(watchdog0)
 
@@ -1040,11 +1043,12 @@ int main(void)
 			       (unsigned)((CONFIG_I2S_NRFX_TX_BLOCK_COUNT + 3) *
 					  (CONFIG_SP1_AUDIO_BLOCK_FRAMES / 48)));
 			/* #32: which USB path this build takes, so every log says it. */
-			printk("USB midi=%s  threads=%s\n",
+			printk("USB midi=%s  threads=%s  audio out=%s\n",
 			       IS_ENABLED(CONFIG_UDC_NRF_OUT_FAST) ? "in the interrupt (fast path)"
 								   : "usbd thread",
 			       sp1_usbd_threads_demoted() == 2 ? "below audio"
-							      : "above audio (stock)");
+							      : "above audio (stock)",
+			       IS_ENABLED(CONFIG_SP1_USB_AUDIO) ? "UAC1 48k/16/2, fast path" : "off");
 		}
 		sp1_playrow_reset();
 		uint32_t aud_print = 0;
@@ -2012,6 +2016,29 @@ int main(void)
 							       ms.lead_us / 1000u, (ms.lead_us % 1000u) / 100u);
 						}
 					}
+				}
+#endif
+#if defined(CONFIG_SP1_USB_AUDIO)
+				/* USB audio out (M5c), while the host has the stream open and once more
+				 * after it closes. Counts are since the stream opened (the ring's),
+				 * except replaced and sr (since boot). fill hovers near the target when
+				 * the clocks agree; 47s / 49s are the regulator following drift
+				 * (~10 a second at +/-200 ppm, none from load); under means a packet
+				 * went out silent, over a block found no room. */
+				{
+					static bool uac_was_open;
+					static uint32_t uac_opens_seen;
+					struct sp1_uac_stats us;
+					sp1_uac_get_stats(&us);
+					if (us.open || uac_was_open || us.opens != uac_opens_seen) {
+						printk("UAC open=%d opens=%u pkts=%u fill=%u (target %u)"
+						       " 47s=%u 49s=%u under=%u over=%u replaced=%u sr=%u\n",
+						       us.open ? 1 : 0, us.opens, us.packets, us.fill,
+						       us.target, us.n47, us.n49, us.under, us.over,
+						       us.replaced, us.sr_requests);
+					}
+					uac_was_open = us.open;
+					uac_opens_seen = us.opens;
 				}
 #endif
 			}

@@ -15,17 +15,22 @@ config SP1_USB_VID
 
 config SP1_USB_PID
 	hex "USB product ID"
-	default 0x5212
+	default 0x5213
 	help
-	  0x5211 through M4e (console only); 0x5212 from M5a (console + MIDI).
+	  0x5211 through M4e (console only); 0x5212 from M5a (console + MIDI);
+	  0x5213 from M5c (console + MIDI + audio out). Interim: pid.codes
+	  1209:4440 is requested (pidcodes/pidcodes.github.com#1301).
 
 config SP1_USB_MANUFACTURER
 	string "USB manufacturer string"
-	default "worldwave"
+	default "Worldwave"
 
 config SP1_USB_PRODUCT
 	string "USB product string (the name hosts show for the device and its MIDI port)"
-	default "wakes-sp1"
+	default "Wakes"
+	help
+	  "wakes-sp1" through v0.6.x; "Wakes" from M5c (Adara). DAWs remember MIDI routings by
+	  port name, so a change means re-selecting the port once on each host.
 
 config SP1_USB_MAX_POWER
 	int "bMaxPower, in units of 2 mA"
@@ -110,6 +115,17 @@ config SP1_MIDI
 	  Notes play Plaits, CCs offset parameters on both modules, all configured by
 	  config/midi.ini at build time. Costs nothing until a host sends something.
 	  n: no MIDI function on the USB device at all.
+
+config SP1_USB_AUDIO
+	bool "USB audio out: the SP-1's output to the host, USB Audio Class 1.0 (M5c)"
+	default y
+	depends on SP1_PLAITS && UDC_NRF_ISO_IN_FAST
+	help
+	  The output the codecs get, after VOL, sent to the host as a 48 kHz 16-bit
+	  stereo input (src/sp1_uac.c). Output only: nothing is received from the host.
+	  Packets go out from the USB interrupt through the ISO IN fast path
+	  (zephyr-patches/udc_nrf-fast-paths.patch), which is required. Costs nothing
+	  until a host opens the stream.
 
 config SP1_PLAITS
 	bool "Plaits voice as the audio source (M3)"

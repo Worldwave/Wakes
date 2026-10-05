@@ -119,8 +119,10 @@ USB audio out (M5c) — vendored unmodified in third_party/sp1-usb-audio/upstrea
   MODIFIED by third_party/sp1-usb-audio/patches/uacring.patch (word copies in
   place of memcpy/memset), applied at build time to a copy; the vendored file
   is unchanged. tools/host-tests/uactest.c is derived from its
-  test/test_uacring.c and stays Apache-2.0. Commit and what each part is for:
-  third_party/sp1-usb-audio/README.md.
+  test/test_uacring.c and stays Apache-2.0. firmware/src/sp1_uac.{c,h} (the
+  USB Audio Class 1.0 function) follow its usb-audio/usb_audio.c for the fill
+  function and the stream start/stop, and are Apache-2.0. Commit and what each
+  part is for: third_party/sp1-usb-audio/README.md.
 
 Zephyr RTOS — Apache-2.0 — https://github.com/zephyrproject-rtos/zephyr
   Licence text: LICENSES/Apache-2.0.txt

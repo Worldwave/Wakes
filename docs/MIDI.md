@@ -1,7 +1,8 @@
 # MIDI on Wakes
 
 Plug the SP-1 into a computer, phone or a USB host like the OP-XY, and Wakes shows up as a
-class-compliant **USB-MIDI** port called `wakes-sp1` — no driver. It listens; it does not send.
+class-compliant **USB-MIDI** port called `Wakes` — no driver. It listens; it does not send.
+(Through v0.6.x the port was called `wakes-sp1`: re-select it once in your DAW or host.)
 
 Nothing about it needs setting up on the device, and there are **no new pages**: notes play
 Plaits straight away, and everything deeper is set in the MIDI script,
