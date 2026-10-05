@@ -115,8 +115,12 @@ USB audio out (M5c) — vendored unmodified in third_party/sp1-usb-audio/upstrea
   (third_party/sp1-usb-audio/upstream/NOTICE) is carried forward with it: it
   credits Nordic Semiconductor ASA (Apache-2.0) for the modified driver in
   module/nrf-usbd-isofast/, and chattock/sp1-tape-looper (MIT) for the SP-1
-  audio bring-up in sp1/fw/src/audio.c. Not yet compiled into Wakes. Commit
-  and what each part is for: third_party/sp1-usb-audio/README.md.
+  audio bring-up in sp1/fw/src/audio.c. Wakes uses usb-audio/uacring.c,
+  MODIFIED by third_party/sp1-usb-audio/patches/uacring.patch (word copies in
+  place of memcpy/memset), applied at build time to a copy; the vendored file
+  is unchanged. tools/host-tests/uactest.c is derived from its
+  test/test_uacring.c and stays Apache-2.0. Commit and what each part is for:
+  third_party/sp1-usb-audio/README.md.
 
 Zephyr RTOS — Apache-2.0 — https://github.com/zephyrproject-rtos/zephyr
   Licence text: LICENSES/Apache-2.0.txt

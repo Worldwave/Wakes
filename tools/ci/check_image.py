@@ -183,6 +183,32 @@ def thumb_branch_targets(code, base):
     return out
 
 
+def elf_func(elf):
+    """name -> (address, code bytes) of a linked function, or None."""
+    symtab = elf.get_section_by_name(".symtab")
+
+    def func(name):
+        for s in symtab.get_symbol_by_name(name) or []:
+            if s["st_info"]["type"] == "STT_FUNC" and s["st_size"] > 0:
+                addr = s["st_value"] & ~1
+                for sec in elf.iter_sections():
+                    lo = sec["sh_addr"]
+                    if sec["sh_type"] == "SHT_PROGBITS" and lo <= addr < lo + sec["sh_size"]:
+                        return addr, sec.data()[addr - lo:addr - lo + s["st_size"]]
+        return None
+    return func
+
+
+def libc_fills(func):
+    """picolibc's byte-loop copies and fills, by address."""
+    libc = {}
+    for name in ("memset", "memcpy", "memmove"):
+        f = func(name)
+        if f:
+            libc[f[0]] = name
+    return libc
+
+
 def check_fast_clear(zd):
     """Plaits' engine-change clears must not run through picolibc's memset (issue #36).
 
@@ -194,23 +220,8 @@ def check_fast_clear(zd):
     """
     with open(zd / f"{NAME}.elf", "rb") as fh:
         elf = ELFFile(fh)
-        symtab = elf.get_section_by_name(".symtab")
-
-        def func(name):
-            for s in symtab.get_symbol_by_name(name) or []:
-                if s["st_info"]["type"] == "STT_FUNC" and s["st_size"] > 0:
-                    addr = s["st_value"] & ~1
-                    for sec in elf.iter_sections():
-                        lo = sec["sh_addr"]
-                        if sec["sh_type"] == "SHT_PROGBITS" and lo <= addr < lo + sec["sh_size"]:
-                            return addr, sec.data()[addr - lo:addr - lo + s["st_size"]]
-            return None
-
-        libc = {}
-        for name in ("memset", "memcpy", "memmove"):
-            f = func(name)
-            if f:
-                libc[f[0]] = name
+        func = elf_func(elf)
+        libc = libc_fills(func)
 
         zero = func("_ZN6plaits8sp1_zeroEPvj")
         if zero is None:
@@ -231,6 +242,30 @@ def check_fast_clear(zd):
             calls = [libc[t] for t in thumb_branch_targets(f[1], f[0]) if t in libc]
             check(not calls, f"{what} clears without memset (#36)",
                   ", ".join(calls) or "no libc fill")
+
+
+def check_uac_copies(zd):
+    """USB audio's ring must not copy through picolibc (M5c).
+
+    Its memcpy is a byte loop: ~4 points of CPU for the ring's push (audio thread, every
+    2 ms) and pop (USB interrupt, every 1 ms), against ~0.65 with the word copies that
+    third_party/sp1-usb-audio/patches/uacring.patch puts in -- which GCC turns back into
+    library calls unless the patched copy is built with -fno-tree-loop-distribute-patterns.
+    Nothing to check while USB audio is not linked.
+    """
+    with open(zd / f"{NAME}.elf", "rb") as fh:
+        elf = ELFFile(fh)
+        func = elf_func(elf)
+        if func("uacring_push") is None and func("uacring_pop") is None:
+            return
+        libc = libc_fills(func)
+        for name in ("uacring_push", "uacring_pop", "frames_copy", "frames_zero"):
+            f = func(name)
+            if f is None:
+                continue          # the two helpers may be inlined
+            calls = [libc[t] for t in thumb_branch_targets(f[1], f[0]) if t in libc]
+            check(not calls, f"{name} copies without memcpy/memset (M5c)",
+                  ", ".join(calls) or "word copies")
 
 
 def check_source(repo):
@@ -258,6 +293,7 @@ def main():
     if cfg.get("CONFIG_SP1_PLAITS") == "y":
         check_layouts(zd)
         check_fast_clear(zd)
+    check_uac_copies(zd)
     check_source(a.repo)
 
     failed = results.count(False)

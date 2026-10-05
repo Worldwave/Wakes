@@ -104,11 +104,15 @@ for t in "$@"; do
   out=$SP/$(basename "${t%.*}")
   case $t in
     *uactest.c)
-      # USB audio out (M5c): Ryan Gilmore's ring + regulator, unmodified, at Wakes' tuning --
-      # sp1_uac_tuning.h force-included as the firmware does. EXTRA_UAC_FLAGS is for the
-      # re-tuning sweep only (README).
-      gcc -std=c99 -O2 -Wall -include "$SRC/sp1_uac_tuning.h" $EXTRA_UAC_FLAGS -I"$UAC" \
-          "$t" "$UAC/uacring.c" -o "$out" ;;
+      # USB audio out (M5c): Ryan Gilmore's ring + regulator with Wakes' patch (word copies,
+      # third_party/sp1-usb-audio/patches/uacring.patch) applied to a copy, STRICTLY, and
+      # built the way the firmware builds it; sp1_uac_tuning.h force-included. EXTRA_UAC_FLAGS
+      # is for the re-tuning sweep only (README).
+      python3 "$ROOT/tools/apply_patch.py" "$UAC/uacring.c" \
+          "$ROOT/third_party/sp1-usb-audio/patches/uacring.patch" "$SP/uacring.c"
+      gcc -std=c99 -O2 -Wall -fno-tree-loop-distribute-patterns -fno-unroll-loops \
+          -include "$SRC/sp1_uac_tuning.h" $EXTRA_UAC_FLAGS -I"$UAC" \
+          "$t" "$SP/uacring.c" -o "$out" ;;
     *test_usb_rt_parse.c)
       # feldd's own host test of the packet validator Wakes uses (third_party/feldd).
       gcc -std=gnu11 -O2 "$t" "$FELDD/src/usb_rt_parse.c" -o "$out" ;;

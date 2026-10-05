@@ -1,0 +1,81 @@
+--- a/uacring.c
++++ b/uacring.c
+@@ -23,6 +23,42 @@
+ #define HYSTERESIS      UACRING_HYSTERESIS
+ #define FIX_EVERY       50u
+ 
++/* Wakes (M5c): one 32-bit word per stereo frame instead of memcpy/memset. The SDK's
++ * picolibc copies ONE BYTE per loop pass (~6.6 cycles a byte on the SP-1, issue #36), and
++ * these run every 2 ms in the audio thread (push) and every 1 ms in the USB interrupt
++ * (pop): ~4 points of CPU through the library, ~0.5 this way. A frame is two int16_t, so
++ * every frame is a whole word. The buffers are at least 2-byte aligned (int16_t); the
++ * word type says so, and the Cortex-M4 loads and stores such words with single LDR/STR.
++ * ⚠️ Compiled with -fno-tree-loop-distribute-patterns, or GCC turns these loops straight
++ * back into memcpy/memset calls (sp1_zero.cc, #36). */
++typedef uint32_t __attribute__((aligned(2), may_alias)) uac_frame_t;
++
++static void frames_copy(int16_t *dst, const int16_t *src, uint32_t frames)
++{
++	uac_frame_t *d = (uac_frame_t *)dst;
++	const uac_frame_t *s = (const uac_frame_t *)src;
++
++	for (; frames >= 4u; frames -= 4u) {
++		const uint32_t f0 = s[0], f1 = s[1], f2 = s[2], f3 = s[3];
++
++		d[0] = f0; d[1] = f1; d[2] = f2; d[3] = f3;
++		d += 4;
++		s += 4;
++	}
++	for (; frames != 0u; frames--) {
++		*d++ = *s++;
++	}
++}
++
++static void frames_zero(int16_t *dst, uint32_t frames)
++{
++	uac_frame_t *d = (uac_frame_t *)dst;
++
++	for (; frames != 0u; frames--) {
++		*d++ = 0u;
++	}
++}
++
+ /* What the regulator steers: the fill counted to the CLAIMED position, which
+  * advances when the audio thread takes an I2S slot -- a time the audio clock
+  * paces -- instead of when the render finishes. A chord starting makes renders
+@@ -99,11 +135,9 @@
+ 
+ 	uint32_t first = UACRING_CAPACITY - (write & RING_MASK);
+ 	if (first > frames) first = frames;
+-	memcpy(&r->data[(write & RING_MASK) * 2u], lr,
+-	       first * 2u * sizeof(int16_t));
++	frames_copy(&r->data[(write & RING_MASK) * 2u], lr, first);
+ 	if (first < frames) {
+-		memcpy(r->data, &lr[first * 2u],
+-		       (frames - first) * 2u * sizeof(int16_t));
++		frames_copy(r->data, &lr[first * 2u], frames - first);
+ 	}
+ 	UACRING_BARRIER();
+ 	r->write = write + frames;
+@@ -170,18 +204,16 @@
+ 	uint32_t write = r->write;
+ 	UACRING_BARRIER();
+ 	if (r->silence || r->priming || write - read < frames) {
+-		memset(lr, 0, frames * 2u * sizeof(int16_t));
++		frames_zero(lr, frames);
+ 		if (!r->priming) r->under++;
+ 		return false;
+ 	}
+ 
+ 	uint32_t first = UACRING_CAPACITY - (read & RING_MASK);
+ 	if (first > frames) first = frames;
+-	memcpy(lr, &r->data[(read & RING_MASK) * 2u],
+-	       first * 2u * sizeof(int16_t));
++	frames_copy(lr, &r->data[(read & RING_MASK) * 2u], first);
+ 	if (first < frames) {
+-		memcpy(&lr[first * 2u], r->data,
+-		       (frames - first) * 2u * sizeof(int16_t));
++		frames_copy(&lr[first * 2u], r->data, frames - first);
+ 	}
+ 	UACRING_BARRIER();
+ 	r->read = read + frames;
