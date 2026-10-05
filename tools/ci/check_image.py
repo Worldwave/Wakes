@@ -148,6 +148,91 @@ def check_layouts(zd):
     check(not bad and len(sizes) > 0, "one layout per Plaits/Marbles class", detail)
 
 
+def thumb_branch_targets(code, base):
+    """Targets of every direct branch (B, B.W, BL, BLX) in a Thumb-2 function body."""
+    out = []
+    i = 0
+    while i + 2 <= len(code):
+        hw1 = int.from_bytes(code[i:i + 2], "little")
+        pc = base + i + 4
+        if hw1 >> 11 in (0b11101, 0b11110, 0b11111):        # 32-bit instruction
+            if i + 4 > len(code):
+                break
+            hw2 = int.from_bytes(code[i + 2:i + 4], "little")
+            if hw1 >> 11 == 0b11110 and hw2 & 0x8000:
+                s = (hw1 >> 10) & 1
+                j1, j2 = (hw2 >> 13) & 1, (hw2 >> 11) & 1
+                if hw2 & 0x5000:                            # BL, BLX, B.W (T4)
+                    i1, i2 = 1 - (j1 ^ s), 1 - (j2 ^ s)
+                    off = (s << 24) | (i1 << 23) | (i2 << 22) | ((hw1 & 0x3FF) << 12) \
+                        | ((hw2 & 0x7FF) << 1)
+                    out.append(pc + off - (1 << 25 if s else 0))
+                elif (hw1 >> 6) & 0xE != 0xE:               # B<cond>.W (T3)
+                    off = (s << 20) | (j2 << 19) | (j1 << 18) | ((hw1 & 0x3F) << 12) \
+                        | ((hw2 & 0x7FF) << 1)
+                    out.append(pc + off - (1 << 21 if s else 0))
+            i += 4
+            continue
+        if hw1 >> 11 == 0b11100:                            # B (T2)
+            off = (hw1 & 0x7FF) << 1
+            out.append(pc + off - (1 << 12 if off & 0x800 else 0))
+        elif hw1 >> 12 == 0b1101 and (hw1 >> 8) & 0xE != 0xE:  # B<cond> (T1)
+            off = (hw1 & 0xFF) << 1
+            out.append(pc + off - (1 << 9 if off & 0x100 else 0))
+        i += 2
+    return out
+
+
+def check_fast_clear(zd):
+    """Plaits' engine-change clears must not run through picolibc's memset (issue #36).
+
+    Not a brick, but a dropout that comes back silently: the toolchain's memset is a byte
+    loop (~1.7 ms for Particle's 16 KB diffuser, inside a 2 ms block), and GCC turns a fill
+    loop back into a memset call unless sp1_zero.cc is built with
+    -fno-tree-loop-distribute-patterns. So: sp1_zero is linked, branches only within
+    itself, and the two engine resets that clear the most no longer call memset.
+    """
+    with open(zd / f"{NAME}.elf", "rb") as fh:
+        elf = ELFFile(fh)
+        symtab = elf.get_section_by_name(".symtab")
+
+        def func(name):
+            for s in symtab.get_symbol_by_name(name) or []:
+                if s["st_info"]["type"] == "STT_FUNC" and s["st_size"] > 0:
+                    addr = s["st_value"] & ~1
+                    for sec in elf.iter_sections():
+                        lo = sec["sh_addr"]
+                        if sec["sh_type"] == "SHT_PROGBITS" and lo <= addr < lo + sec["sh_size"]:
+                            return addr, sec.data()[addr - lo:addr - lo + s["st_size"]]
+            return None
+
+        libc = {}
+        for name in ("memset", "memcpy", "memmove"):
+            f = func(name)
+            if f:
+                libc[f[0]] = name
+
+        zero = func("_ZN6plaits8sp1_zeroEPvj")
+        if zero is None:
+            check(False, "plaits::sp1_zero linked (#36)", "symbol missing: overrides not applied?")
+            return
+        addr, code = zero
+        outside = [t for t in thumb_branch_targets(code, addr)
+                   if not addr <= t < addr + len(code)]
+        check(not outside, "plaits::sp1_zero calls nothing (#36)",
+              ", ".join(libc.get(t, hex(t)) for t in outside) or f"{len(code)} B, leaf")
+
+        for sym, what in (("_ZN6plaits14ParticleEngine5ResetEv", "ParticleEngine::Reset"),
+                          ("_ZN6plaits6String5ResetEv", "String::Reset")):
+            f = func(sym)
+            if f is None:
+                check(False, f"{what} clears without memset (#36)", "symbol missing")
+                continue
+            calls = [libc[t] for t in thumb_branch_targets(f[1], f[0]) if t in libc]
+            check(not calls, f"{what} clears without memset (#36)",
+                  ", ".join(calls) or "no libc fill")
+
+
 def check_source(repo):
     # A header constant, not a build flag, so nothing else would catch a leftover 1:
     # the device would boot into the calibration wizard.
@@ -172,6 +257,7 @@ def main():
     cfg = check_config(zd)
     if cfg.get("CONFIG_SP1_PLAITS") == "y":
         check_layouts(zd)
+        check_fast_clear(zd)
     check_source(a.repo)
 
     failed = results.count(False)

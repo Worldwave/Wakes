@@ -73,7 +73,7 @@ LIB=$OBJ/libsp1dsp.a
 stale=1
 if [ -f "$LIB" ] && [ -z "$SP1_HOST_REBUILD" ]; then
   stale=0
-  for f in $(list_sources) $(find "$SRC/plaits_ovr" -name '*.h') \
+  for f in $(list_sources) $(find "$SRC/plaits_ovr" -name '*.h') "$SRC/sp1_zero.cc" \
            "$ROOT/firmware/CMakeLists.txt" "$HERE/mkovr.py"; do
     [ "$f" -nt "$LIB" ] && { stale=1; break; }
   done
@@ -85,6 +85,9 @@ if [ "$stale" = 1 ]; then
     o=$OBJ/dsp_$n.o; n=$((n+1))
     g++ $CXXFLAGS $INC -c "$f" -o "$o"
   done
+  # #36: the overridden FxEngine::Clear / DelayLine::Reset call plaits::sp1_zero. Same
+  # flag as the firmware (firmware/CMakeLists.txt), so the host runs the same loops.
+  g++ $CXXFLAGS -fno-tree-loop-distribute-patterns -fno-unroll-loops -c "$SRC/sp1_zero.cc" -o $OBJ/dsp_zero.o
   ar rcs "$LIB" $OBJ/dsp_*.o
 fi
 

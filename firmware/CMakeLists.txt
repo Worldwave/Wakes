@@ -175,6 +175,17 @@ if(CONFIG_SP1_PLAITS)
 	sp1_plaits_override(plaits/dsp/engine/particle_engine.cc
 		"  diffuser_.Process("
 		"  // wakes-sp1 (M3f): the diffuser's mix amount is exactly 0 when diffusion is 0.\n  static bool sp1_diffusing = false;\n  if (diffusion > 0.0f && !sp1_diffusing) {\n    diffuser_.Reset();\n  }\n  sp1_diffusing = diffusion > 0.0f;\n  if (sp1_diffusing) diffuser_.Process(")
+	# #36: the two fills that clear Plaits' shared engine RAM on an engine change go
+	# through plaits::sp1_zero (src/sp1_zero.cc, word stores) instead of std::fill, which
+	# GCC turns into picolibc's byte-at-a-time memset: Particle's 16 KB diffuser took
+	# ~1.7 ms and String's delay lines ~1.1 ms of a 2 ms block. Same bytes zeroed. The
+	# block-scope declaration names plaits::sp1_zero, as in x_y_generator.cc below.
+	sp1_plaits_override(plaits/dsp/fx/fx_engine.h
+		"    std::fill(&buffer_[0], &buffer_[size], 0);"
+		"    // wakes-sp1 (#36): word stores, not picolibc's byte-loop memset.\n    void sp1_zero(void* dst, size_t n);\n    sp1_zero(&buffer_[0], sizeof(buffer_[0]) * size);")
+	sp1_plaits_override(plaits/dsp/physical_modelling/delay_line.h
+		"    std::fill(&line_[0], &line_[max_delay], T(0));"
+		"    // wakes-sp1 (#36): word stores, not picolibc's byte-loop memset.\n    void sp1_zero(void* dst, size_t n);\n    sp1_zero(&line_[0], sizeof(line_[0]) * max_delay);")
 	# M3f: Modal: CONFIG_SP1_MODAL_MODES resonator modes (upstream 24). Resonator is
 	# used by the modal engine only.
 	sp1_plaits_override(plaits/dsp/physical_modelling/resonator.h
@@ -336,7 +347,12 @@ if(CONFIG_SP1_PLAITS)
 			list(APPEND PLAITS_SOURCES ${ours})
 		endif()
 	endforeach()
-	zephyr_library_sources(src/sp1_synth.cc src/sp1_marbles.cc ${PLAITS_SOURCES})
+	zephyr_library_sources(src/sp1_synth.cc src/sp1_marbles.cc src/sp1_zero.cc ${PLAITS_SOURCES})
+	# #36: or GCC recognises sp1_zero's loops as a fill and calls memset -- the byte loop
+	# it exists to avoid (tools/ci/check_image.py checks). No unrolling: the body is
+	# unrolled by hand, and GCC's copy of the 0-3 byte head loop came to 600 bytes.
+	set_source_files_properties(src/sp1_zero.cc PROPERTIES
+		COMPILE_OPTIONS "-fno-tree-loop-distribute-patterns;-fno-unroll-loops")
 
 	# ⚠️ ORDER MATTERS: generated overrides, our replacements, the shim, then the
 	# eurorack root. The shim's plaits/user_data.h shadows upstream's (which reads an
