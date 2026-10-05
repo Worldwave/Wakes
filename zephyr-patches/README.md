@@ -33,7 +33,15 @@ the `zephyr/` checkout root) whenever the Zephyr tree is re-cloned or reset.
   - `CONFIG_UDC_NRF_ISO_IN_FAST` — Ryan Gilmore's ISO IN fast path from
     sp1-usb-audio, for USB audio out (M5c), with the two guards it relies on
     from nRF Connect SDK's later driver (a DMA left running across SOF; the
-    `dma_ep` reset). Compiles clean; untested until M5c.
+    `dma_ep` reset). Compiles clean; untested on hardware until M5c.
+    Reviewed against Ryan's base driver (nRF Connect SDK `sdk-zephyr` `fd9204a0`,
+    kept in `third_party/sp1-usb-audio/upstream/module/nrf-usbd-isofast/patches/`):
+    the code the fast path hooks into (`ev_sof_handler`, `usbd_dmareq_process`,
+    `nrf_usbd_dma_finished`) is the same in 4.3.1 apart from those two guards, and the
+    port matches Ryan's patch hunk for hunk. 4.3.1's other differences are in control
+    transfers (EP0) and in where an endpoint dequeue runs; neither touches ISO IN.
+    Endpoint abort and disable wait for any running DMA (`dma_available`) before
+    clearing the endpoint, so closing the stream cannot cut a fast-path DMA short.
 
   With neither option set the driver is unchanged. The two paths serve
   different endpoints through the driver's own DMA scheduler, which serves IN

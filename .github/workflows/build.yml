@@ -32,7 +32,8 @@ jobs:
           SP1_HOST_BUILD_DIR: ${{ runner.temp }}/host
         run: |
           sh tools/host-tests/hostbuild.sh routetest.cc uitest.c miditest.cc miditest_alt.cc \
-            miditest_pickup.cc miditest_clock.cc ../../third_party/feldd/test/test_usb_rt_parse.c
+            miditest_pickup.cc miditest_clock.cc ../../third_party/feldd/test/test_usb_rt_parse.c \
+            uactest.c
           "$SP1_HOST_BUILD_DIR/routetest"
           "$SP1_HOST_BUILD_DIR/uitest"
           "$SP1_HOST_BUILD_DIR/miditest"
@@ -41,6 +42,7 @@ jobs:
           "$SP1_HOST_BUILD_DIR/miditest_pickup_takeover"
           "$SP1_HOST_BUILD_DIR/miditest_clock"
           "$SP1_HOST_BUILD_DIR/test_usb_rt_parse"
+          "$SP1_HOST_BUILD_DIR/uactest"
 
   firmware:
     runs-on: ubuntu-latest

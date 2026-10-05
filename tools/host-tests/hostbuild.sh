@@ -11,6 +11,7 @@ mkdir -p "$SP"
 ER=$ROOT/third_party/eurorack
 SRC=$ROOT/firmware/src
 FELDD=$ROOT/third_party/feldd
+UAC=$ROOT/third_party/sp1-usb-audio/upstream/usb-audio
 # #32: Plaits' block size, as CONFIG_SP1_PLAITS_BLOCK (default 24, the firmware's). The
 # overrides and the cached archive live in a directory per size, so switching sizes can
 # never link an archive built for the other one.
@@ -102,6 +103,12 @@ for t in "$@"; do
   [ -f "$t" ] || t=$HERE/$t
   out=$SP/$(basename "${t%.*}")
   case $t in
+    *uactest.c)
+      # USB audio out (M5c): Ryan Gilmore's ring + regulator, unmodified, at Wakes' tuning --
+      # sp1_uac_tuning.h force-included as the firmware does. EXTRA_UAC_FLAGS is for the
+      # re-tuning sweep only (README).
+      gcc -std=c99 -O2 -Wall -include "$SRC/sp1_uac_tuning.h" $EXTRA_UAC_FLAGS -I"$UAC" \
+          "$t" "$UAC/uacring.c" -o "$out" ;;
     *test_usb_rt_parse.c)
       # feldd's own host test of the packet validator Wakes uses (third_party/feldd).
       gcc -std=gnu11 -O2 "$t" "$FELDD/src/usb_rt_parse.c" -o "$out" ;;

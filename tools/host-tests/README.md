@@ -13,13 +13,15 @@ proved on a laptop, and because there is exactly one SP-1 (`docs/SAFETY.md`).
 | `miditest_clock.cc` | the same as `miditest.cc`, with real cycle-counter stamps on every tick | MIDI clock and transport into Marbles (M5b): tempo and position from ticks, ±1 ms of USB jitter, a stopped clock waiting, Start arming beat 1 on its own Plaits block, Marbles' beats at the host's tempo, RATE as Marbles' ratio table (×4, ×1/4), Stop / Continue, a stalled clock, PLAY on the host's clock, and the cable pulled (Marbles stops, own clock again) |
 | `miditest_alt.cc` | the same, built against `midi-alt.ini` (pickup `sum`) | omni, legato on, Yarns' portamento curve, velocity -> LEVEL, aftertouch -> TIMBRE, no sustain pedal, bend range |
 | `third_party/feldd/test/test_usb_rt_parse.c` | feldd's packet validator | feldd's own test, unmodified |
+| `uactest.c` | Ryan Gilmore's USB audio ring and packet regulator (`third_party/sp1-usb-audio`, unmodified) at Wakes' tuning, `firmware/src/sp1_uac_tuning.h` | USB audio out (M5c): ±200 ppm of clock drift, a heavy patch starting and stopping, a 200 % block every 997, with no underflow, no lost frame, a margin left in the ring, at most 20 packet-size corrections a second and none from load alone; priming, underflow, overflow |
 
 ```sh
 tools/host-tests/hostbuild.sh routetest.cc uitest.c miditest.cc miditest_alt.cc \
-    miditest_pickup.cc miditest_clock.cc ../../third_party/feldd/test/test_usb_rt_parse.c
+    miditest_pickup.cc miditest_clock.cc ../../third_party/feldd/test/test_usb_rt_parse.c \
+    uactest.c
 cd /tmp/wakes-sp1-host && ./routetest && ./uitest && ./miditest && ./miditest_alt \
     && ./miditest_pickup_shared && ./miditest_pickup_takeover && ./miditest_clock \
-    && ./test_usb_rt_parse
+    && ./test_usb_rt_parse && ./uactest
 ```
 
 Builds go to `$TMPDIR/wakes-sp1-host` (override with `SP1_HOST_BUILD_DIR`); nothing is written
@@ -61,3 +63,21 @@ value — and with STEPS smooth the lag processor ramps between the two. `routet
 exists for that, and the comment above it explains why measuring from the first sample after
 `sp1_marbles_set_params()` is wrong. The same one-tick lag is the hardware behaviour, so this is
 worth understanding rather than working around.
+
+## Re-tuning USB audio (`uactest`)
+
+The ring's target fill and dead band are tuned for the audio block, in
+`firmware/src/sp1_uac_tuning.h`, which `#error`s if `CONFIG_SP1_AUDIO_BLOCK_FRAMES` changes.
+To re-tune, change the block and the render times at the top of `uactest.c` if they changed,
+then sweep: each run rebuilds `uactest` with one setting and prints a summary line.
+
+```sh
+for T in 288 304 320 336 352 368 384; do
+  EXTRA_UAC_FLAGS="-DUACRING_TARGET=${T}u -DUACRING_HYSTERESIS=32u" \
+      sh tools/host-tests/hostbuild.sh uactest.c >/dev/null && /tmp/wakes-sp1-host/uactest -s
+done
+```
+
+Take the first target with `under 0` and add half a block (upstream's margin), then rebuild
+without `EXTRA_UAC_FLAGS` and run the full `uactest`. The reasoning and the 96-frame sweep are
+in the header.
