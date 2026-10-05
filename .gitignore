@@ -21,3 +21,4 @@ __pycache__/
 # design sources and editor lock files (the manual ships as its exported PDF)
 *.af
 *~lock~
+.~lock.*#
