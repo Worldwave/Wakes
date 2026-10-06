@@ -57,6 +57,21 @@ add_custom_command(
 add_custom_target(sp1_midi_gen DEPENDS ${SP1_MIDI_OUT})
 add_dependencies(app sp1_midi_gen)
 
+# ---- the audio settings: config/audio.ini -> sp1_audio_gen.h (M5c) ----
+# How sound leaves the device: USB audio out's level mode and the speaker while a host takes
+# it. Same rule as the MIDI script: a bad value fails the build, naming the line.
+set(SP1_AUDIO_INI ${CMAKE_CURRENT_SOURCE_DIR}/../config/audio.ini)
+set(SP1_AUDIO_GEN ${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_audio.py)
+set(SP1_AUDIO_H   ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated/sp1_audio_gen.h)
+add_custom_command(
+	OUTPUT  ${SP1_AUDIO_H}
+	COMMAND ${Python3_EXECUTABLE} ${SP1_AUDIO_GEN} ${SP1_AUDIO_INI} ${SP1_AUDIO_H}
+	DEPENDS ${SP1_AUDIO_INI} ${SP1_AUDIO_GEN}
+	COMMENT "Generating the audio settings from config/audio.ini"
+)
+add_custom_target(sp1_audio_gen DEPENDS ${SP1_AUDIO_H})
+add_dependencies(app sp1_audio_gen)
+
 target_sources(app PRIVATE
 	src/main.c
 	src/sp1_led.c

@@ -53,6 +53,7 @@ K_MEM_SLAB_DEFINE_STATIC(tx_slab, BLK_BYTES, TX_QUEUE + 4, 4);
 
 #if defined(CONFIG_SP1_USB_AUDIO)
 #include "sp1_uac.h"        /* M5c: the same blocks, to the host */
+#include "sp1_audio_gen.h"  /* config/audio.ini: the speaker while a host takes them */
 #endif
 
 #if defined(CONFIG_SP1_MIDI)
@@ -235,6 +236,13 @@ static const int16_t TONE_AMP[SP1_LEVEL_STEPS] = {
 static const int16_t TONE_DB_X10[SP1_LEVEL_STEPS] = {
 	0, -30, -60, -90, -120, -151, -181, -211, -241, -271, -301, -9990,
 };
+/* config/audio.ini's parked_level is one of these steps, as tools/gen_audio.py knows them
+ * (0 .. -30 dB, 3 dB apart, then mute): parking USB audio out IS setting VOL (main.c). */
+BUILD_ASSERT(SP1_LEVEL_STEPS == 12, "VOL's steps changed: update VOL_STEPS in tools/gen_audio.py");
+#if defined(CONFIG_SP1_USB_AUDIO)
+BUILD_ASSERT(SP1_AUDIO_USB_PARKED_STEP >= 0 && SP1_AUDIO_USB_PARKED_STEP < SP1_LEVEL_STEPS - 1,
+	     "config/audio.ini parked_level is not one of VOL's steps");
+#endif
 
 static volatile bool tone_on;
 static volatile int  tone_step = SP1_LEVEL_DEFAULT;   /* the OUTPUT LEVEL step */
@@ -930,7 +938,8 @@ void sp1_audio_take_sections(struct sp1_audio_sections *out)
  *  Tim Knapen's sequence). DET_STATUS1 (0x1B77) bit 7 reads 1 while a plug is in.
  *  While it is, the TAS2505's class-D driver is powered down (page 1, reg 0x2D).
  *
- *  M5c (Adara, 2026-10-05): the speaker is also off while a host is TAKING USB audio out
+ *  M5c (Adara, 2026-10-05): the speaker is also off while a host is TAKING USB audio out --
+ *  unless config/audio.ini says `speaker = on` (SP1_AUDIO_USB_SPEAKER; default off)
  *  (sp1_uac_live: the stream open AND packets going out since the last poll) -- recording
  *  Wakes over USB, the speaker would only be a second, room copy. Anything short of that
  *  defaults to the speaker (Adara): a charger, a host without USB audio or that rejects
@@ -986,7 +995,7 @@ static bool speaker_driver(bool on)
 static bool speaker_wanted(void)
 {
 #if defined(CONFIG_SP1_USB_AUDIO)
-	if (sp1_uac_live()) {
+	if (!SP1_AUDIO_USB_SPEAKER && sp1_uac_live()) {
 		return false;
 	}
 #endif

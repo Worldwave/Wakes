@@ -60,6 +60,7 @@ Output: `build/zephyr/wakes-sp1.bin`. The Zephyr patch is required and is lost o
 | [`docs/DEFAULTS.md`](docs/DEFAULTS.md) | every default, and what a reset restores |
 | [`docs/MIDI.md`](docs/MIDI.md) | MIDI over USB: what it does, and how to change it |
 | [`config/midi.ini`](config/midi.ini) | the MIDI script: channel, legato, CC numbers (editable) |
+| [`config/audio.ini`](config/audio.ini) | USB audio out: its level (parked or on VOL) and the speaker while a host records (editable) |
 | [`docs/SAFETY.md`](docs/SAFETY.md) | rules for anyone changing the firmware |
 
 ## Licence

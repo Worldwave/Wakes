@@ -94,6 +94,47 @@
 #endif
 #if defined(CONFIG_SP1_USB_AUDIO)
 #include "sp1_uac.h"
+#include "sp1_audio_gen.h"      /* config/audio.ini */
+#endif
+
+/* ---- USB audio out's level (M5c; config/audio.ini [usb] level) ----
+ * `parked`: while a host takes USB audio out (sp1_uac_live), VOL is set to audio.ini's
+ * parked_level and its buttons do nothing; when the host stops, VOL goes back to where the
+ * user left it. Wakes has ONE output level for every output, so this parks the headphones
+ * (and the speaker, if it is on) too -- deliberately: a separate USB level would be a second
+ * gain pass over every block (~0.3 % of the CPU, Adara: use this avenue instead). The level
+ * slews as VOL always does, so parking does not click. `vol`: nothing here happens.
+ * Across ON sessions the state stays, so a session started while a host records is parked
+ * on its first tick. */
+static bool vol_parked;
+#if defined(CONFIG_SP1_USB_AUDIO)
+static int vol_saved;
+
+static int usb_parked_db(void)
+{
+	return SP1_AUDIO_USB_PARKED_DB;
+}
+
+static void usb_level_park(bool usb_live)
+{
+	if (!SP1_AUDIO_USB_LEVEL_PARKED) {
+		return;
+	}
+	if (usb_live && !vol_parked) {
+		vol_saved = sp1_audio_level_get();
+		sp1_audio_level_step(SP1_AUDIO_USB_PARKED_STEP - vol_saved);
+		vol_parked = true;
+		printk("LEVEL parked at %d dBFS: a host takes USB audio out, VOL locked"
+		       " (config/audio.ini)\n", (int)SP1_AUDIO_USB_PARKED_DB);
+	} else if (!usb_live && vol_parked) {
+		sp1_audio_level_step(vol_saved - sp1_audio_level_get());
+		vol_parked = false;
+		printk("LEVEL back to step %d: no host takes USB audio out, VOL unlocked\n",
+		       vol_saved);
+	}
+}
+#else
+static int usb_parked_db(void) { return 0; }
 #endif
 
 #define WDT_NODE DT_ALIAS(watchdog0)
@@ -1784,14 +1825,21 @@ int main(void)
 			/* ---- VOL-/VOL+: output level, 3 dB steps, slewed (no clicks) ----
 			 * Two steps is exactly one meter band (6.02 dB). Shifted, VOL is the
 			 * drive above instead, so this whole block stands down. */
-			if (!fnc && sp1_button_pressed(SP1_BTN_VOL_DOWN)) {
+			if (!fnc && vol_parked && (sp1_button_pressed(SP1_BTN_VOL_DOWN) ||
+						   sp1_button_pressed(SP1_BTN_VOL_UP))) {
+				/* config/audio.ini level = parked: a host is recording, so VOL stays
+				 * where audio.ini put it until the host stops (usb_level_park). */
+				printk("LEVEL locked at %d dBFS while a host takes USB audio out"
+				       " (config/audio.ini)\n", (int)usb_parked_db());
+			}
+			if (!fnc && !vol_parked && sp1_button_pressed(SP1_BTN_VOL_DOWN)) {
 				sp1_audio_level_step(+1);
 			}
-			if (!fnc && sp1_button_pressed(SP1_BTN_VOL_UP)) {
+			if (!fnc && !vol_parked && sp1_button_pressed(SP1_BTN_VOL_UP)) {
 				sp1_audio_level_step(-1);
 			}
-			if (!fnc && (sp1_button_pressed(SP1_BTN_VOL_DOWN) ||
-				     sp1_button_pressed(SP1_BTN_VOL_UP))) {
+			if (!fnc && !vol_parked && (sp1_button_pressed(SP1_BTN_VOL_DOWN) ||
+						    sp1_button_pressed(SP1_BTN_VOL_UP))) {
 				const int d = sp1_audio_level_db_x10();
 				if (d <= -9990) {
 					printk("LEVEL muted (step %d)\n",
@@ -1805,10 +1853,17 @@ int main(void)
 			}
 
 			/* ---- headphones in -> speaker off (M3) ---- */
-#if defined(CONFIG_SP1_MIDI) && defined(CONFIG_SP1_USB_AUDIO)
-			/* M5c: the delay the MIDI clock makes up for is the path the host hears --
-			 * USB audio out while a host takes it, the speaker / headphones otherwise. */
-			sp1_midi_set_output_usb(sp1_uac_live());
+#if defined(CONFIG_SP1_USB_AUDIO)
+			{
+				const bool usb_live = sp1_uac_live();
+#if defined(CONFIG_SP1_MIDI)
+				/* M5c: the delay the MIDI clock makes up for is the path the host
+				 * hears -- USB audio out while a host takes it, the speaker /
+				 * headphones otherwise. */
+				sp1_midi_set_output_usb(usb_live);
+#endif
+				usb_level_park(usb_live);
+			}
 #endif
 			switch (sp1_audio_jack_poll(dt)) {
 			case 1:
