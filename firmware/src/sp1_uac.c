@@ -433,8 +433,20 @@ bool sp1_uac_live(void)
 	 * stopped running the bus -- asleep, suspended, or stalled -- calls fill() no more,
 	 * because fill() runs at each start-of-frame. So: live while fill() ran in the last
 	 * 20 ms. No state of its own, so any thread may ask: the speaker check and the MIDI
-	 * clock's lead both do. */
-	return stream_open && (k_cycle_get_32() - last_fill) < LIVE_CYCLES;
+	 * clock's lead both do.
+	 *
+	 * ⚠️ ORDER: the packet time FIRST, then the clock. Read the other way round, a packet
+	 * the interrupt hands over between the two reads makes `last_fill` LATER than `now`, the
+	 * unsigned difference wraps to ~2^32 and a stream that never paused reads as dead for
+	 * that one call -- the speaker came back for one 40 ms poll, and VOL unparked for one
+	 * tick, a few times a minute on the OP-XY (logs/sp1-20261006-142157.log). Likelier than
+	 * it sounds: the clock read holds interrupts off, so a start-of-frame arriving during it
+	 * fires exactly in that gap. Read in this order, a packet in between can only make `t`
+	 * look older. The signed comparison is a second guard: a `t` ahead of `now` is live. */
+	const uint32_t t = last_fill;
+	const uint32_t now = k_cycle_get_32();
+
+	return stream_open && (int32_t)(now - t) < (int32_t)LIVE_CYCLES;
 }
 
 /* ---- the producer (the audio thread) ---- */
