@@ -7,7 +7,7 @@
  *
  * ---- pages and layers (F1 / F2 / F3 / F4) ----
  *   t page BASE      RATE [A]          t BIAS [D]*       JITTER [C]        DEJA VU [H]*
- *   t page SHIFT     (reserved)        gate length       gate length rand  LENGTH [I]
+ *   t page SHIFT     GTLT*             gate length       gate length rand  LENGTH [I]
  *   X page BASE      SPREAD [K]        X BIAS [L]*       STEPS [M]*        DEJA VU [H]*
  *   X page SHIFT     (reserved)        (reserved)        (reserved)        LENGTH [I]
  *   SETTINGS (Y)     Y SPREAD          Y BIAS*           Y STEPS*          Y RATE (12)
@@ -24,7 +24,9 @@
  *
  * ---- routing into Plaits (applied only while the clock runs; sp1_synth) ----
  *   t1-t3     one destination each (t page SHIFT T1-T3), the gate read as 0 / +5 V:
- *             TRIG, LEVEL, FM, TIMBRE, MORPH, HARMONICS or none
+ *             TRIG, LEVEL, FM, TIMBRE, MORPH, HARMONICS or none. GTLT (t SHIFT F1,
+ *             issue #20) scales t1's and t3's +5 V around t2 on every destination
+ *             except TRIG -- see sp1_gtlt.h
  *   X1-X3, Y  one destination each (X page SHIFT T1-T3, SETTINGS T1): FM, TIMBRE,
  *             MORPH, HARMONICS, V/Oct, LEVEL or none
  *   Scaling is Plaits' own CV calibration (plaits/settings.cc, per 5 V): V/Oct and FM
@@ -74,6 +76,7 @@ enum sp1_mui_dest {
 struct sp1_mui_routing {
 	uint8_t t_dest[3];       /* t1, t2, t3: enum sp1_mui_dest (TRIG by default)    */
 	uint8_t dest[4];         /* X1, X2, X3, Y: enum sp1_mui_dest                   */
+	float   gtlt;            /* GTLT, t SHIFT F1: -1..+1, 0 = detent (sp1_gtlt.h)   */
 };
 
 /* Once, at boot: everything to the defaults (see sp1_mui_rip). */

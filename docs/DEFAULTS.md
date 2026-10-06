@@ -133,7 +133,7 @@ A ROTC on MARBLES now leaves the drive alone, deliberately.
 | F2 | t BIAS `[D]` | 0…1, detent | centre | centre | |
 | F3 | JITTER `[C]` | 0…1 | 0 | 0 | |
 | F4 | DEJA VU `[H]` | 0…1, detent | centre = locked loop | centre | one value, shared with the X page |
-| t SHIFT F1 | (free) | — | — | — | |
+| t SHIFT F1 | GTLT (#20) | −1…+1, detent | centre = off | centre | t1 / t3 gate height; TRIG ignores it |
 | t SHIFT F2 | gate length | 0…1 | 0.5 | 0.5 | |
 | t SHIFT F3 | gate-length randomness | 0…1 | 0 | 0 | |
 | t SHIFT F4 | LENGTH `[I]` | 1…16 steps | 8 | 8 | one value, shared with the X page |

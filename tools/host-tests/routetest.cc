@@ -11,6 +11,7 @@ extern "C" {
 #include "sp1_marbles_ui.h"
 #include "sp1_plaits_ui.h"
 }
+#include "sp1_gtlt.h"
 
 // M4c: the per-channel range hook the generated x_y_generator.cc override calls. Declared
 // here for the same reason the override declares it -- C++ linkage in namespace marbles.
@@ -824,6 +825,97 @@ int main() {
           "holding FFWD changed the clock: %u beats vs %u -- that is the M4d ratchet "
           "back, and it is what made the rhythm shift", quiet_beats, burst_beats);
     sp1_synth_burst(0);
+    sp1_marbles_run(false);
+  }
+
+  // ---------- 12. GTLT, the t gate tilt (issue #20) ----------
+  printf("12. GTLT\n");
+  {
+    // (a) the curve, as published in sp1_gtlt.h and docs/UI-PAGES.md
+    CHECK(sp1_gtlt_gain(0.0f, 0) == 1.0f && sp1_gtlt_gain(0.0f, 2) == 1.0f,
+          "GTLT at its detent is not EXACTLY 1.0 -- the output would not be bit-identical");
+    for (int k = -10; k <= 10; ++k) {
+      CHECK(sp1_gtlt_gain(0.1f * k, 1) == 1.0f, "GTLT touched t2 at tilt %.1f", 0.1f * k);
+    }
+    CHECK(fabsf(sp1_gtlt_gain(SP1_GTLT_RAMP, 0) - 0.5f) < 1e-6f &&
+          fabsf(sp1_gtlt_gain(-SP1_GTLT_RAMP, 2) - 0.5f) < 1e-6f,
+          "both gates should be at 50 %% at the end of the ramp");
+    CHECK(sp1_gtlt_gain(1.0f, 0) == 0.0f && sp1_gtlt_gain(1.0f, 2) == 1.0f,
+          "tilt +1 should be t1 0 %%, t3 100 %%");
+    CHECK(sp1_gtlt_gain(-1.0f, 0) == 1.0f && sp1_gtlt_gain(-1.0f, 2) == 0.0f,
+          "tilt -1 should be t1 100 %%, t3 0 %%");
+    // continuous: no step anywhere along the travel bigger than the ramp's own slope
+    float worst = 0.0f;
+    for (int t = 0; t < 3; t += 2) {
+      float prev = sp1_gtlt_gain(-1.0f, t);
+      for (int k = -2000; k <= 2000; ++k) {
+        const float g = sp1_gtlt_gain(k / 2000.0f, t);
+        worst = fmaxf(worst, fabsf(g - prev));
+        prev = g;
+      }
+    }
+    printf("   largest step over 4001 points of travel: %.4f\n", worst);
+    CHECK(worst <= 0.5f / (SP1_GTLT_RAMP * 2000.0f) + 1e-4f, "the curve steps: %.4f", worst);
+
+    // (b) LEVEL sees the gain: t1 -> LEVEL is silenced at tilt +1, t3 -> LEVEL is not.
+    //     Shortest decay, so the LPG tail of an earlier open gate cannot ring into the
+    //     next measurement (at base_params' 0.8 it lasts seconds).
+    sp1_marbles_init();
+    sp1_marbles_seed(12345u);
+    sp1_marbles_set_params(&mp);
+    sp1_marbles_run(true);
+    sp1_synth_params p;
+    base_params(&p);
+    p.decay = 0.0f;
+    p.mrb_t_dest[0] = SP1_DEST_LEVEL;
+    p.mrb_gtlt = 1.0f;
+    sp1_synth_set_params(&p);
+    render_rms(40);                      // earlier sections' tails
+    const double t1_off = render_rms(60);
+    p.mrb_gtlt = -1.0f;
+    sp1_synth_set_params(&p);
+    const double t1_full = render_rms(60);
+    base_params(&p);
+    p.decay = 0.0f;
+    p.mrb_t_dest[2] = SP1_DEST_LEVEL;
+    p.mrb_gtlt = 1.0f;
+    sp1_synth_set_params(&p);
+    const double t3_full = render_rms(60);
+    printf("   t1 -> LEVEL: rms %.1f at tilt -1, %.1f at +1; t3 -> LEVEL at +1: %.1f\n",
+           t1_full, t1_off, t3_full);
+    CHECK(t1_full > 100.0 && t3_full > 100.0, "a full-height gate did not open LEVEL");
+    // Relative, not zero: with LEVEL patched at 0 V Plaits' LPG still leaks a few LSB
+    // (~-65 dB here). A gate getting through would be within a few dB of t1_full.
+    CHECK(t1_off < t1_full / 1000.0, "t1 at 0 %% still opened LEVEL: rms %.1f vs %.1f",
+          t1_off, t1_full);
+
+    // (c) TRIG IGNORES GTLT (Adara): the same seeded sequence fires exactly the same
+    //     TRIGs with GTLT off and at the extreme that takes t1 to 0 %.
+    uint32_t edges[2];
+    const float tilt[2] = { 0.0f, 1.0f };
+    for (int i = 0; i < 2; ++i) {
+      // The same starting state both times: stopped, nothing routed, the previous
+      // block's gates and TRIG level cleared.
+      sp1_marbles_run(false);
+      base_params(&p);
+      sp1_synth_set_params(&p);
+      render_rms(10);
+      sp1_marbles_init();
+      sp1_marbles_seed(12345u);
+      sp1_marbles_set_params(&mp);
+      sp1_marbles_run(true);
+      base_params(&p);
+      p.mrb_t_dest[0] = SP1_DEST_TRIG;
+      p.mrb_gtlt = tilt[i];
+      sp1_synth_set_params(&p);
+      const uint32_t e0 = sp1_synth_trig_edges();
+      render_rms(200);
+      edges[i] = sp1_synth_trig_edges() - e0;
+    }
+    printf("   t1 -> TRIG over 1 s: %u edges with GTLT off, %u at +1 (t1 at 0 %%)\n",
+           edges[0], edges[1]);
+    CHECK(edges[0] > 0u && edges[0] == edges[1], "GTLT changed TRIG: %u vs %u edges",
+          edges[0], edges[1]);
     sp1_marbles_run(false);
   }
 

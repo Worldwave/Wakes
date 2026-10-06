@@ -54,6 +54,7 @@ DESTS = [
     ('marbles', 't_bias',                't BIAS',                 'main',  'MARBLES t F2'),
     ('marbles', 'jitter',                'JITTER',                 'main',  'MARBLES t F3'),
     ('marbles', 'deja_vu',               'DEJA VU',                'main',  'MARBLES t/X F4'),
+    ('marbles', 'gtlt',                  'GTLT (t gate tilt)',     'main',  'MARBLES t SHIFT F1'),
     ('marbles', 'gate_length',           'gate length',            'main',  'MARBLES t SHIFT F2'),
     ('marbles', 'gate_length_random',    'gate length randomness', 'main',  'MARBLES t SHIFT F3'),
     ('marbles', 'length',                'LENGTH',                 'step',  'MARBLES t SHIFT F4'),
@@ -85,7 +86,7 @@ POLARITY = {
     'fm_attenuverter': 'bi', 'timbre_attenuverter': 'bi', 'morph_attenuverter': 'bi',
     'harmonics_attenuverter': 'bi', 'lpg_colour': 'uni', 'lpg_decay': 'uni', 'level': 'uni',
     'octave_range': 'uni', 'model': 'uni',
-    'rate': 'bi', 't_bias': 'bi', 'jitter': 'uni', 'deja_vu': 'bi', 'gate_length': 'uni',
+    'rate': 'bi', 't_bias': 'bi', 'jitter': 'uni', 'deja_vu': 'bi', 'gtlt': 'bi', 'gate_length': 'uni',
     'gate_length_random': 'uni', 'length': 'uni', 'spread': 'uni', 'x_bias': 'bi',
     'steps': 'bi', 'y_spread': 'uni', 'y_bias': 'bi', 'y_steps': 'bi', 'y_divider': 'uni',
 }

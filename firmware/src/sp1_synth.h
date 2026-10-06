@@ -85,6 +85,10 @@ struct sp1_synth_params {
 	 * (sp1_marbles_running); stopped, every one of these inputs is unpatched. */
 	uint8_t mrb_t_dest[3];         /* t1, t2, t3: enum sp1_mui_dest values         */
 	uint8_t mrb_dest[4];           /* X1, X2, X3, Y: enum sp1_mui_dest values      */
+	/* GTLT (issue #20, sp1_gtlt.h): -1..+1, 0 = centre = disengaged, so a zeroed
+	 * params struct keeps every gate at full height. Scales t1 / t3 on CV
+	 * destinations only; TRIG ignores it. */
+	float   mrb_gtlt;
 	/* ---- hold the note between TRIGs (M4e, Adara) ----
 	 * Set while a FREQUENCY scale is selected. `note` above is already quantized by
 	 * sp1_pui_params in the main thread; this asks the AUDIO thread to LATCH it at each

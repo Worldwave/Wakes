@@ -56,7 +56,7 @@ Each CC reads the way its parameter works -- the same rule Marbles' INTELLIGENT 
 uses for its outputs:
 
 - **centred** parameters, whose middle is "nothing happening" (FREQUENCY, the attenuverters,
-  RATE, BIAS, DEJA VU, STEPS): **64 = no change**, 0 and 127 = half a fader's travel down and
+  RATE, BIAS, DEJA VU, GTLT, STEPS): **64 = no change**, 0 and 127 = half a fader's travel down and
   up -- so with the fader on its centre, the CC sweeps the whole range, end to end.
 - **one-sided** parameters (LPG colour and decay, LEVEL, JITTER, gate length, SPREAD, and the
   stepped ones): **0 = no change**, 127 = a whole travel up -- so with the fader at 0, the CC
@@ -173,6 +173,7 @@ half still works.
 | 16 | 48 | t BIAS |
 | 85 | | JITTER |
 | 31 | 63 | DEJA VU |
+| 89 | | GTLT, the t gate tilt (MARBLES t SHIFT F1) |
 | 17 | 49 | gate length |
 | 86 | | gate length randomness |
 | 103 | | LENGTH |

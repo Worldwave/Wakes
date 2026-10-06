@@ -9,6 +9,7 @@
 #include "sp1_synth.h"
 #include "sp1_marbles.h"
 #include "sp1_marbles_ui.h"
+#include "sp1_gtlt.h"
 #if defined(CONFIG_SP1_MIDI)
 #include "sp1_midi.h"
 #endif
@@ -309,13 +310,19 @@ inline void StageBlockAny(bool limit, bool drive, const float* in, int16_t* out,
 // list keeps the old summation order (t1..t3, then X1..X3, Y) and the same products, so
 // the sums are bit-identical to the per-block switches this replaces; the cost grows
 // with the number of routed outputs (a patch setting), never with modulation.
+//
+// GTLT (issue #20) is a gain on t1's and t3's scale, taken here, so it costs nothing per
+// sample. At its detent the gain is exactly 1.0f and the products are unchanged.
+// ⚠️ TRIG ignores it by design (Adara): TRIG reads the raw gate bits through trig_mask,
+// and AddRoute never sees a TRIG route.
 enum RouteDest { kRouteNote, kRouteFm, kRouteTimbre, kRouteMorph, kRouteHarm,
                  kRouteLevel, kRouteCount };
 
 struct Route {
   uint8_t source;       // 0..2 = t1..t3 (a gate, 0 or +5 V), 3..6 = X1..X3, Y
   uint8_t dest;         // RouteDest
-  float scale;          // per volt, as Plaits' own CV calibration (see kVoltPerOct)
+  float scale;          // per volt, as Plaits' own CV calibration (see kVoltPerOct),
+                        // x GTLT's gain on t1 / t3
 };
 
 struct Routing {
@@ -324,7 +331,11 @@ struct Routing {
   bool fm_patched, timbre_patched, morph_patched, harm_patched, level_routed;
 };
 
-void AddRoute(Routing* r, int source, int dest) {
+// `tilt` is GTLT for t1..t3 and 0 for X / Y (gain exactly 1). The gain is worked out
+// in here, not in the caller: noinline, because this runs a few times per DMA block and
+// GTLT's extra code, inlined, grew sp1_synth_render by ~1 KB and reshuffled its
+// per-Plaits-block loop. Out of line, the render only passes one more float (issue #20).
+__attribute__((noinline)) void AddRoute(Routing* r, int source, int dest, float tilt) {
   float scale;
   RouteDest d;
   switch (dest) {
@@ -338,7 +349,7 @@ void AddRoute(Routing* r, int source, int dest) {
   }
   r->route[r->count].source = static_cast<uint8_t>(source);
   r->route[r->count].dest = static_cast<uint8_t>(d);
-  r->route[r->count].scale = scale;
+  r->route[r->count].scale = scale * sp1_gtlt_gain(tilt, source);
   ++r->count;
 }
 
@@ -347,11 +358,11 @@ Routing ResolveRouting(const sp1_synth_params& c) {
   for (int t = 0; t < 3; ++t) {
     // A t output is a gate: V/Oct is not one of its destinations (as before).
     if (c.mrb_t_dest[t] != SP1_DEST_VOCT) {
-      AddRoute(&r, t, c.mrb_t_dest[t]);
+      AddRoute(&r, t, c.mrb_t_dest[t], c.mrb_gtlt);
     }
   }
   for (int k = 0; k < 4; ++k) {
-    AddRoute(&r, 3 + k, c.mrb_dest[k]);
+    AddRoute(&r, 3 + k, c.mrb_dest[k], 0.0f);
   }
   return r;
 }

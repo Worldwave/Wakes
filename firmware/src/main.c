@@ -1767,6 +1767,7 @@ int main(void)
 				for (int k = 0; k < 4; k++) {
 					sp.mrb_dest[k] = rt.dest[k];
 				}
+				sp.mrb_gtlt = rt.gtlt;
 				sp1_synth_set_params(&sp);
 
 				struct sp1_marbles_params mp;

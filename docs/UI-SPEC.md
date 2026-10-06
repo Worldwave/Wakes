@@ -1,9 +1,17 @@
-# wakes-sp1 — UI specification v0.16
+# wakes-sp1 — UI specification v0.17
 
 > **For the flat control map — every control on every page, with nothing else in the way —
 > read `docs/UI-PAGES.md`.** This file is the design record: why each decision went the way it
 > did, what was rejected, and what is still open. `docs/MARBLES-SETTINGS.md` is the same split
 > for Marbles' models, ranges and scales.
+
+v0.17 — 2026-10-06: **GTLT, the t gate tilt, on MARBLES t SHIFT F1** (#20, Adara). Wakes' own
+parameter: bipolar with a 10 % centre detent, where it does nothing. Just past the detent t1's and
+t3's gates drop steeply to half height; towards + t1 falls to 0 and t3 returns to full, towards −
+the reverse. t2 is never touched. A gate stays 0 V / +5 V — +5 V is the positive maximum of every
+destination a t output can reach — and GTLT scales the +5 V; the attenuverters and fader / CC
+positions do the rest. **TRIG ignores GTLT**, so rhythm stays predictable. Unsmoothed. MIDI: CC 89,
+7-bit, centred. Costs nothing per sample: the gain is folded into the routing once per audio block.
 
 v0.16 — 2026-10-06: **OCTV loses Plaits' LFO range** (#18, Adara). The bottom 1/11 of SETTINGS F1
 is now the **full range with no centre detent**: F1 sweeps through C4 without the flat spot and can
@@ -326,7 +334,7 @@ on arriving from PLAITS.
 |---|---|---|
 | T1 / T2 / T3 | **t1 / t2 / t3 destination**: none `○○○○` → TRIG `○●●●` → LEVEL `○○●●` → FM `●○○○` → TIMBRE `○●○○` → MORPH `○○●○` → HARMONICS `○○○●`. v0.11: the same glyphs as the X side (Adara) — the counting bar v0.10 used on t is gone, and TRIG deliberately shares `○●●●` with the X page's V/Oct | X1 / X2 / X3 destination: FM `●○○○` → TIMBRE `○●○○` → MORPH `○○●○` → HARMONICS `○○○●` → V/Oct `○●●●` → LEVEL `○○●●` (v0.10) → none `○○○○`. One LED under the Plaits fader of that parameter |
 | T4 | **Y destination** (v0.14) · held 2 s: **UNPATCH Y** | **Y destination** (v0.14) · held 2 s: **UNPATCH Y**. [J] moved to SETTINGS T4 and now covers X **and** Y |
-| F1 | reserved | **free** (v0.10) — was SCALE, now `••` + FFWD / RWD |
+| F1 | **GTLT** (v0.17, #20): tilts t1's and t3's gate height around t2; 10 % centre detent = off; not on TRIG | **free** (v0.10) — was SCALE, now `••` + FFWD / RWD |
 | F2 | gate length (Marbles' [E]-hold) | **free** (v0.10) — was X CLOCK; X keeps Marbles' own clocking and there is no control for it |
 | F3 | gate-length randomness | reserved |
 | F4 | LENGTH [I] (5 … 16 steps) | LENGTH [I] — the same value |

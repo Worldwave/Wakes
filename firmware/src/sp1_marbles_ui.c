@@ -139,7 +139,7 @@ static enum sp1_mui_layer canon(enum sp1_mui_layer l, int i)
 static const int8_t midi_dest[SP1_MUI_LAYERS][4] = {
 	[SP1_MUI_T_BASE]  = { SP1_MIDI_D_RATE, SP1_MIDI_D_T_BIAS, SP1_MIDI_D_JITTER,
 			      SP1_MIDI_D_DEJA_VU },
-	[SP1_MUI_T_SHIFT] = { -1, SP1_MIDI_D_GATE_LENGTH, SP1_MIDI_D_GATE_LENGTH_RANDOM,
+	[SP1_MUI_T_SHIFT] = { SP1_MIDI_D_GTLT, SP1_MIDI_D_GATE_LENGTH, SP1_MIDI_D_GATE_LENGTH_RANDOM,
 			      SP1_MIDI_D_LENGTH },
 	[SP1_MUI_X_BASE]  = { SP1_MIDI_D_SPREAD, SP1_MIDI_D_X_BIAS, SP1_MIDI_D_STEPS, -1 },
 	[SP1_MUI_X_SHIFT] = { -1, -1, -1, -1 },
@@ -208,6 +208,7 @@ static bool is_bipolar(enum sp1_mui_layer l, int i)
 {
 	switch (l) {
 	case SP1_MUI_T_BASE: return i == 1 || i == 3;
+	case SP1_MUI_T_SHIFT: return i == 0;             /* GTLT (issue #20) */
 	case SP1_MUI_X_BASE: return i >= 1;
 	case SP1_MUI_Y:      return i == 1 || i == 2;
 	default:             return false;
@@ -215,10 +216,11 @@ static bool is_bipolar(enum sp1_mui_layer l, int i)
 }
 
 /* Faders with nothing bound to them. They read dark and are ignored. X SHIFT F1 (was
- * SCALE) and F2 (was X CLOCK) joined the list in M4a -- see the header. */
+ * SCALE) and F2 (was X CLOCK) joined the list in M4a -- see the header. t SHIFT F1 left
+ * it when it became GTLT (issue #20). */
 static bool is_reserved(enum sp1_mui_layer l, int i)
 {
-	return (l == SP1_MUI_T_SHIFT && i == 0) || (l == SP1_MUI_X_SHIFT && i <= 2);
+	return l == SP1_MUI_X_SHIFT && i <= 2;
 }
 
 static enum sp1_mui_layer base_of(enum sp1_mui_page p)
@@ -238,7 +240,7 @@ static void activate(enum sp1_mui_layer l)
 
 static void defaults_pages(void)
 {
-	stored[SP1_MUI_T_SHIFT][0] = 0.0f;
+	stored[SP1_MUI_T_SHIFT][0] = 0.5f;       /* GTLT on its detent: disengaged  */
 	stored[SP1_MUI_T_SHIFT][1] = 0.5f;       /* gate length 128/256 (Marbles)   */
 	stored[SP1_MUI_T_SHIFT][2] = 0.0f;       /* no randomness                   */
 	stored[SP1_MUI_T_SHIFT][3] = DEF_LENGTH;
@@ -681,6 +683,11 @@ void sp1_mui_params(struct sp1_marbles_params *p)
 void sp1_mui_routing(struct sp1_mui_routing *out)
 {
 	*out = route;
+	/* GTLT (issue #20): -1..+1 past the 10 % detent, exactly 0 inside it. The curve and
+	 * the TRIG exemption are in sp1_gtlt.h / sp1_synth.cc. Its CC is centred, like t
+	 * BIAS: in `sum` it offsets the post-detent value, so a CC alone can engage it. */
+	out->gtlt = 2.0f * (clamp01(detent(stored[SP1_MUI_T_SHIFT][0], DETENT_BIPOLAR) +
+				    mo(SP1_MIDI_D_GTLT)) - 0.5f);
 }
 
 float sp1_mui_bpm(void)

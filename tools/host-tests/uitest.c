@@ -843,6 +843,53 @@ int main(void)
 		      "MARBLES page view differs from the ordinary view off SHIFT");
 	}
 
+	/* ---------- 18. GTLT on t SHIFT F1 (issue #20) ---------- */
+	printf("18. GTLT\n");
+	{
+		uint16_t f[4];
+		sp1_mui_init();
+		sp1_mui_routing(&r);
+		CHECK(r.gtlt == 0.0f, "GTLT does not boot disengaged: %.3f", r.gtlt);
+
+		/* "••" held on the t page = t SHIFT; F1 at mid is inside the detent */
+		sp1_mui_enter(raw_mid, true);
+		for (int i = 0; i < 100; i++) {
+			sp1_mui_tick(8u, raw_mid, true, true, false);
+		}
+		sp1_mui_routing(&r);
+		CHECK(r.gtlt == 0.0f, "F1 at mid is not on the detent: %.3f", r.gtlt);
+
+		memcpy(f, raw_mid, sizeof(f));
+		f[0] = 3701;                          /* F1 to the top */
+		for (int i = 0; i < 400; i++) {
+			sp1_mui_tick(8u, f, true, true, false);
+		}
+		sp1_mui_routing(&r);
+		sp1_mui_leds(lv);
+		printf("   F1 top: gtlt %+.3f, track row %s\n", r.gtlt, glyph(lv));
+		CHECK(r.gtlt > 0.99f, "F1 at the top should be tilt +1, got %.3f", r.gtlt);
+		CHECK(lv[0] >= 200u, "GTLT is not shown on T1 (still reserved?)");
+
+		f[0] = 0;                             /* and to the bottom */
+		for (int i = 0; i < 400; i++) {
+			sp1_mui_tick(8u, f, true, true, false);
+		}
+		sp1_mui_routing(&r);
+		CHECK(r.gtlt < -0.99f, "F1 at the bottom should be tilt -1, got %.3f", r.gtlt);
+
+		/* the X page's SHIFT F1 is still unbound: GTLT must not move from there */
+		sp1_mui_set_page(SP1_MUI_PAGE_X);
+		for (int i = 0; i < 400; i++) {
+			sp1_mui_tick(8u, raw_top, true, true, false);
+		}
+		sp1_mui_routing(&r);
+		CHECK(r.gtlt < -0.99f, "X SHIFT F1 moved GTLT: %.3f", r.gtlt);
+
+		sp1_mui_rip();
+		sp1_mui_routing(&r);
+		CHECK(r.gtlt == 0.0f, "a rip did not return GTLT to its detent: %.3f", r.gtlt);
+	}
+
 	printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "all checks passed",
 	       fails, fails == 1 ? "" : "s");
 	return fails != 0;

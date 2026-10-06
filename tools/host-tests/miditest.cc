@@ -641,6 +641,36 @@ int main() {
   cc(27, 64); cc(103, 0);
   render_rms(1);
 
+  // ---- §16 GTLT (issue #20): CC 89, centred, 7-bit ----
+  printf("§16 GTLT on CC 89 (centred, 7-bit)\n");
+  {
+    struct sp1_mui_routing rt;
+    const auto settle = [&rt]() {
+      render_rms(1);
+      for (int i = 0; i < 50; ++i) sp1_midi_main_tick(8);
+      sp1_mui_routing(&rt);
+    };
+    sp1_mui_routing(&rt);
+    CHECK(rt.gtlt == 0.0f, "GTLT should start on its detent, got %.3f", rt.gtlt);
+    cc(89, 127);                               // from the detent: the + end
+    settle();
+    CHECK(rt.gtlt > 0.98f, "GTLT CC 127 from centre -> +1, got %.3f", rt.gtlt);
+    cc(89, 0);
+    settle();
+    CHECK(rt.gtlt < -0.99f, "GTLT CC 0 from centre -> -1, got %.3f", rt.gtlt);
+    cc(89, 80);
+    settle();
+    const float at80 = rt.gtlt;
+    // CC 12 and its fine half CC 44 -- GTLT's first assignment -- are free again
+    cc(12, 127); cc(44, 64);
+    settle();
+    CHECK(rt.gtlt == at80, "CC 12 / 44 still move GTLT: %.5f vs %.5f", rt.gtlt, at80);
+    printf("   CC 89 = 80: %+.5f, unmoved by CC 12 / 44\n", at80);
+    cc(12, 0); cc(44, 0); cc(89, 64);
+    settle();
+    CHECK(rt.gtlt == 0.0f, "GTLT CC 64 should be back on the detent, got %.4f", rt.gtlt);
+  }
+
   printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "all checks passed", fails,
          fails == 1 ? "" : "s");
   return fails ? 1 : 0;
