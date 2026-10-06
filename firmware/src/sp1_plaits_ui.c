@@ -394,11 +394,19 @@ void sp1_pui_params(struct sp1_synth_params *p)
 	const bool quantize = scale >= 0 && !sp1_midi_active();
 
 	/* ---- FREQUENCY: Plaits' range modes, plaits/ui.cc ----
-	 *  0      LFO range           -48.37 + 60t          (no detent: centre arbitrary)
+	 *  0      full range, free    60 + 48t              (NO detent -- Wakes, issue #18)
 	 *  1..8   one octave, +-7 st  12*oct + 7t           (detent: the octave's C)
 	 *  9      quantized octaves   53 + 14*fine + 12(q-4) (F1 is a switch: no detent)
 	 *  10     full range (dflt)   60 + 48t              (detent: C4 = MIDI 60)
 	 * where t = 2*F1 - 1.
+	 *
+	 * ⚠️ Mode 0 is NOT Plaits' mode 0 (the LFO range, -48.37 + 60t). Adara removed it in
+	 * issue #18: at the bottom of OCTV it was easy to land in by accident and left the
+	 * voice at sub-audio rates. In its place is mode 10 with the centre detent off, so F1
+	 * sweeps through C4 without the detent's flat spot and can be set finely around it.
+	 * The scale quantizer treats it exactly like mode 10. Routing Marbles to V/Oct still
+	 * opens the range to mode 10, detent included (main.c, voct_took_over) -- Adara: one
+	 * consistent result, rather than a range that depends on where OCTV happened to be.
 	 *
 	 * ⚠️ FINE TUNE was removed in M4a (Adara), so `fine` is fixed at its centre. That
 	 * costs nothing musically: mode 9 is the mode that QUANTIZES F1 to whole octaves,
@@ -414,12 +422,9 @@ void sp1_pui_params(struct sp1_synth_params *p)
 	 * audio thread adds it, smoothed, at freq_per_travel semitones per unit of travel. */
 	const float f1 = (oct == 9)
 		? clamp01(b[0] + sp1_midi_offset(SP1_MIDI_D_FREQUENCY)) : b[0];
-	p->freq_per_travel = oct == 0 ? 120.0f : (oct == 9 ? 0.0f : (oct == 10 ? 96.0f : 14.0f));
+	p->freq_per_travel = oct == 9 ? 0.0f : ((oct == 0 || oct == 10) ? 96.0f : 14.0f);
 	float note;
-	if (oct == 0) {
-		/* LFO range: never quantized. Its "notes" are rates (Adara). */
-		note = -48.37f + (2.0f * b[0] - 1.0f) * 60.0f;
-	} else if (oct == 9 && n_deg > 0) {
+	if (oct == 9 && n_deg > 0) {
 		/* ---- mode 9 with a scale: sweep SCALE DEGREES across the nine octaves ----
 		 * Upstream mode 9 quantizes F1 to whole octaves. With a scale selected that
 		 * would be a no-op (an octave is degree 0 of every scale), so the mode
@@ -442,11 +447,13 @@ void sp1_pui_params(struct sp1_synth_params *p)
 		oct_q = q;
 		note = 53.0f + 0.5f * 14.0f + 12.0f * (float)(q - 4);   /* fine at centre */
 	} else {
-		const float t = 2.0f * detent(b[0], sp1_midi_active() ? DETENT_FREQ_MIDI
-								      : DETENT_FREQ) - 1.0f;
-		note = (oct == 10) ? 60.0f + t * 48.0f : t * 7.0f + (float)oct * 12.0f;
+		const float t = (oct == 0)
+			? 2.0f * clamp01(b[0]) - 1.0f
+			: 2.0f * detent(b[0], sp1_midi_active() ? DETENT_FREQ_MIDI
+							       : DETENT_FREQ) - 1.0f;
+		note = (oct == 0 || oct == 10) ? 60.0f + t * 48.0f : t * 7.0f + (float)oct * 12.0f;
 		if (n_deg > 0) {
-			/* Modes 1-8 and 10: the range decides the SPAN, the scale decides
+			/* Modes 0-8 and 10: the range decides the SPAN, the scale decides
 			 * which notes inside it exist. They compose (Adara). */
 			note = sp1_marbles_plaits_quantize(note);
 		}

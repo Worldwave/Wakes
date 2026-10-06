@@ -512,15 +512,17 @@ int main() {
   printf("§14 OCTAVE range, MODEL, LEVEL, FREQUENCY detent\n");
   sp1_pui_params(&sp);
   CHECK(sp1_pui_octave_mode() == 10 && sp.freq_per_travel == 96.0f, "full range: 96 st/travel");
-  // OCTAVE range is one-sided: from the fader's mode, up only. Put the fader at LFO first.
+  // OCTAVE range is one-sided: from the fader's mode, up only. Put the fader at the bottom
+  // first -- the full range without the detent since issue #18 (was Plaits' LFO range).
   {
     const float sh[4] = { 0.5f, 0.5f, 0.5f, 0.5f };
     const float st[4] = { 0.0f, 0.0f, 0.5f, 0.0f };
     sp1_pui_load_mods(sh, st);
   }
-  CHECK(sp1_pui_octave_mode() == 0, "fader at LFO mode, got %d", sp1_pui_octave_mode());
+  CHECK(sp1_pui_octave_mode() == 0, "fader at the bottom mode, got %d", sp1_pui_octave_mode());
   sp1_pui_params(&sp);
-  CHECK(sp.freq_per_travel == 120.0f, "LFO: 120 st/travel");
+  CHECK(sp.freq_per_travel == 96.0f, "bottom mode is the full range: 96 st/travel, got %.1f",
+        sp.freq_per_travel);
   cc(102, 127);                                // a whole travel up
   render_rms(1);
   CHECK(sp1_pui_octave_mode() == 10, "OCTAVE CC 127 -> full range, got %d",
@@ -587,6 +589,17 @@ int main() {
     sp1_pui_params(&sp);
     CHECK(sp.note == 60.0f, "MIDI active: F1 4 %% off centre is inside the 10 %% detent -> C4, "
           "got %.3f", sp.note);
+    // ...except at the bottom of OCTV (issue #18): the full range with NO detent, MIDI or not.
+    {
+      const float sh[4] = { 0.5f, 0.5f, 0.5f, 0.5f };
+      const float st[4] = { 0.0f, 0.0f, 0.5f, 0.0f };
+      sp1_pui_load_mods(sh, st);
+    }
+    sp1_pui_params(&sp);
+    CHECK(sp1_pui_octave_mode() == 0 && sp.note > 63.0f && sp.note < 64.5f,
+          "OCTV bottom: no detent even with MIDI, F1 4 %% above centre ~ 63.8, got %.3f",
+          sp.note);
+    sp1_pui_default_mods();
     sp1_midi_port(false);
     render_rms(800);                           // 4 s: the release ends, MIDI goes neutral
     sp1_pui_params(&sp);

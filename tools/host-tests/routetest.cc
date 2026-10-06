@@ -337,6 +337,39 @@ int main() {
             "mode 9 with a 7-note scale should give ~63 steps, got %d", distinct);
       CHECK(hi - lo > 90.0f, "mode 9 should still span nine octaves, got %.1f", hi - lo);
     }
+
+    // ---- OCTV's bottom position (issue #18): the full range, NO detent, still quantized ----
+    // F1 2 % above centre is inside mode 10's 5 % detent (C4) but not in mode 0, where it is
+    // 60 + 0.04 * 48 = 61.9 before the quantizer -- which must still apply (major: D4).
+    {
+      const float sh[4] = { 0.5f, 0.5f, 0.5f, 0.5f };
+      const float st[4] = { 0.0f, 0.0f, 0.5f, 0.0f };
+      sp1_pui_load_mods(sh, st);
+    }
+    CHECK(sp1_pui_octave_mode() == 0, "could not reach OCTV's bottom (got %d)",
+          sp1_pui_octave_mode());
+    {
+      const int k1 = static_cast<int>(0.52f * 3701.0f + 0.5f);
+      for (int k = 1850; k <= k1; ++k) {          // pickup follows movement: ramp to it
+        memcpy(f, mid, sizeof(f));
+        f[0] = static_cast<uint16_t>(k);
+        sp1_pui_tick(8u, f, true, false, false);
+      }
+      for (int t = 0; t < 50; ++t) { sp1_pui_tick(8u, f, true, false, false); }
+      sp1_synth_params p0, p10;
+      sp1_pui_params(&p0);
+      sp1_pui_set_octave_max();                   // the same F1 in mode 10
+      sp1_pui_params(&p10);
+      printf("   OCTV bottom + major, F1 +2 %%: note %.2f (mode 10: %.2f)\n", p0.note, p10.note);
+      CHECK(p10.note == 60.0f, "mode 10: F1 2 %% off centre should be in the detent, got %.3f",
+            p10.note);
+      CHECK(p0.note > 60.5f, "OCTV bottom: F1 2 %% off centre should NOT be detented, got %.3f",
+            p0.note);
+      const float pc = fmodf(p0.note, 12.0f);
+      CHECK(fabsf(p0.note - lrintf(p0.note)) < 0.05f &&
+            (lrintf(pc) == 2 || lrintf(pc) == 4),
+            "OCTV bottom: the scale should still quantize (major D/E), got %.3f", p0.note);
+    }
     sp1_pui_set_scale(SP1_PUI_SCALE_OFF);
   }
 

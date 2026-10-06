@@ -78,7 +78,7 @@ Never seeded from the faders, at boot or ever. Gain 0 means nothing modulates un
 
 | | parameter | range | boot | ROTC | notes |
 |---|---|---|---|---|---|
-| F1 | OCTAVE / FREQUENCY range | 11 modes | 10 = full range (Plaits default) | 10 | forced to 10 when something is routed to V/Oct |
+| F1 | OCTAVE / FREQUENCY range | 11 modes (0 = full range, no detent; #18) | 10 = full range (Plaits default) | 10 | forced to 10 when something is routed to V/Oct, including from 0 |
 | F2 | LPG colour | 0…1 | 0 | 0 | |
 | F3 | LPG decay | 0…1 | 0.5 (Plaits default) | 0.5 | |
 | F4 | LEVEL | off, or 0…1 | unpatched (< 5 %) | unpatched (set fader to 0) | off ≠ 0: off means TRIG plucks, on means the VCA is held open |

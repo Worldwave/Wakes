@@ -41,7 +41,8 @@
  * A band around the fader's centre that reads as exactly the centre value, with the
  * rest of the travel stretched so both ends are still reached. Widths:
  *   - 10 % of travel for every bipolar parameter;
- *   - 5 % for FREQUENCY, in the range modes where its centre means something.
+ *   - 5 % for FREQUENCY, in the range modes where its centre means something -- and none
+ *     at the bottom of OCTV, which is the full range with the detent off (issue #18).
  * WHICH base-layer parameters are bipolar depends on the engine: the detent table in
  * tools/gen_engines.py, derived from the Plaits manual and each engine's source (the
  * reasons are in docs/PLAITS-ENGINES.md).
@@ -119,7 +120,9 @@ void sp1_pui_page_leds(uint8_t out[4]);
 enum sp1_pui_layer sp1_pui_active(void);
 enum sp1_pui_layer sp1_pui_page(void);         /* BASE or SETTINGS */
 const char *sp1_pui_layer_name(enum sp1_pui_layer l);
-int  sp1_pui_octave_mode(void);                /* 0..10, Plaits' range setting */
+/* 0..10, Plaits' range setting -- except 0, which on Wakes is the full range with no
+ * centre detent instead of Plaits' LFO range (issue #18). */
+int  sp1_pui_octave_mode(void);
 
 /* ---- FREQUENCY scale quantization (M4b, Adara): SETTINGS T2 / T3 ----
  * Restricts the notes F1 can select to one of the scales Marbles' X quantizer offers
@@ -127,11 +130,11 @@ int  sp1_pui_octave_mode(void);                /* 0..10, Plaits' range setting *
  * Quantization happens in sp1_pui_params, in the MAIN thread, on the note F1 has already
  * produced -- so it composes with whatever OCTAVE range is set rather than replacing it.
  *
- * ⚠️ Two special cases, both deliberate:
- *   - OCTAVE range mode 9 (Plaits' "quantized octaves") becomes a sweep of SCALE DEGREES
- *     across its nine octaves rather than of octaves alone. That is the mode's whole
- *     point once a scale exists.
- *   - mode 0 (LFO) is never quantized. Its "notes" are rates.
+ * ⚠️ One special case, deliberate: OCTAVE range mode 9 (Plaits' "quantized octaves")
+ * becomes a sweep of SCALE DEGREES across its nine octaves rather than of octaves alone.
+ * That is the mode's whole point once a scale exists. (Mode 0 was the LFO range, never
+ * quantized; since issue #18 it is the full range without the detent, quantized like
+ * mode 10.)
  *
  * ⚠️ Mutually exclusive with a Marbles output routed to V/Oct, in BOTH directions
  * (main.c): selecting a scale unpatches every V/Oct route, and routing to V/Oct turns the

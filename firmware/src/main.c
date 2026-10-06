@@ -676,7 +676,10 @@ static void plaits_buttons(bool fnc, bool running, uint32_t dt)
  * Plaits' FREQUENCY range fully and turns its quantizer OFF, so that output predictably
  * controls the pitch. Note the asymmetry Adara called out -- LOCKING the octave range does
  * NOT unpatch anything, because a locked range and an external pitch source are a
- * perfectly sensible combination; a QUANTIZER and one are not. */
+ * perfectly sensible combination; a QUANTIZER and one are not.
+ * ⚠️ "Opens fully" means mode 10, WITH its centre detent, even from OCTV's bottom position
+ * (full range, detent off -- issue #18). Adara: always the same result, so nobody is left
+ * without the detent by a routing change and has to go into SETTINGS to get it back. */
 static void voct_took_over(uint8_t dest)
 {
 	if (dest != SP1_DEST_VOCT) {

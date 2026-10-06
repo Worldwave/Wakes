@@ -1,9 +1,14 @@
-# wakes-sp1 — UI specification v0.15
+# wakes-sp1 — UI specification v0.16
 
 > **For the flat control map — every control on every page, with nothing else in the way —
 > read `docs/UI-PAGES.md`.** This file is the design record: why each decision went the way it
 > did, what was rejected, and what is still open. `docs/MARBLES-SETTINGS.md` is the same split
 > for Marbles' models, ranges and scales.
+
+v0.16 — 2026-10-06: **OCTV loses Plaits' LFO range** (#18, Adara). The bottom 1/11 of SETTINGS F1
+is now the **full range with no centre detent**: F1 sweeps through C4 without the flat spot and can
+be set finely around it. The scale quantizer applies there exactly as in the full range. Routing
+Marbles to V/Oct still opens the range to the full range *with* the detent, whatever OCTV was on.
 
 v0.15 — 2026-09-26: **Output select moves to PLAITS SETTINGS T4** (#11, v0.4.6), on press.
 `••` + T4 on PLAITS is now Unpatch-HARMONICS only: a short press does nothing, so the shift
@@ -539,7 +544,8 @@ with the rest of the travel stretched so both ends are still reached.
   the base-layer parameters of engines whose centre is an exact neutral point.
 - **5 %** for FREQUENCY, in the range modes where its centre means something: full range
   (centre = **C4, MIDI 60**) and the single-octave ranges (centre = that octave's C). Not in
-  the LFO range or the quantized-octave range (where F1 is a switch).
+  the quantized-octave range (where F1 is a switch), and not at the bottom of OCTV, which is
+  the full range with the detent deliberately off (v0.16).
 - **Unipolar parameters use the whole fader, 0–100 %, no detent.**
 - **Contextual:** which of HARMONICS / TIMBRE / MORPH is bipolar depends on the engine. The
   table, with the reason for each entry from the manual and the engine source, is in

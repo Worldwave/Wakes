@@ -94,8 +94,10 @@ So the combination space is exactly: **`••` + one button**, on either ladder
   `voice.{h,cc}`).
 - **LEVEL below 5 % is DISCONNECTED**, which is not the same as zero: disconnected means TRIG
   plucks the note through the LPG, connected means the VCA is held open by LEVEL — the drone.
-- **OCTAVE range** is Plaits' own eleven modes, `plaits/ui.cc` verbatim: 0 = LFO, 1–8 = one
-  octave each ±7 semitones, 9 = octaves quantized, 10 = the full 96-semitone range (the default).
+- **OCTAVE range** is Plaits' own eleven modes, `plaits/ui.cc`, with one change: 0 = the full
+  range with **no centre detent** (Plaits' LFO range is gone, #18), 1–8 = one octave each
+  ±7 semitones, 9 = octaves quantized, 10 = the full 96-semitone range with the C4 detent (the
+  default).
 - Every layer keeps its own four values, and a fader that does not match the value it is
   showing **catches up** rather than jumping (Plaits' own `PotController` behaviour).
 - ⚠️ **Only BASE is ever seeded from the physical faders**, and only on the first ON after boot.
@@ -169,10 +171,11 @@ first in the ring, and only *included* scales are reachable. No wrap.
 - **OCTAVE mode 9 is special.** On its own it quantizes F1 to whole octaves. With a scale
   selected it becomes a sweep of **scale degrees** across those nine octaves — seven degrees
   gives 63 steps, about 59 fader counts each.
-- **Mode 0 (LFO) is never quantized.** Its "notes" are rates.
+- **Mode 0 (full range, no detent) is quantized exactly like mode 10.** The detent and the
+  scale are independent.
 - ⚠️ **Mutually exclusive with a Marbles output on V/Oct, in both directions.** Selecting a
   scale **unpatches every V/Oct route**; routing an output to V/Oct **turns the scale off and
-  opens the range to maximum**, so that output predictably controls the pitch. Note the
+  opens the range to maximum** (mode 10, detent on, even from mode 0), so that output predictably controls the pitch. Note the
   asymmetry: *locking* the octave range unpatches nothing, because a locked range and an
   external pitch source are a sensible pair — a quantizer and one are not.
 
