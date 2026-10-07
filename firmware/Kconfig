@@ -87,6 +87,49 @@ config SP1_PROFILE_ICACHE
 	  engine. Reads the NVMC counter a few times per Plaits block (~0.05 % CPU). Off in
 	  release builds.
 
+config SP1_STORAGE
+	bool "eMMC storage: a FAT32 volume and its own thread (M6, #43)"
+	default n
+	select FILE_SYSTEM
+	select FAT_FILESYSTEM_ELM
+	select DISK_ACCESS
+	help
+	  The eMMC driver (src/sp1_emmc.c), FatFs on top of it, and a low-priority thread
+	  that does all the work (src/sp1_store.h): below audio, main and USB, so it costs
+	  the audio block nothing. Never formats -- that is SP1_FRESH alone.
+
+config SP1_STORAGE_TEST
+	bool "Diagnostics: eMMC report and file test on every entry to ON (#43)"
+	depends on SP1_STORAGE
+	select INIT_STACKS            # the storage thread's stack headroom, in the report
+	help
+	  The card's identity, EXT_CSD and partition table (lines starting "EMMC"), then a
+	  file test on the volume (lines starting "STORE"): a counter of ON entries that
+	  survives power cycles and reflashes, 64 KB written, read back, compared and
+	  deleted, free space and the WAKES directory. Off in release builds.
+
+config SP1_FRESH
+	bool "wakes-sp1-fresh: FORMAT the eMMC on the first entry to ON (#43)"
+	depends on SP1_STORAGE
+	select FILE_SYSTEM_MKFS
+	help
+	  ⚠️ Erases the whole eMMC: one FAT32 partition from 4 MB, the build's ID written to
+	  WAKES/FRESH.ID, never again while that file matches (src/sp1_store.h). A normal
+	  build contains no formatter at all, and tools/ci/check_image.py fails one that does.
+
+# ⚠️ Zephyr formats a volume it cannot mount unless told not to. The card arrives holding
+# whatever an earlier firmware left there, so a failed mount must NEVER format: only
+# SP1_FRESH formats, and only on purpose. These defaults come before Kconfig.zephyr's, so
+# they win; check_image.py also fails an image built with MOUNT_MKFS on.
+config FS_FATFS_MOUNT_MKFS
+	default n
+
+config FS_FATFS_CUSTOM_MOUNT_POINT_COUNT
+	default 1 if SP1_STORAGE
+
+config FS_FATFS_CUSTOM_MOUNT_POINTS
+	default "EMMC" if SP1_STORAGE
+
 config SP1_LOGBUF_KB
 	int "Stored log, in KB of RAM"
 	default 96

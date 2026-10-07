@@ -9,6 +9,10 @@
 # three reached a real build. Do not widen it to `import: true` (~2 GB more and
 # a full re-update) and do not drop `cmsis_6` -- the Kconfig fix in
 # zephyr-patches/ depends on modules/cmsis_6 being present.
+#
+# `fatfs` (M6, #43; added with Adara's approval, 2026-10-07): ChaN's FatFs as Zephyr
+# packages it, for the FAT filesystem PRST keeps on the eMMC. Revision is whatever the
+# pinned Zephyr's own west.yml names. Every module added here is Adara's call.
 manifest:
   remotes:
     - name: zephyrproject-rtos
@@ -22,6 +26,7 @@ manifest:
         name-allowlist:
           - cmsis
           - cmsis_6
+          - fatfs
           - hal_nordic
 
   self:

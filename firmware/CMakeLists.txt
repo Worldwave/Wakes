@@ -91,6 +91,14 @@ target_sources(app PRIVATE
 	src/sp1_plaits_ui.c
 )
 
+# ---- M6 (#43): the eMMC and the FAT volume on it (src/sp1_store.h) ----
+if(CONFIG_SP1_STORAGE)
+	target_sources(app PRIVATE src/sp1_emmc.c src/sp1_store.c)
+	target_sources_ifdef(CONFIG_SP1_STORAGE_TEST app PRIVATE src/sp1_emmc_report.c)
+	# ff.h, for FATFS and MKFS_PARM (Zephyr's fatfs module, ELMFAT interface).
+	target_link_libraries(app PRIVATE ELMFAT)
+endif()
+
 # ---- M3: the Plaits voice (third_party/eurorack, vendored unmodified) ----
 # Built as its own Zephyr library so it gets its OWN optimisation flags. The rest of
 # the firmware is built -Os (CONFIG_SIZE_OPTIMIZATIONS); the DSP is the one place where

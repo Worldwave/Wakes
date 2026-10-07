@@ -22,18 +22,30 @@ SP-1 board definition and power/watchdog sequence
   48 kHz clock topology, the bring-up order, the I2S stream configuration,
   and the TAS2505 and CS42L42 register sequences, ported verbatim; and
   (M3) the headphone auto-mute: CS42L42 jack sense (reg 0x1B77 bit 7),
-  3-read debounce, TAS2505 speaker driver on/off (page 1 reg 0x2D).
+  3-read debounce, TAS2505 speaker driver on/off (page 1 reg 0x2D); and
+  (M6) the 1-bit eMMC protocol in firmware/src/sp1_emmc.c: the eMMC pin map,
+  the power/reset/init sequence, the command framing and the response and
+  data sampling points (reduced, read-only and bit-banged here).
 
 SP-1 hardware documentation and pin map
   timknapen/SP-1-dev — Copyright (c) 2026 Tim Knapen — MIT
   https://github.com/timknapen/SP-1-dev
   Licence text: LICENSES/MIT-SP-1-dev.txt
-  Source of: the SP-1 pinout in firmware/src/sp1_board.h, and the CS42L42
-  headphone-codec init sequence (via sp1-tape-looper) in sp1_audio.c.
+  Source of: the SP-1 pinout in firmware/src/sp1_board.h, the CS42L42
+  headphone-codec init sequence (via sp1-tape-looper) in sp1_audio.c, and the
+  eMMC driver (emmc.c, via sp1-tape-looper) behind firmware/src/sp1_emmc.c.
 
 TAS2505 speaker amplifier configuration
   Texas Instruments, TAS2505 Application Reference Guide (SLAU472C), sec. 5.1
   The register sequence in sp1_audio.c follows it, via sp1-tape-looper.
+
+FAT filesystem on the eMMC (M6, images built with CONFIG_SP1_STORAGE)
+  FatFs R0.16 — Copyright (C) 2025, ChaN — FatFs licence (one condition:
+  keep the notice in source redistributions)
+  https://elm-chan.org/fsw/ff/
+  Licence text: LICENSES/FatFs.txt
+  Used unmodified through Zephyr's fatfs module (zephyrproject-rtos/fatfs,
+  pinned by the Zephyr revision in west.yml) and Zephyr's fs layer.
 
 Zephyr BSP precedent
   ericlewis/sp1-midi — Copyright (c) 2026 Eric Lewis — MIT

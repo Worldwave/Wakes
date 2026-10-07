@@ -13,6 +13,9 @@
 #include "sp1_led.h"
 #include "sp1_ui_timing.h"
 #include "sp1_audio.h"
+#if defined(CONFIG_SP1_STORAGE)
+#include "sp1_store.h"
+#endif
 
 #include <zephyr/kernel.h>
 #include <zephyr/sys/reboot.h>
@@ -131,6 +134,13 @@ void sp1_quiesce_peripherals(void)
 	 * on every power-off path, and rule 5a says power-off does not wait on anything
 	 * else succeeding. Safe when audio was never started. */
 	sp1_audio_stop();
+
+#if defined(CONFIG_SP1_STORAGE)
+	/* M6 (#43): stop the storage thread's eMMC job and release the card's bus pins
+	 * BEFORE its rail goes, so nothing drives an unpowered card. Never waits: a job cut
+	 * short just fails its remaining steps (sp1_store.h). */
+	sp1_store_abort();
+#endif
 
 	/* The speaker amp, headphone codec, audio oscillator and eMMC I/O rail are
 	 * separate chips held up by retained GPIO levels. Leaving them powered is

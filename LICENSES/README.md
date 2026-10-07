@@ -11,6 +11,7 @@ what was changed.
 | `MIT-feldd.txt` | Benjamin Reece | `third_party/feldd/` (the USB-MIDI 1.0 class and its packet parser) and the build-time patched copy of `usb_midi1.c` |
 | `MIT-sp1-tape-looper.txt` | chattock | the board definition, power-off and watchdog sequence, and codec bring-up adapted from chattock/sp1-tape-looper |
 | `MIT-SP-1-dev.txt` | Tim Knapen | the SP-1 pin map and hardware documentation from timknapen/SP-1-dev |
+| `FatFs.txt` | ChaN | FatFs, the FAT filesystem on the eMMC (Zephyr's `fatfs` module, `modules/fs/fatfs`), compiled into images built with `CONFIG_SP1_STORAGE` |
 | `MIT-sp1-midi.txt` | Eric Lewis | the original `stem_player` Zephyr board that the board definition descends from |
 | `Apache-2.0.txt` | the Zephyr Project contributors; Ryan Gilmore | `third_party/sp1-usb-audio/` (USB audio out; it also carries its own `LICENSE` and `NOTICE`), `firmware/src/sp1_uac.{c,h}` and `tools/host-tests/uactest.c` (derived from it), `boards/teenageengineering/stem_player/Kconfig.defconfig`, `Kconfig.stem_player` and `stem_player_defconfig` (inherited from Zephyr's board template), `zephyr-patches/`, `firmware/src/sp1_usbd.c` (derived from Zephyr's USB sample helper), and the Zephyr RTOS compiled into every firmware image |
 

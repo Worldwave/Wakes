@@ -83,7 +83,7 @@ The failure modes that recur on this board:
 | a `pwm*`/`adc` node not found | the DTS label, and that the matching `CONFIG_*` driver is enabled |
 | `zephyr,deferred-init` unknown property, or `device_init()` undeclared | see **Deferred PWM init** below — there is a fallback |
 | pinctrl error on a `PSEL` | spelling in `stem_player-pinctrl.dtsi` |
-| missing module | `west.yml`'s allowlist — `cmsis`, `cmsis_6`, `hal_nordic` are all required |
+| missing module | `west.yml`'s allowlist — `cmsis`, `cmsis_6`, `fatfs`, `hal_nordic` are all required |
 | **LEDs work but wrong ones, or wrong order** | **not a build error.** pinctrl channel order vs LED index — see the comment block in `sp1_board.h` |
 | **ADC reads nonsense** | **not a build error.** Channel `reg` vs `io-channels` index vs the index used in C |
 
@@ -261,6 +261,7 @@ git config --global --add safe.directory C:/sp1-ws/zephyr
 git config --global --add safe.directory C:/sp1-ws/modules/hal/cmsis
 git config --global --add safe.directory C:/sp1-ws/modules/hal/cmsis_6
 git config --global --add safe.directory C:/sp1-ws/modules/hal/nordic
+git config --global --add safe.directory C:/sp1-ws/modules/fs/fatfs
 git config --global --add safe.directory C:/sp1-ws/wakes-sp1
 ```
 

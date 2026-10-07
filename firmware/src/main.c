@@ -84,6 +84,9 @@
 #include "sp1_audio.h"
 #include "sp1_meter.h"
 #include "sp1_playrow.h"
+#if defined(CONFIG_SP1_STORAGE)
+#include "sp1_store.h"
+#endif
 #if defined(CONFIG_SP1_PLAITS)
 #include "sp1_synth.h"
 #include "sp1_plaits_ui.h"
@@ -868,6 +871,100 @@ static void marbles_buttons(bool fnc, uint32_t dt)
 #endif
 
 /* Survives a warm reset so a crash leaves a trace for the next boot. */
+#if defined(CONFIG_SP1_FRESH)
+/* ---- the fresh format holds ON entry (M6 #43, Adara 2026-10-07) ----
+ * "Formatting the eMMC should hold up the rest of the UI while the device is being turned
+ * on. We can still turn the SP-1 off during the process in case it hangs, using the 30s
+ * SHFT hold backstop." So between queuing the storage job and starting audio, main waits
+ * here: through the check (~0.1 s, nothing drawn), and through a format (several seconds)
+ * with the track row as a progress bar, ending in two 0 -> 100 % flickers and a quick
+ * fade into the page (sp1_ui_timing.h). A normal image never formats and never waits.
+ *
+ * ⚠️ POWER: sp1_power_tick() runs every tick with "••", so the 30 s backstop works exactly
+ * as in the ON loop -- it is evaluated first and unconditionally (rule 5a). Only the
+ * ordinary 3 s gesture is held off, through the existing shift suppression, because a
+ * format must not be cut short by an ordinary press (Adara). If the backstop completes
+ * while plugged in, sp1_power_tick() has already quiesced (which stops the format) and
+ * this returns false: the caller goes to STANDBY. Unplugged it powers off itself.
+ * The watchdog is fed here, by main -- never by the storage thread (sp1_emmc.h). */
+static bool storage_gate(void)
+{
+	int64_t last = k_uptime_get();
+	bool announced = false;
+	uint32_t end_ms = 0u;          /* into the completion animation */
+
+	for (;;) {
+		sp1_wdt_feed();
+		const int64_t now = k_uptime_get();
+		int64_t delta = now - last;
+		last = now;
+		if (delta < 1) {
+			delta = 1;
+		} else if (delta > 4 * TICK_MS) {
+			delta = 4 * TICK_MS;
+		}
+		const uint32_t dt = (uint32_t)delta;
+
+		const bool fnc = sp1_fnc_pressed();
+		if (fnc) {
+			(void)sp1_shift_used();   /* no 3 s shutdown mid-format; the backstop stays */
+		}
+		const enum sp1_power_result pwr = sp1_power_tick(dt, fnc);
+		if (pwr == SP1_PWR_TO_STANDBY) {
+			printk("STORE format interrupted by the 30 s hold -- STANDBY\n");
+			return false;
+		}
+		const bool row_free = (pwr != SP1_PWR_ANIMATING);
+		sp1_console_poll(dt, "FORMAT");
+
+		const enum sp1_store_phase ph = sp1_store_phase();
+		if (ph == SP1_STORE_FORMATTING) {
+			if (!announced) {
+				printk("STORE formatting: the UI waits; only the 30 s \"••\" hold "
+				       "powers off\n");
+				announced = true;
+			}
+			if (row_free) {
+				sp1_led_bar(SP1_ROW_TRACK, sp1_store_progress(), 255u);
+			}
+		} else if (ph == SP1_STORE_READY) {
+			const enum sp1_store_format fr = sp1_store_format_result();
+			if (fr == SP1_STORE_FMT_NONE) {
+				return true;                       /* nothing to show */
+			}
+			if (fr == SP1_STORE_FMT_FAILED) {
+				/* No flicker: the bar as it stood, faded into the page. */
+				uint8_t lv[4];
+				const uint32_t p = sp1_store_progress();
+				for (int i = 0; i < 4; i++) {
+					const uint32_t lo = (uint32_t)i * 255u / 4u;
+					const uint32_t hi = (uint32_t)(i + 1) * 255u / 4u;
+					lv[i] = (uint8_t)(p >= hi ? 255u
+						: (p > lo ? (p - lo) * 255u / (hi - lo) : 0u));
+				}
+				sp1_display_flash(lv, 0u, SP1_FMT_FAIL_FADE_MS);
+				return true;
+			}
+			/* Done: off, on, off, on -- then full into the page. */
+			end_ms += dt;
+			const uint32_t step = end_ms / SP1_FMT_FLICKER_MS;
+			if (step >= 4u) {
+				static const uint8_t full[4] = { 255u, 255u, 255u, 255u };
+				sp1_display_flash(full, 0u, SP1_FMT_DONE_FADE_MS);
+				return true;
+			}
+			if (row_free) {
+				sp1_led_bar(SP1_ROW_TRACK, (step & 1u) ? 255u : 0u, 255u);
+			}
+		}
+		/* SP1_STORE_CHECKING: draw nothing -- the power-on fill finishes fading. */
+
+		sp1_led_tick(dt);
+		k_msleep(TICK_MS);
+	}
+}
+#endif
+
 static __noinit uint32_t g_fault_key;
 static __noinit uint32_t g_fault_reason;
 static __noinit uint32_t g_fault_pc;
@@ -1019,6 +1116,9 @@ int main(void)
 	/* The audio thread is created here and parks immediately. It does no work
 	 * until ON starts it, and it is never created on a tap-and-release wake. */
 	sp1_audio_init();
+#if defined(CONFIG_SP1_STORAGE)
+	sp1_store_init();              /* the thread parks until an ON entry queues a job */
+#endif
 #if defined(CONFIG_SP1_PLAITS)
 	sp1_pui_init();                /* page defaults: once per boot, kept across ON */
 	sp1_mui_init();
@@ -1061,6 +1161,19 @@ int main(void)
 		 * at a time and records the answer against that name, so the table
 		 * cannot be mis-assembled. Off once the tables exist. */
 		sp1_controls_reset_buttons();
+
+#if defined(CONFIG_SP1_STORAGE)
+		/* M6 (#43): the eMMC job runs in the storage thread, below main and audio;
+		 * this only queues it. Every way out of ON stops it (sp1_quiesce_peripherals). */
+		sp1_store_on_enter();
+#if defined(CONFIG_SP1_FRESH)
+		/* The fresh image's format holds ON entry, before audio (storage_gate). */
+		if (!storage_gate()) {
+			standby = true;           /* the 30 s backstop, plugged in */
+			continue;
+		}
+#endif
+#endif
 
 		/* ---- M2: audio up on every entry to ON ----
 		 * The way into STANDBY powers the codecs, the amp and the oscillator

@@ -182,6 +182,16 @@
 #define SP1_RIP_BLACK_MS         500u   /* black at the end of the hold             */
 #define SP1_RIP_FADEBACK_MS      500u   /* after the reset: black -> the page       */
 #define SP1_RIP_CANCEL_FADE_MS   150u   /* let go early: back to the page           */
+/* ---- the fresh format at ON entry (Adara, M6 #43) ----
+ * The UI waits while wakes-sp1-fresh formats the eMMC. The track row is a progress bar
+ * through the format (sp1_led_bar, full brightness); when it completes the row flickers
+ * twice, 0 -> 100 %, and fades quickly into the page. A format that fails leaves the bar
+ * and fades into the page with no flicker -- the flicker means "done". Only the 30 s
+ * backstop powers off meanwhile (storage_gate() in main.c). */
+#define SP1_FMT_FLICKER_MS        70u   /* each off / on of the two flickers (as the rip) */
+#define SP1_FMT_DONE_FADE_MS     250u   /* then full -> the page                          */
+#define SP1_FMT_FAIL_FADE_MS     250u   /* failed: the bar -> the page                    */
+
 /* ---- UNPATCH: "••" held + T1-T4 held (Adara, M4e) ----
  * Clears the routing belonging to that button -- on PLAITS the Marbles outputs aimed at
  * that parameter, on MARBLES that output's destination. The only destructive gesture

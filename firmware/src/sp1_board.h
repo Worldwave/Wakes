@@ -41,6 +41,14 @@
 #define SP1_OSC_EN_PIN      13u
 #define SP1_EMMC_VCCQ_PORT  NRF_P0   /* eMMC I/O rail, active high        */
 #define SP1_EMMC_VCCQ_PIN   14u
+/* eMMC bus (M6, #43): 1-bit MMC, bit-banged -- the nRF52840 has no SD/MMC peripheral.
+ * CLK, DAT0 and CMD must stay on port 0: sp1_emmc.c clocks data through NRF_P0's
+ * registers directly. Used only by sp1_emmc.c. */
+#define SP1_EMMC_CLK_PIN    6u       /* P0.06                              */
+#define SP1_EMMC_DAT0_PIN   7u       /* P0.07                              */
+#define SP1_EMMC_CMD_PIN    8u       /* P0.08                              */
+#define SP1_EMMC_RST_PORT   NRF_P1   /* RST_n, active low                  */
+#define SP1_EMMC_RST_PIN    8u       /* P1.08                              */
 #define SP1_BT_RST_PORT     NRF_P0   /* CYBT module, active low           */
 #define SP1_BT_RST_PIN      10u
 

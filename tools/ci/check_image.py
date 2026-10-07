@@ -268,6 +268,31 @@ def check_uac_copies(zd):
                   ", ".join(calls) or "word copies")
 
 
+def check_storage(zd, cfg):
+    """Only wakes-sp1-fresh may format the eMMC (#43, Adara 2026-10-07).
+
+    "Flashing wakes-sp1-fresh formats the eMMC. Flashing a normal wakes-sp1 bin does not
+    touch the eMMC." So a normal image must not even CONTAIN a formatter (FatFs' f_mkfs is
+    only compiled with CONFIG_FILE_SYSTEM_MKFS), and no image may format on a failed
+    mount -- Zephyr's default, which would wipe a card holding another firmware's data.
+    Nothing to check while storage is not linked.
+    """
+    if cfg.get("CONFIG_SP1_STORAGE") != "y":
+        return
+    check(cfg.get("CONFIG_FS_FATFS_MOUNT_MKFS") != "y",
+          "storage: a failed mount never formats (FS_FATFS_MOUNT_MKFS off)",
+          f"got {cfg.get('CONFIG_FS_FATFS_MOUNT_MKFS')}")
+    with open(zd / f"{NAME}.elf", "rb") as fh:
+        mkfs = bool(ELFFile(fh).get_section_by_name(".symtab").get_symbol_by_name("f_mkfs"))
+    if cfg.get("CONFIG_SP1_FRESH") == "y":
+        check(mkfs, "storage: FRESH image links the formatter", "f_mkfs present")
+        print("  [NOTE] FRESH IMAGE: formats the eMMC on its first entry to ON. "
+              "Ship it as wakes-sp1-fresh, never as wakes-sp1.")
+    else:
+        check(not mkfs, "storage: normal image contains no formatter",
+              "f_mkfs LINKED" if mkfs else "no f_mkfs")
+
+
 def check_source(repo):
     # A header constant, not a build flag, so nothing else would catch a leftover 1:
     # the device would boot into the calibration wizard.
@@ -294,6 +319,7 @@ def main():
         check_layouts(zd)
         check_fast_clear(zd)
     check_uac_copies(zd)
+    check_storage(zd, cfg)
     check_source(a.repo)
 
     failed = results.count(False)
