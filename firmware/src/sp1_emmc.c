@@ -20,8 +20,23 @@
  *     arrives after the next falling edge, so there is no re-read there.
  *   - a write puts each bit on DAT0 while CLK is low; the card latches it on the
  *     rising edge. The card's CRC-status token and its busy are read like data.
- * Hardware 2026-10-07 (logs/sp1-20261007-152119.log): the CID's CRC7 matched at
- * alignment 0, and 64 block reads came back with no CRC error.
+ * Hardware 2026-10-07 (logs/sp1-20261007-152119.log, -173828.log): the CID's CRC7
+ * matched at alignment 0; reads, writes and a FAT32 format ran with no error.
+ *
+ * ---- fast transfer (M6, Adara: "yes" to doing it with drive mode) ----
+ * The tape-looper's, again: the 512-byte payloads (and their CRC16) ride SPIM3 + EasyDMA
+ * -- SPI mode 0 is the same wire format as eMMC DAT0 at default speed -- while the start
+ * bit hunt, the CRC-status token, the busy and every command stay bit-banged. SPIM3 is the
+ * only SPIM above 8 MHz and nothing else in Wakes uses it. We run it at 16 MHz, inside the
+ * card's 26 MHz default-speed limit (the looper's 32 MHz overclock glitched at 24 kHz).
+ * After identification, commands drop the 1 us half-period (the looper's CMDFAST: same
+ * edges, register-speed). Multi-block CMD18 / CMD25 + CMD12 replace one command per block.
+ * EVERY fast step has a slow one behind it: a failed multi-block transfer finishes block by
+ * block, a failed block is retried bit-banged (then at the 1 us clock), and a command that
+ * misses its response at speed is retried at the identification clock.
+ * ⚠️ nRF52840 anomaly 198 (SPIM3 TX data can be corrupted by CPU access to the same RAM
+ * block): harmless here BY DESIGN -- the card checks the CRC16 we computed from the source
+ * buffer before the DMA, rejects a corrupted block (token 101), and the block is retried.
  */
 #include "sp1_emmc.h"
 #include "sp1_board.h"
@@ -36,54 +51,49 @@
 #define PIN_RST   NRF_GPIO_PIN_MAP(1, SP1_EMMC_RST_PIN)    /* SP1_EMMC_RST_PORT = NRF_P1 */
 #define PIN_VCCQ  NRF_GPIO_PIN_MAP(0, SP1_EMMC_VCCQ_PIN)   /* SP1_EMMC_VCCQ_PORT = NRF_P0 */
 
-/* Command phase: a 1 us half-period through the GPIO HAL, a few hundred kHz -- inside
- * the 400 kHz identification limit. Commands are short, so it stays slow throughout. */
-#define CMD_HALF_US  1u
-
-/* Data phase: CLK and DAT0 through port 0's registers, a few NOPs of settle around each
- * edge (the tape-looper's EDGE_SETTLE; JEDEC's minimum clock high/low time is 10 ns, a
- * NOP is 15.6 ns). After an error the retries run with a 1 us half-period instead. */
+/* CLK, DAT0 and CMD through port 0's registers. A few NOPs of settle around each edge
+ * (the tape-looper's EDGE_SETTLE; JEDEC's minimum clock high/low is 10 ns, a NOP is
+ * 15.6 ns). The "slow" variants use a 1 us half-period: identification (400 kHz limit)
+ * and the last retry of anything. */
 #define P0_CLK   (1u << SP1_EMMC_CLK_PIN)
 #define P0_DAT0  (1u << SP1_EMMC_DAT0_PIN)
+#define P0_CMD   (1u << SP1_EMMC_CMD_PIN)
 #define CLK_HI() (NRF_P0->OUTSET = P0_CLK)
 #define CLK_LO() (NRF_P0->OUTCLR = P0_CLK)
 #define DAT_HI() (NRF_P0->OUTSET = P0_DAT0)
 #define DAT_LO() (NRF_P0->OUTCLR = P0_DAT0)
 #define DAT0()   ((NRF_P0->IN >> SP1_EMMC_DAT0_PIN) & 1u)
+#define CMD_IN() ((NRF_P0->IN >> SP1_EMMC_CMD_PIN) & 1u)
 #define SETTLE() __asm__ volatile("nop\nnop\nnop")
 #define SLOW_HALF_US 1u
 
 #define INIT_TIMEOUT_MS   1000u   /* CMD1 until ready: JEDEC's 1 s                */
 #define DATA_TIMEOUT_MS    100u   /* start bit of a data block                    */
-#define BUSY_TIMEOUT_MS    500u   /* programming busy after a write               */
-#define BLOCK_TRIES          3
+#define BUSY_TIMEOUT_MS    500u   /* programming busy after a write / CMD12       */
 
 #define R1_BITS_DATA  38u         /* a response followed by a data block (send_cmd) */
 #define R1_BITS       48u
 #define R2_BITS      138u         /* 136 + 2 spare, for the CID alignment check    */
 
-/* Card-status bits in CMD24's own R1 that mean "this write must not go ahead": 31
+/* Card-status bits in CMD24/25's own R1 that mean "this write must not go ahead": 31
  * ADDRESS_OUT_OF_RANGE, 30 ADDRESS_MISALIGN, 29 BLOCK_LEN_ERROR, 26 WP_VIOLATION, 25
  * DEVICE_IS_LOCKED. Deliberately NOT the whole JEDEC error set: COM_CRC_ERROR and
  * ILLEGAL_COMMAND report the PREVIOUS command, so after any retried command they would
  * refuse a perfectly good write. */
 #define WRITE_FATAL 0xe6000000u
 
+/* How a data block moves: SPIM3 DMA, bit-banged at register speed, or at 1 us. */
+enum mode { M_SPIM, M_FAST, M_SLOW };
+
 static bool     ready;
 static volatile bool aborted;
-static uint32_t rca;              /* relative card address, already << 16 */
+static bool     cmd_fast;         /* identification done: commands at register speed */
+static bool     spim_on;          /* SPIM3 configured (power_down undoes it)          */
+static uint32_t rca;              /* relative card address, already << 16             */
 static uint32_t sectors;
 static struct sp1_emmc_stats st;
 
-/* ---------------------------------------------------------------- command phase */
-
-static void clk_pulse(void)
-{
-	nrf_gpio_pin_set(PIN_CLK);
-	k_busy_wait(CMD_HALF_US);
-	nrf_gpio_pin_clear(PIN_CLK);
-	k_busy_wait(CMD_HALF_US);
-}
+/* ---------------------------------------------------------------- CRCs */
 
 static uint8_t crc7(const uint8_t *d, uint32_t n)
 {
@@ -100,27 +110,107 @@ static uint8_t crc7(const uint8_t *d, uint32_t n)
 	return (uint8_t)((crc << 1) | 1u);     /* with the end bit, as it sits in a frame */
 }
 
-static uint16_t crc16(const uint8_t *d, uint32_t n)      /* CRC-16/XMODEM, 0x1021 */
+/* CRC-16/XMODEM (0x1021), table-driven: the bit loop costs ~0.5 ms a block, which at
+ * fast-transfer rates is most of the time. The table is built at init and checked
+ * against the standard answer ("123456789" -> 0x31C3); init fails if it is wrong. */
+static uint16_t crc_tab[256];
+
+static void crc16_build(void)
+{
+	for (uint32_t i = 0; i < 256u; i++) {
+		uint16_t c = (uint16_t)(i << 8);
+		for (int b = 0; b < 8; b++) {
+			c = (c & 0x8000u) ? (uint16_t)((c << 1) ^ 0x1021u) : (uint16_t)(c << 1);
+		}
+		crc_tab[i] = c;
+	}
+}
+
+static uint16_t crc16(const uint8_t *d, uint32_t n)
 {
 	uint16_t crc = 0;
 	while (n--) {
-		crc ^= (uint16_t)(*d++) << 8;
-		for (int b = 0; b < 8; b++) {
-			crc = (crc & 0x8000u) ? (uint16_t)((crc << 1) ^ 0x1021u)
-					      : (uint16_t)(crc << 1);
-		}
+		crc = (uint16_t)((crc << 8) ^ crc_tab[((crc >> 8) ^ *d++) & 0xffu]);
 	}
 	return crc;
+}
+
+/* ---------------------------------------------------------------- SPIM3 */
+
+#define SPIM_FREQ_16M 0x0A000000u
+
+static void spim_setup(void)
+{
+	NRF_SPIM3->ENABLE = 0;
+	NRF_SPIM3->PSEL.SCK = PIN_CLK;
+	NRF_SPIM3->PSEL.MOSI = 0xffffffffu;      /* attached per transfer */
+	NRF_SPIM3->PSEL.MISO = 0xffffffffu;
+	NRF_SPIM3->PSEL.CSN = 0xffffffffu;
+	NRF_SPIM3->FREQUENCY = SPIM_FREQ_16M;
+	NRF_SPIM3->CONFIG = 0;                   /* MSB first, CPOL 0 / CPHA 0 (mode 0) */
+	NRF_SPIM3->ORC = 0xff;                   /* idle high */
+	spim_on = true;
+}
+
+/* One blocking DMA transfer with SPIM3 owning CLK and DAT0. On disable the pins fall
+ * back to their GPIO latches (CLK low, DAT0 as configured), so the bit-banged phases
+ * either side carry on. 516 bytes at 16 MHz is ~260 us. Bounded. */
+static bool spim_xfer(const uint8_t *tx, uint32_t txn, uint8_t *rx, uint32_t rxn)
+{
+	NRF_SPIM3->PSEL.MOSI = tx ? PIN_DAT0 : 0xffffffffu;
+	NRF_SPIM3->PSEL.MISO = rx ? PIN_DAT0 : 0xffffffffu;
+	NRF_SPIM3->ENABLE = 7;
+	NRF_SPIM3->TXD.PTR = (uint32_t)tx;
+	NRF_SPIM3->TXD.MAXCNT = tx ? txn : 0u;
+	NRF_SPIM3->RXD.PTR = (uint32_t)rx;
+	NRF_SPIM3->RXD.MAXCNT = rx ? rxn : 0u;
+	NRF_SPIM3->EVENTS_END = 0;
+	NRF_SPIM3->TASKS_START = 1;
+	const uint32_t c0 = k_cycle_get_32();
+	while (NRF_SPIM3->EVENTS_END == 0u &&
+	       k_cyc_to_us_floor32(k_cycle_get_32() - c0) < 5000u) {
+	}
+	/* ⚠️ Read END AGAIN after the time check. This thread is the lowest priority there
+	 * is: at ~70 % audio load it can be held off for several ms BETWEEN reading END and
+	 * reading the clock, and then a transfer that finished meanwhile looked timed out.
+	 * Hardware 2026-10-07 (logs/sp1-20261007-193746.log): 38 such false timeouts in
+	 * 512 KB, each one dropping its burst to block-by-block -- data intact, speed lost. */
+	const bool done = (NRF_SPIM3->EVENTS_END != 0u);
+	if (!done) {
+		st.spim_timeouts++;
+		NRF_SPIM3->TASKS_STOP = 1;
+	}
+	NRF_SPIM3->ENABLE = 0;
+	return done;
+}
+
+/* ---------------------------------------------------------------- command phase */
+
+static inline void half(bool slow)
+{
+	if (slow) {
+		k_busy_wait(SLOW_HALF_US);
+	} else {
+		SETTLE();
+	}
+}
+
+static inline void pulse(bool slow)
+{
+	CLK_HI();
+	half(slow);
+	CLK_LO();
+	half(slow);
 }
 
 /* Send one command; capture `nbits` of the response (0 = none expected) into `resp`,
  * MSB first, index 0 = the start bit (see the top of the file). False = no response.
  *
- * ⚠️ For a command followed by a data block FROM the card (CMD8, CMD17), capture
+ * ⚠️ For a command followed by a data block FROM the card (CMD8, CMD17, CMD18), capture
  * R1_BITS_DATA and no more: the block can start on DAT0 a couple of clocks after the
  * response, and every extra clock here is one the data hunt never sees (the
  * tape-looper found this the hard way). */
-static bool send_cmd(uint8_t index, uint32_t arg, uint8_t *resp, uint32_t nbits)
+static bool send_cmd(uint8_t index, uint32_t arg, uint8_t *resp, uint32_t nbits, bool slow)
 {
 	if (aborted) {
 		return false;
@@ -137,17 +227,18 @@ static bool send_cmd(uint8_t index, uint32_t arg, uint8_t *resp, uint32_t nbits)
 	 * plus JEDEC's Nrc, without driving against the card's last bits. */
 	nrf_gpio_cfg_input(PIN_CMD, NRF_GPIO_PIN_PULLUP);
 	for (int i = 0; i < 24; i++) {
-		clk_pulse();
+		pulse(slow);
 	}
+	NRF_P0->OUTSET = P0_CMD;
 	nrf_gpio_cfg_output(PIN_CMD);
 	for (int i = 0; i < 6; i++) {
 		for (int b = 7; b >= 0; b--) {
 			if ((f[i] >> b) & 1u) {
-				nrf_gpio_pin_set(PIN_CMD);
+				NRF_P0->OUTSET = P0_CMD;
 			} else {
-				nrf_gpio_pin_clear(PIN_CMD);
+				NRF_P0->OUTCLR = P0_CMD;
 			}
-			clk_pulse();
+			pulse(slow);
 		}
 	}
 	nrf_gpio_cfg_input(PIN_CMD, NRF_GPIO_PIN_PULLUP);
@@ -157,34 +248,37 @@ static bool send_cmd(uint8_t index, uint32_t arg, uint8_t *resp, uint32_t nbits)
 	}
 	bool found = false;
 	for (int t = 0; t < 200 && !found; t++) {
-		clk_pulse();
-		found = (nrf_gpio_pin_read(PIN_CMD) == 0u);
+		pulse(slow);
+		found = (CMD_IN() == 0u);
 	}
 	if (!found) {
 		return false;
 	}
 	memset(resp, 0, (nbits + 7u) / 8u);
 	for (uint32_t i = 0; i < nbits; i++) {
-		nrf_gpio_pin_set(PIN_CLK);
-		k_busy_wait(CMD_HALF_US);
-		const uint32_t bit = nrf_gpio_pin_read(PIN_CMD);
-		nrf_gpio_pin_clear(PIN_CLK);
-		k_busy_wait(CMD_HALF_US);
+		CLK_HI();
+		half(slow);
+		const uint32_t bit = CMD_IN();
+		CLK_LO();
+		half(slow);
 		resp[i / 8u] |= (uint8_t)(bit << (7u - (i % 8u)));
 	}
 	return true;
 }
 
+/* Up to 8 tries; after identification the first four are at register speed and the
+ * rest at the identification clock, so a speed problem costs time, not the command. */
 static bool send_cmd_retry(uint8_t index, uint32_t arg, uint8_t *resp, uint32_t nbits)
 {
 	for (int t = 0; t < 8 && !aborted; t++) {
-		if (send_cmd(index, arg, resp, nbits)) {
+		const bool slow = !cmd_fast || t >= 4;
+		if (send_cmd(index, arg, resp, nbits, slow)) {
 			return true;
 		}
 		st.cmd_retries++;
 		if (t == 0) {
 			for (int c = 0; c < 16; c++) {
-				clk_pulse();
+				pulse(slow);
 			}
 		} else {
 			k_msleep(2);
@@ -205,79 +299,64 @@ static uint32_t resp_bits(const uint8_t *r, uint32_t first, uint32_t n)
 
 /* ---------------------------------------------------------------- data phase */
 
-static inline void data_half(bool slow)
+/* One data block from the card, after its command's response (or the previous block of
+ * a CMD18): 512 bytes, the card's CRC16, the end bit. True only if the CRC matched. */
+static bool read_data(uint8_t *buf, enum mode m)
 {
-	if (slow) {
-		k_busy_wait(SLOW_HALF_US);
-	} else {
-		SETTLE();
-	}
-}
-
-/* One clock with the host's bit already on DAT0: setup, rising edge (the card latches),
- * high time, falling edge. */
-static inline void wclk(bool slow)
-{
-	data_half(slow);
-	CLK_HI();
-	data_half(slow);
-	CLK_LO();
-}
-
-/* One data block after its command's response: 512 bytes, then the card's CRC16, then
- * the end bit. True only if the CRC matched. */
-static bool read_data(uint8_t *buf, bool slow)
-{
+	const bool slow = (m == M_SLOW);
 	nrf_gpio_cfg_input(PIN_DAT0, NRF_GPIO_PIN_PULLUP);
 
-	/* Start-bit hunt. The card only moves on our clock, so stopping to look at the
-	 * time can never miss it. */
+	/* Start-bit hunt, bit-banged. The card only moves on our clock, so stopping to look
+	 * at the time can never miss it. */
 	const uint32_t t0 = k_uptime_get_32();
 	bool got = false;
 	while (!got) {
 		for (int i = 0; i < 64; i++) {
 			CLK_HI();
-			data_half(slow);
+			half(slow);
 			if (DAT0() == 0u) {
 				got = true;              /* leave with CLK high */
 				break;
 			}
 			CLK_LO();
-			data_half(slow);
+			half(slow);
 		}
 		if (!got && ((k_uptime_get_32() - t0) >= DATA_TIMEOUT_MS || aborted)) {
-			st.timeouts++;
+			st.hunt_timeouts++;
 			return false;
 		}
 	}
 	CLK_LO();
-	data_half(slow);
+	half(slow);
 
-	for (uint32_t i = 0; i < SP1_EMMC_BLOCK; i++) {
-		uint32_t byte = 0;
-		for (int b = 7; b >= 0; b--) {
-			CLK_HI();
-			data_half(slow);
-			byte |= DAT0() << b;
-			CLK_LO();
-			data_half(slow);
+	uint8_t c2[2];
+	if (m == M_SPIM) {
+		/* The start bit is consumed, so the payload and CRC are byte-aligned: two DMA
+		 * receives straight into the caller's buffer and c2 (no copy). */
+		if (!spim_xfer(NULL, 0, buf, SP1_EMMC_BLOCK) || !spim_xfer(NULL, 0, c2, 2)) {
+			/* counted in spim_xfer */
+			return false;
 		}
-		buf[i] = (uint8_t)byte;
+	} else {
+		for (uint32_t i = 0; i < SP1_EMMC_BLOCK + 2u; i++) {
+			uint32_t byte = 0;
+			for (int b = 7; b >= 0; b--) {
+				CLK_HI();
+				half(slow);
+				byte |= DAT0() << b;
+				CLK_LO();
+				half(slow);
+			}
+			if (i < SP1_EMMC_BLOCK) {
+				buf[i] = (uint8_t)byte;
+			} else {
+				c2[i - SP1_EMMC_BLOCK] = (uint8_t)byte;
+			}
+		}
 	}
-	uint32_t card_crc = 0;
-	for (int b = 0; b < 16; b++) {
-		CLK_HI();
-		data_half(slow);
-		card_crc = (card_crc << 1) | DAT0();
-		CLK_LO();
-		data_half(slow);
-	}
-	CLK_HI();                                /* end bit */
-	data_half(slow);
-	CLK_LO();
-	data_half(slow);
+	pulse(slow);                             /* end bit */
 
-	if (crc16(buf, SP1_EMMC_BLOCK) != (uint16_t)card_crc) {
+	if (crc16(buf, SP1_EMMC_BLOCK) != (uint16_t)((c2[0] << 8) | c2[1])) {
 		st.crc_errs++;
 		return false;
 	}
@@ -295,8 +374,7 @@ static bool busy_wait(bool slow)
 	const uint32_t t0 = k_uptime_get_32();
 	for (;;) {
 		for (int i = 0; i < 64; i++) {
-			wclk(slow);
-			data_half(slow);
+			pulse(slow);
 			if (DAT0() != 0u) {
 				const uint32_t us = k_cyc_to_us_floor32(k_cycle_get_32() - c0);
 				if (us > st.wr_busy_max_us) {
@@ -307,7 +385,7 @@ static bool busy_wait(bool slow)
 		}
 		const uint32_t el = k_uptime_get_32() - t0;
 		if (el >= BUSY_TIMEOUT_MS || aborted) {
-			st.timeouts++;
+			st.busy_timeouts++;
 			return false;
 		}
 		if (el >= 1u) {
@@ -316,60 +394,77 @@ static bool busy_wait(bool slow)
 	}
 }
 
-/* One data block TO the card after CMD24's response: Nwr idle, start bit, 512 bytes,
- * CRC16, end bit; then the card's CRC-status token (010 = accepted) and its busy.
- * True only if accepted and programmed. */
-static bool write_data(const uint8_t *buf, bool slow)
+/* The frame a write puts on DAT0 through SPIM3: Nwr idle (0xFF), 7 idle bits + the start
+ * bit (0xFE), the payload, its CRC16. ⚠️ It ends EXACTLY at the CRC's last bit: the end
+ * bit is clocked by hand right after, because the card's token comes 2 clocks after it
+ * and a trailing idle byte inside the DMA would let it fly past (the tape-looper). */
+static uint8_t txf[2u + SP1_EMMC_BLOCK + 2u];
+
+/* One data block TO the card after CMD24's response (or the previous block of a CMD25);
+ * then its CRC-status token (010 = accepted) and its busy. True only if accepted and
+ * programmed. */
+static bool write_data(const uint8_t *buf, enum mode m)
 {
+	const bool slow = (m == M_SLOW);
 	const uint16_t crc = crc16(buf, SP1_EMMC_BLOCK);
 
 	DAT_HI();
 	nrf_gpio_cfg(PIN_DAT0, NRF_GPIO_PIN_DIR_OUTPUT, NRF_GPIO_PIN_INPUT_DISCONNECT,
 		     NRF_GPIO_PIN_NOPULL, NRF_GPIO_PIN_H0H1, NRF_GPIO_PIN_NOSENSE);
-	for (int i = 0; i < 8; i++) {            /* Nwr: idle high, so no early start bit */
-		wclk(slow);
-	}
-	DAT_LO();                                /* start bit */
-	wclk(slow);
-	for (uint32_t i = 0; i < SP1_EMMC_BLOCK; i++) {
-		const uint32_t byte = buf[i];
-		for (int b = 7; b >= 0; b--) {
-			if ((byte >> b) & 1u) {
-				DAT_HI();
-			} else {
-				DAT_LO();
+	if (m == M_SPIM) {
+		txf[0] = 0xff;
+		txf[1] = 0xfe;
+		memcpy(&txf[2], buf, SP1_EMMC_BLOCK);   /* also makes a flash source DMA-able */
+		txf[2u + SP1_EMMC_BLOCK] = (uint8_t)(crc >> 8);
+		txf[3u + SP1_EMMC_BLOCK] = (uint8_t)crc;
+		if (!spim_xfer(txf, sizeof(txf), NULL, 0)) {
+			nrf_gpio_cfg_input(PIN_DAT0, NRF_GPIO_PIN_PULLUP);
+			/* counted in spim_xfer */
+			return false;
+		}
+	} else {
+		for (int i = 0; i < 8; i++) {        /* Nwr: idle high, so no early start bit */
+			half(slow);
+			pulse(slow);
+		}
+		DAT_LO();                            /* start bit */
+		half(slow);
+		pulse(slow);
+		for (uint32_t i = 0; i < SP1_EMMC_BLOCK + 2u; i++) {
+			const uint32_t byte = (i < SP1_EMMC_BLOCK) ? buf[i]
+				: (i == SP1_EMMC_BLOCK ? (uint32_t)(crc >> 8) : (uint32_t)(crc & 0xffu));
+			for (int b = 7; b >= 0; b--) {
+				if ((byte >> b) & 1u) {
+					DAT_HI();
+				} else {
+					DAT_LO();
+				}
+				half(slow);
+				pulse(slow);
 			}
-			wclk(slow);
 		}
 	}
-	for (int b = 15; b >= 0; b--) {
-		if ((crc >> b) & 1u) {
-			DAT_HI();
-		} else {
-			DAT_LO();
-		}
-		wclk(slow);
-	}
-	DAT_HI();                                /* end bit */
-	wclk(slow);
+	DAT_HI();                                /* end bit (SPIM left DAT0 on its latch) */
+	half(slow);
+	pulse(slow);
 	nrf_gpio_cfg_input(PIN_DAT0, NRF_GPIO_PIN_PULLUP);   /* the card drives from here */
 
 	/* CRC-status token: start bit (0), three status bits, end bit. */
 	int status = -1;
 	for (int i = 0; i < 16 && status < 0; i++) {
 		CLK_HI();
-		data_half(slow);
+		half(slow);
 		const uint32_t start = DAT0();
 		CLK_LO();
-		data_half(slow);
+		half(slow);
 		if (start == 0u) {
 			status = 0;
 			for (int k = 0; k < 3; k++) {
 				CLK_HI();
-				data_half(slow);
+				half(slow);
 				status = (status << 1) | (int)DAT0();
 				CLK_LO();
-				data_half(slow);
+				half(slow);
 			}
 		}
 	}
@@ -383,19 +478,30 @@ static bool write_data(const uint8_t *buf, bool slow)
 	return done;
 }
 
-/* A command followed by one data block from the card, retried as a whole. */
+/* A command followed by one data block from the card; the block retried bit-banged, then
+ * at 1 us. */
 static bool read_cmd_block(uint8_t index, uint32_t arg, uint8_t *buf)
 {
+	static const enum mode modes[] = { M_SPIM, M_FAST, M_SLOW };
 	uint8_t r[(R1_BITS_DATA + 7u) / 8u];
-	for (int t = 0; t < BLOCK_TRIES && !aborted; t++) {
+	for (unsigned t = 0; t < ARRAY_SIZE(modes) && !aborted; t++) {
 		if (!send_cmd_retry(index, arg, r, R1_BITS_DATA)) {
 			return false;
 		}
-		if (read_data(buf, t > 0)) {
+		if (read_data(buf, modes[t])) {
 			return true;
 		}
 	}
 	return false;
+}
+
+/* CMD12 STOP_TRANSMISSION. After a write burst it is R1b: the card holds DAT0 low while
+ * it commits, and returning before that makes the next command miss its response. */
+static bool stop_transmission(bool after_write)
+{
+	uint8_t r[(R1_BITS + 7u) / 8u];
+	const bool ok = send_cmd_retry(12, 0, r, R1_BITS);
+	return (after_write ? busy_wait(false) : true) && ok;
 }
 
 /* ---------------------------------------------------------------- API */
@@ -410,17 +516,24 @@ bool sp1_emmc_init(struct sp1_emmc_ident *id)
 	id->cid_shift = -128;
 	memset(&st, 0, sizeof(st));
 	ready = false;
+	cmd_fast = false;
 	sectors = 0;
 	aborted = false;
 
+	crc16_build();
+	if (crc16((const uint8_t *)"123456789", 9) != 0x31c3u) {
+		return false;                   /* never move data with a broken check */
+	}
+
 	nrf_gpio_cfg(PIN_CLK, NRF_GPIO_PIN_DIR_OUTPUT, NRF_GPIO_PIN_INPUT_DISCONNECT,
 		     NRF_GPIO_PIN_NOPULL, NRF_GPIO_PIN_H0H1, NRF_GPIO_PIN_NOSENSE);
-	nrf_gpio_pin_clear(PIN_CLK);
-	nrf_gpio_pin_set(PIN_CMD);
+	CLK_LO();
+	NRF_P0->OUTSET = P0_CMD;
 	nrf_gpio_cfg_output(PIN_CMD);
 	nrf_gpio_cfg_input(PIN_DAT0, NRF_GPIO_PIN_PULLUP);   /* driven only while writing */
 	nrf_gpio_cfg_output(PIN_RST);
 	nrf_gpio_cfg_output(PIN_VCCQ);
+	spim_setup();
 
 	/* Power and reset, as the tape-looper does it. RST_n only acts if the card's
 	 * RST_n_FUNCTION is enabled -- it is not on this unit (EXT_CSD[162] = 0). */
@@ -432,12 +545,11 @@ bool sp1_emmc_init(struct sp1_emmc_ident *id)
 	nrf_gpio_pin_set(PIN_RST);
 	k_msleep(2);
 
-	nrf_gpio_pin_set(PIN_CMD);
 	for (int i = 0; i < 80; i++) {          /* >= 74 clocks before the first command */
-		clk_pulse();
+		pulse(true);
 	}
 
-	(void)send_cmd(0, 0, NULL, 0);          /* CMD0 GO_IDLE_STATE, no response */
+	(void)send_cmd(0, 0, NULL, 0, true);    /* CMD0 GO_IDLE_STATE, no response */
 	k_msleep(1);
 
 	/* CMD1 SEND_OP_COND, sector addressing (HCS), until the power-up bit (OCR[31],
@@ -446,7 +558,7 @@ bool sp1_emmc_init(struct sp1_emmc_ident *id)
 	bool up = false;
 	while (!up && !aborted && (k_uptime_get_32() - t_on) < INIT_TIMEOUT_MS) {
 		id->ocr_tries++;
-		if (send_cmd(1, 0x40ff8000u, r, R1_BITS)) {
+		if (send_cmd(1, 0x40ff8000u, r, R1_BITS, true)) {
 			id->ocr = resp_bits(r, 8, 32);
 			up = (id->ocr & 0x80000000u) != 0u;
 		}
@@ -486,6 +598,7 @@ bool sp1_emmc_init(struct sp1_emmc_ident *id)
 		return false;
 	}
 	ready = true;
+	cmd_fast = true;                         /* identification over: full speed */
 
 	/* The size, from EXT_CSD SEC_COUNT [215:212]. */
 	static uint8_t xcsd[SP1_EMMC_BLOCK];
@@ -530,11 +643,12 @@ bool sp1_emmc_read_block(uint32_t block, uint8_t buf[SP1_EMMC_BLOCK])
 
 bool sp1_emmc_write_block(uint32_t block, const uint8_t buf[SP1_EMMC_BLOCK])
 {
+	static const enum mode modes[] = { M_SPIM, M_FAST, M_SLOW };
 	if (!sp1_emmc_ready() || block >= sectors) {
 		return false;
 	}
 	uint8_t r[(R1_BITS + 7u) / 8u];
-	for (int t = 0; t < BLOCK_TRIES && !aborted; t++) {
+	for (unsigned t = 0; t < ARRAY_SIZE(modes) && !aborted; t++) {
 		/* CMD24 WRITE_BLOCK. Its R1 reports this command's own errors (address out
 		 * of range, write protect, ...): never send data after one of those. */
 		if (!send_cmd_retry(24, block, r, R1_BITS)) {
@@ -543,11 +657,71 @@ bool sp1_emmc_write_block(uint32_t block, const uint8_t buf[SP1_EMMC_BLOCK])
 		if ((resp_bits(r, 8, 32) & WRITE_FATAL) != 0u) {
 			return false;
 		}
-		if (write_data(buf, t > 0)) {
+		if (write_data(buf, modes[t])) {
 			return true;
 		}
 	}
 	return false;
+}
+
+bool sp1_emmc_read_blocks(uint32_t block, uint8_t *buf, uint32_t n)
+{
+	if (!sp1_emmc_ready() || n == 0u || block >= sectors || n > sectors - block) {
+		return false;
+	}
+	/* The card reads ahead in a CMD18; ending one on the very last block can trip
+	 * ADDRESS_OUT_OF_RANGE, so the device's last block always goes on its own. */
+	uint32_t multi = (block + n == sectors) ? n - 1u : n;
+	uint32_t done = 0;
+	if (multi >= 2u) {
+		uint8_t r[(R1_BITS_DATA + 7u) / 8u];
+		if (send_cmd_retry(18, block, r, R1_BITS_DATA)) {
+			while (done < multi && read_data(buf + done * SP1_EMMC_BLOCK, M_SPIM)) {
+				done++;
+			}
+			(void)stop_transmission(false);
+			st.multi_blocks += done;
+			if (done < multi) {
+				st.multi_fallbacks++;
+			}
+		}
+	}
+	for (; done < n; done++) {               /* the rest, or all of it, one by one */
+		if (!sp1_emmc_read_block(block + done, buf + done * SP1_EMMC_BLOCK)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool sp1_emmc_write_blocks(uint32_t block, const uint8_t *buf, uint32_t n)
+{
+	if (!sp1_emmc_ready() || n == 0u || block >= sectors || n > sectors - block) {
+		return false;
+	}
+	uint32_t done = 0;
+	if (n >= 2u) {
+		uint8_t r[(R1_BITS + 7u) / 8u];
+		if (send_cmd_retry(25, block, r, R1_BITS) &&
+		    (resp_bits(r, 8, 32) & WRITE_FATAL) == 0u) {
+			while (done < n && write_data(buf + done * SP1_EMMC_BLOCK, M_SPIM)) {
+				done++;
+			}
+			if (!stop_transmission(true)) {
+				done = 0;                /* unsure what landed: rewrite it all */
+			}
+			st.multi_blocks += done;
+			if (done < n) {
+				st.multi_fallbacks++;
+			}
+		}
+	}
+	for (; done < n; done++) {               /* rewriting a block is harmless */
+		if (!sp1_emmc_write_block(block + done, buf + done * SP1_EMMC_BLOCK)) {
+			return false;
+		}
+	}
+	return true;
 }
 
 void sp1_emmc_get_stats(struct sp1_emmc_stats *s)
@@ -558,6 +732,17 @@ void sp1_emmc_get_stats(struct sp1_emmc_stats *s)
 void sp1_emmc_power_down(void)
 {
 	ready = false;
+	cmd_fast = false;
+	if (spim_on) {
+		NRF_SPIM3->ENABLE = 0;
+		NRF_SPIM3->PSEL.SCK = 0xffffffffu;
+		NRF_SPIM3->PSEL.MOSI = 0xffffffffu;
+		NRF_SPIM3->PSEL.MISO = 0xffffffffu;
+		/* nRF52840 anomaly 195: SPIM3 keeps drawing current after disable unless
+		 * this is written (nrfx_spim_uninit does the same). */
+		*(volatile uint32_t *)0x4002F004 = 1;
+		spim_on = false;
+	}
 	nrf_gpio_pin_clear(PIN_RST);
 	nrf_gpio_cfg_default(PIN_CLK);
 	nrf_gpio_cfg_default(PIN_CMD);

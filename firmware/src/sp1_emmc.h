@@ -6,10 +6,11 @@
  * Protocol from chattock/sp1-tape-looper firmware/src/sp1_emmc.c (MIT), itself ported
  * from Tim Knapen's SP-1-dev emmc.c (MIT): the command framing, the response sampling
  * points, the init sequence and the write framing are theirs, proven on this board.
- * Reduced here to single blocks, bit-banged only (no SPIM3 data path); every block read
- * is CRC-checked and every block write must get the card's "accepted" token.
+ * Payloads ride SPIM3 DMA at 16 MHz with bit-banged fallbacks (sp1_emmc.c, "fast
+ * transfer"); every block read is CRC-checked and every block write must get the card's
+ * "accepted" token.
  *
- * ⚠️ Commands sent: 0, 1, 2, 3, 7, 8, 13, 16, 17, 24. Nothing that touches EXT_CSD
+ * ⚠️ Commands sent: 0, 1, 2, 3, 7, 8, 12, 13, 16, 17, 18, 24, 25. Nothing that touches EXT_CSD
  * (CMD6), nothing that erases (CMD35/36/38), nothing that partitions. The card's OTP
  * settings are never written.
  *
@@ -40,9 +41,13 @@ struct sp1_emmc_ident {
 struct sp1_emmc_stats {
 	uint32_t cmd_retries;    /* a command that needed more than one try              */
 	uint32_t crc_errs;       /* data blocks whose CRC16 did not match (then retried) */
-	uint32_t timeouts;       /* data start bit never came / busy never ended          */
+	uint32_t hunt_timeouts;  /* a data block's start bit never came (100 ms)          */
+	uint32_t busy_timeouts;  /* the card stayed busy after a write (500 ms)           */
+	uint32_t spim_timeouts;  /* an SPIM3 transfer did not end (5 ms)                 */
 	uint32_t wr_rejects;     /* writes the card did not accept (then retried)        */
 	uint32_t wr_busy_max_us; /* longest programming busy after a write               */
+	uint32_t multi_blocks;   /* blocks moved inside CMD18 / CMD25 bursts             */
+	uint32_t multi_fallbacks;/* bursts that had to finish block by block            */
 };
 
 /* Power the card, identify it, select it, block length 512, read its size. Bounded:
@@ -66,6 +71,13 @@ bool sp1_emmc_read_ext_csd(uint8_t buf[SP1_EMMC_BLOCK]);
  * programming busy is waited out (bounded). Both retried up to 3 times. */
 bool sp1_emmc_read_block(uint32_t block, uint8_t buf[SP1_EMMC_BLOCK]);
 bool sp1_emmc_write_block(uint32_t block, const uint8_t buf[SP1_EMMC_BLOCK]);
+
+/* `n` consecutive blocks in one CMD18 / CMD25 burst (fast transfer). A burst that fails
+ * part-way is stopped and the rest done block by block through the calls above, so the
+ * result is the same as n single calls, only faster. `buf` must be in RAM for reads
+ * (SPIM3 DMAs into it); writes copy through a RAM frame, so any source works. */
+bool sp1_emmc_read_blocks(uint32_t block, uint8_t *buf, uint32_t n);
+bool sp1_emmc_write_blocks(uint32_t block, const uint8_t *buf, uint32_t n);
 
 void sp1_emmc_get_stats(struct sp1_emmc_stats *s);
 

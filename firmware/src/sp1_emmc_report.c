@@ -289,7 +289,11 @@ void sp1_emmc_report_stats(void)
 {
 	struct sp1_emmc_stats s;
 	sp1_emmc_get_stats(&s);
-	LINE("EMMC errors: command retries %u, read CRC %u, write rejects %u, timeouts %u;"
-	     " longest write busy %u us\n", (unsigned)s.cmd_retries, (unsigned)s.crc_errs,
-	     (unsigned)s.wr_rejects, (unsigned)s.timeouts, (unsigned)s.wr_busy_max_us);
+	LINE("EMMC errors: command retries %u, read CRC %u, write rejects %u, timeouts: "
+	     "data %u busy %u spim %u; longest write busy %u us\n", (unsigned)s.cmd_retries,
+	     (unsigned)s.crc_errs, (unsigned)s.wr_rejects, (unsigned)s.hunt_timeouts,
+	     (unsigned)s.busy_timeouts, (unsigned)s.spim_timeouts,
+	     (unsigned)s.wr_busy_max_us);
+	LINE("EMMC fast transfer: %u blocks in multi-block bursts, %u bursts finished "
+	     "block by block\n", (unsigned)s.multi_blocks, (unsigned)s.multi_fallbacks);
 }

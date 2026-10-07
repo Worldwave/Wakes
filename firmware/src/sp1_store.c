@@ -33,7 +33,6 @@
 
 static volatile bool stop;
 static atomic_t busy;
-static uint8_t sec[SP1_EMMC_BLOCK];
 
 /* What main's storage_gate() reads (sp1_store.h). */
 static atomic_t phase = ATOMIC_INIT(SP1_STORE_READY);
@@ -80,11 +79,9 @@ static int d_status(struct disk_info *d)
 static int d_read(struct disk_info *d, uint8_t *buf, uint32_t start, uint32_t n)
 {
 	ARG_UNUSED(d);
-	for (uint32_t i = 0; i < n; i++) {
-		if (start + i >= view_count ||
-		    !sp1_emmc_read_block(view_base + start + i, buf + i * SP1_EMMC_BLOCK)) {
-			return -EIO;
-		}
+	if (start >= view_count || n > view_count - start ||
+	    !sp1_emmc_read_blocks(view_base + start, buf, n)) {
+		return -EIO;
 	}
 	return 0;
 }
@@ -92,13 +89,18 @@ static int d_read(struct disk_info *d, uint8_t *buf, uint32_t start, uint32_t n)
 static int d_write(struct disk_info *d, const uint8_t *buf, uint32_t start, uint32_t n)
 {
 	ARG_UNUSED(d);
-	for (uint32_t i = 0; i < n; i++) {
-		if (start + i >= view_count ||
-		    !wr(view_base + start + i, buf + i * SP1_EMMC_BLOCK)) {
-			return -EIO;
-		}
+	if (start >= view_count || n > view_count - start) {
+		return -EIO;
 	}
-	return 0;
+	if (counting) {                          /* a format: block by block, for the bar */
+		for (uint32_t i = 0; i < n; i++) {
+			if (!wr(view_base + start + i, buf + i * SP1_EMMC_BLOCK)) {
+				return -EIO;
+			}
+		}
+		return 0;
+	}
+	return sp1_emmc_write_blocks(view_base + start, buf, n) ? 0 : -EIO;
 }
 
 static int d_ioctl(struct disk_info *d, uint8_t cmd, void *buf)
@@ -199,6 +201,8 @@ static int read_file(const char *path, void *d, size_t max, size_t *got)
 #if defined(CONFIG_SP1_FRESH)
 
 #define STAMP DIR_WAKES "/FRESH.ID"
+
+static uint8_t sec[SP1_EMMC_BLOCK];      /* block 0, the boot sectors, the MBR */
 
 /* Different for every build of the fresh image, so each one formats once. */
 static const char image_id[] = "Wakes v" APP_VERSION_STRING " fresh, built "
@@ -353,7 +357,11 @@ static void fresh(void)
 
 #define BOOTS    DIR_WAKES "/BOOTS.TXT"
 #define TESTFILE DIR_WAKES "/TEST.BIN"
-#define TEST_KB  64u
+#define TEST_KB  512u
+/* 16 KB chunks: FatFs hands a whole-sector write straight to the disk, so each one is a
+ * 32-block burst -- what fast transfer is for. Test builds only. */
+#define CHUNK    16384u
+static uint8_t bulk[CHUNK];
 
 static uint8_t pattern(uint32_t i, uint32_t seed)
 {
@@ -388,39 +396,42 @@ static void file_test(void)
 	LINE("STORE test: ON entries on this card: %u (%s)\n", (unsigned)boots,
 	     same ? "written, read back" : "FAILED");
 
-	/* 64 KB of a pattern: write, read back, compare, delete. */
+	/* 512 KB of a pattern, in 16 KB chunks: write, read back, compare, delete. The
+	 * pattern is generated outside the timed span so the figure is the transfer's. */
 	struct fs_file_t f;
 	fs_file_t_init(&f);
-	uint32_t t0 = k_uptime_get_32();
+	uint32_t wms = 0;
 	rc = fs_open(&f, TESTFILE, FS_O_CREATE | FS_O_WRITE);
-	for (uint32_t b = 0; rc == 0 && b < TEST_KB * 2u && !stop; b++) {
-		for (uint32_t i = 0; i < SP1_EMMC_BLOCK; i++) {
-			sec[i] = pattern(b * SP1_EMMC_BLOCK + i, boots);
+	for (uint32_t c = 0; rc == 0 && c < TEST_KB * 1024u / CHUNK && !stop; c++) {
+		for (uint32_t i = 0; i < CHUNK; i++) {
+			bulk[i] = pattern(c * CHUNK + i, boots);
 		}
-		const ssize_t w = fs_write(&f, sec, sizeof(sec));
-		rc = (w == (ssize_t)sizeof(sec)) ? 0 : -EIO;
+		const uint32_t t0 = k_uptime_get_32();
+		const ssize_t w = fs_write(&f, bulk, CHUNK);
+		wms += k_uptime_get_32() - t0;
+		rc = (w == (ssize_t)CHUNK) ? 0 : -EIO;
 	}
 	if (fs_close(&f) != 0 && rc == 0) {
 		rc = -EIO;
 	}
-	const uint32_t wms = k_uptime_get_32() - t0;
 	if (rc != 0 || stop) {
 		LINE("STORE test: write %u KB FAILED (%d)\n", (unsigned)TEST_KB, rc);
 		return;
 	}
-	t0 = k_uptime_get_32();
+	uint32_t rms = 0;
 	uint32_t bad = 0;
 	fs_file_t_init(&f);
 	rc = fs_open(&f, TESTFILE, FS_O_READ);
-	for (uint32_t b = 0; rc == 0 && b < TEST_KB * 2u && !stop; b++) {
-		const ssize_t r = fs_read(&f, sec, sizeof(sec));
-		rc = (r == (ssize_t)sizeof(sec)) ? 0 : -EIO;
-		for (uint32_t i = 0; rc == 0 && i < SP1_EMMC_BLOCK; i++) {
-			bad += (sec[i] != pattern(b * SP1_EMMC_BLOCK + i, boots));
+	for (uint32_t c = 0; rc == 0 && c < TEST_KB * 1024u / CHUNK && !stop; c++) {
+		const uint32_t t0 = k_uptime_get_32();
+		const ssize_t r = fs_read(&f, bulk, CHUNK);
+		rms += k_uptime_get_32() - t0;
+		rc = (r == (ssize_t)CHUNK) ? 0 : -EIO;
+		for (uint32_t i = 0; rc == 0 && i < CHUNK; i++) {
+			bad += (bulk[i] != pattern(c * CHUNK + i, boots));
 		}
 	}
 	(void)fs_close(&f);
-	const uint32_t rms = k_uptime_get_32() - t0;
 	LINE("STORE test: %u KB written in %u ms (%u KB/s), read back in %u ms (%u KB/s):"
 	     " %s\n", (unsigned)TEST_KB, (unsigned)wms,
 	     wms ? (unsigned)(TEST_KB * 1000u / wms) : 0u, (unsigned)rms,
