@@ -8,6 +8,7 @@
 
 #include "sp1_ui_timing.h"
 #include "sp1_midi.h"         /* MIDI CC offsets (M5a) */
+#include "sp1_gtlt.h"         /* GTLT's gain curve, for the t LEDs (#20) */
 
 #include <math.h>
 #include <stddef.h>
@@ -680,14 +681,19 @@ void sp1_mui_params(struct sp1_marbles_params *p)
 	p->y_range = range;   /* one [J] (M4e) */
 }
 
+/* GTLT (issue #20): -1..+1 past the 10 % detent, exactly 0 inside it. The curve and
+ * the TRIG exemption are in sp1_gtlt.h / sp1_synth.cc. Its CC is centred, like t BIAS:
+ * in `sum` it offsets the post-detent value, so a CC alone can engage it. */
+static float gtlt_tilt(void)
+{
+	return 2.0f * (clamp01(detent(stored[SP1_MUI_T_SHIFT][0], DETENT_BIPOLAR) +
+			       mo(SP1_MIDI_D_GTLT)) - 0.5f);
+}
+
 void sp1_mui_routing(struct sp1_mui_routing *out)
 {
 	*out = route;
-	/* GTLT (issue #20): -1..+1 past the 10 % detent, exactly 0 inside it. The curve and
-	 * the TRIG exemption are in sp1_gtlt.h / sp1_synth.cc. Its CC is centred, like t
-	 * BIAS: in `sum` it offsets the post-detent value, so a CC alone can engage it. */
-	out->gtlt = 2.0f * (clamp01(detent(stored[SP1_MUI_T_SHIFT][0], DETENT_BIPOLAR) +
-				    mo(SP1_MIDI_D_GTLT)) - 0.5f);
+	out->gtlt = gtlt_tilt();
 }
 
 float sp1_mui_bpm(void)
@@ -710,9 +716,17 @@ static void leds_of(enum sp1_mui_layer l, uint8_t out[4])
 	if (base && show_ms == 0u) {
 		/* Marbles' own output LEDs; T4 = Y on both pages. */
 		if (page == SP1_MUI_PAGE_T) {
+			/* A high gate shows its HEIGHT under GTLT (#20), on every output whatever
+			 * it is routed to, from 5 % for a 0 % gate up to full (Adara: 5 % is
+			 * "signal strength 0", so a gate still firing TRIG never goes dark). Low
+			 * gates are off. On the detent every gain is 1, so this is the old
+			 * on/off display exactly. */
 			const uint8_t g = sp1_marbles_last_gates();
+			const float tilt = gtlt_tilt();
 			for (int i = 0; i < 3; i++) {
-				out[i] = (g & (1u << i)) ? 255u : 0u;
+				const float x = SP1_GTLT_LED_FLOOR +
+					(1.0f - SP1_GTLT_LED_FLOOR) * sp1_gtlt_gain(tilt, i);
+				out[i] = (g & (1u << i)) ? (uint8_t)(x * 255.0f + 0.5f) : 0u;
 			}
 		} else {
 			for (int i = 0; i < 3; i++) {

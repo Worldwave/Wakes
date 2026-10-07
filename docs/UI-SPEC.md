@@ -322,7 +322,8 @@ free-form full-brightness glyph per model, tabulated in `docs/MARBLES-SETTINGS.m
 half-brightness "other bank" glyphs of v0.9 are gone: Adara found dimmed glyphs hard to tell
 apart in room light, which is the same finding that took the engine flash's `◐` to 33 %.
 
-**Track row, default: Marbles' own output LEDs.** t page: T1–T3 = t1–t3 gates; X page:
+**Track row, default: Marbles' own output LEDs.** t page: T1–T3 = t1–t3 gates, a high gate lit
+at its GTLT height (v0.17, #20) with 0 % shown at 5 % so a gate firing TRIG never goes dark; X page:
 T1–T3 = |X1|–|X3| over the selected range; **T4 = |Y| on both pages.** Stopped, X and Y hold
 their last voltage (as the module does). Moving a fader shows the page's four values for
 1.2 s (bipolar ones as magnitude, as on PLAITS). The page pattern flashes on a page change and

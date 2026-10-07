@@ -8,7 +8,8 @@
 #include "sp1_release_guard.h"
 
 /* ---- stubs for the parts that live in the audio thread ---- */
-uint8_t sp1_marbles_last_gates(void) { return 0u; }
+static uint8_t stub_gates;   /* t1..t3 as Marbles last rendered them (section 19) */
+uint8_t sp1_marbles_last_gates(void) { return stub_gates; }
 float sp1_marbles_last_volts(int k) { (void)k; return 0.0f; }
 float sp1_marbles_bpm(float rate, int r) { (void)r; return 120.0f * powf(2.0f, rate / 12.0f); }
 const char *sp1_marbles_model_name(int m)
@@ -888,6 +889,48 @@ int main(void)
 		sp1_mui_rip();
 		sp1_mui_routing(&r);
 		CHECK(r.gtlt == 0.0f, "a rip did not return GTLT to its detent: %.3f", r.gtlt);
+	}
+
+	/* ---------- 19. the t page's gate LEDs show GTLT's height (issue #20) ---------- */
+	printf("19. GTLT on the t LEDs\n");
+	{
+		uint16_t f[4];
+		const uint8_t floor5 = (uint8_t)(0.05f * 255.0f + 0.5f);
+		sp1_mui_init();
+		sp1_mui_enter(raw_mid, false);
+		for (int i = 0; i < 200; i++) {            /* > 1.2 s: no value overlay */
+			sp1_mui_tick(8u, raw_mid, true, false, false);
+		}
+		stub_gates = 0x7u;
+		sp1_mui_leds(lv);
+		CHECK(lv[0] == 255u && lv[1] == 255u && lv[2] == 255u,
+		      "GTLT on its detent should leave high gates full: %u %u %u",
+		      lv[0], lv[1], lv[2]);
+		stub_gates = 0x0u;
+		sp1_mui_leds(lv);
+		CHECK((lv[0] | lv[1] | lv[2]) == 0u, "low gates should be dark");
+
+		/* t SHIFT F1 to the top = tilt +1: t1 0 %, t2 untouched, t3 100 % */
+		memcpy(f, raw_mid, sizeof(f));
+		f[0] = 3701;
+		for (int i = 0; i < 400; i++) {
+			sp1_mui_tick(8u, f, true, true, false);
+		}
+		for (int i = 0; i < 200; i++) {            /* back to BASE, faders still */
+			sp1_mui_tick(8u, f, true, false, false);
+		}
+		stub_gates = 0x7u;
+		sp1_mui_leds(lv);
+		printf("   tilt +1, all gates high: %u %u %u (5 %% = %u)\n",
+		       lv[0], lv[1], lv[2], floor5);
+		CHECK(lv[0] == floor5, "t1 at 0 %% should show the 5 %% floor, got %u", lv[0]);
+		CHECK(lv[1] == 255u && lv[2] == 255u, "t2 / t3 should be full: %u %u",
+		      lv[1], lv[2]);
+		/* the same whether t1 goes to TRIG or nowhere (every output dims) */
+		sp1_mui_t_dest_step(0);
+		sp1_mui_leds(lv);
+		CHECK(lv[0] == floor5, "t1's LED should not depend on its routing: %u", lv[0]);
+		stub_gates = 0x0u;
 	}
 
 	printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "all checks passed",

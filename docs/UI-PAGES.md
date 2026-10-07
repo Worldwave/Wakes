@@ -407,7 +407,7 @@ is the most predictable starting point, and t1 / t3 are then yours to route.
 
 | | |
 |---|---|
-| **model row, BASE** | **Marbles' own output LEDs**: on the t page T1–T3 are the t1–t3 gates; on the X page they are \|X1\|…\|X3\| against the selected range. **T4 is always \|Y\|.** Moving a fader shows that page's four values instead, for 1.2 s. |
+| **model row, BASE** | **Marbles' own output LEDs**: on the t page T1–T3 are the t1–t3 gates, each lit at its GTLT height (0 % shows as 5 %); on the X page they are \|X1\|…\|X3\| against the selected range. **T4 is always \|Y\|.** Moving a fader shows that page's four values instead, for 1.2 s. |
 | **model row, SHIFT / SETTINGS** | that layer's four values; free faders read dark. SETTINGS breathes. |
 | **play row** | **Marbles' clock** in front, stepping once per t2 tick from the `••` end, with the dB meter behind it at ~10 %. (On PLAITS it is the other way round.) |
 

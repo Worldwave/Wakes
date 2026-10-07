@@ -37,7 +37,7 @@
  *
  * ---- track row ----
  *   BASE: Marbles' output LEDs -- T1-T3 = t1-t3 gates (t page) or |X1-X3| (X page),
- *   T4 = |Y| always. Moving a fader shows the page's four values for 1.2 s instead.
+ *   T4 = |Y| always. A high gate shows its GTLT height, 0 % as 5 % (sp1_gtlt.h). Moving a fader shows the page's four values for 1.2 s instead.
  *   SHIFT: the SHIFT layer's values. SETTINGS: the Y values, breathing.
  */
 #ifndef SP1_MARBLES_UI_H
