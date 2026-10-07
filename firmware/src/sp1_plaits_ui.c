@@ -35,6 +35,11 @@
  * been chased twice (M4a, M4e). */
 #define CATCH_JUMP        0.25f    /* of travel, in one tick: a sampling artefact   */
 #define CATCH_MATCH       0.005f   /* pot_controller.h: close enough to track       */
+/* After a layer change a fader must move this far from where the finger is before its new
+ * parameter takes anything (pot_controller.h, POT_STATE_LOCKING's 0.03). Without it the
+ * low-pass tail of the last move, and a finger still resting on the fader, carried a SHIFT
+ * edit into BASE as the "••" came up (found on MARBLES, GTLT -> CLOK, #20). */
+#define CATCH_LOCK        0.03f
 #define DETENT_BIPOLAR    0.10f    /* Adara: 10 % of travel                          */
 #define DETENT_FREQ       0.05f    /* Adara: 5 % for FREQUENCY                       */
 /* ...and 10 % while MIDI is active (Adara, M5a test notes): with a keyboard playing through
@@ -63,6 +68,9 @@ static float stored[SP1_PUI_LAYERS][4];   /* pot-space 0..1, before detents     
 static bool  catching[SP1_PUI_LAYERS][4];
 static float pos[4];                      /* smoothed physical fader, 0..1       */
 static float prev[4];                     /* catch-up reference, per fader       */
+static float now01[4];                    /* this tick's UNFILTERED positions    */
+static float lock_ref[4];                 /* where each finger was at the change */
+static bool  locked[4];                   /* inside CATCH_LOCK since that change */
 
 static enum sp1_pui_layer page = SP1_PUI_BASE;
 static enum sp1_pui_layer active = SP1_PUI_BASE;
@@ -170,6 +178,8 @@ static void activate(enum sp1_pui_layer l)
 	for (int i = 0; i < 4; i++) {
 		prev[i] = pos[i];
 		catching[l][i] = fabsf(stored[l][i] - pos[i]) >= CATCH_MATCH;
+		lock_ref[i] = now01[i];
+		locked[i] = true;
 	}
 }
 
@@ -223,6 +233,7 @@ void sp1_pui_enter(const uint16_t raw[4])
 {
 	for (int i = 0; i < 4; i++) {
 		pos[i] = to01(raw[i]);
+		now01[i] = pos[i];
 	}
 	if (!base_seeded) {
 		base_seeded = true;
@@ -243,6 +254,7 @@ void sp1_pui_resume(const uint16_t raw[4], bool fnc)
 {
 	for (int i = 0; i < 4; i++) {
 		pos[i] = to01(raw[i]);
+		now01[i] = pos[i];
 	}
 	pickup_all();
 	fnc_was = fnc;
@@ -259,7 +271,8 @@ uint32_t sp1_pui_tick(uint32_t elapsed_ms, const uint16_t raw[4], bool valid,
 
 	if (valid) {
 		for (int i = 0; i < 4; i++) {
-			pos[i] += (to01(raw[i]) - pos[i]) * FADER_LP;
+			now01[i] = to01(raw[i]);
+			pos[i] += (now01[i] - pos[i]) * FADER_LP;
 		}
 	}
 
@@ -313,6 +326,18 @@ uint32_t sp1_pui_tick(uint32_t elapsed_ms, const uint16_t raw[4], bool valid,
 				 * catches up from where it is rather than from where it was. */
 				prev[i] = pos[i];
 				catching[active][i] = fabsf(*s - pos[i]) >= CATCH_MATCH;
+				continue;
+			}
+			if (locked[i]) {
+				/* Since the layer change: the filter's tail and a resting finger
+				 * are not movement (CATCH_LOCK). Tracking or catching up was decided
+				 * at the change and is NOT re-decided here: re-checking against a
+				 * fader that has already moved would put a tracking fader into
+				 * catch-up and leave its value short of the fader. */
+				prev[i] = pos[i];
+				if (fabsf(now01[i] - lock_ref[i]) > CATCH_LOCK) {
+					locked[i] = false;
+				}
 				continue;
 			}
 			if (!catching[active][i]) {

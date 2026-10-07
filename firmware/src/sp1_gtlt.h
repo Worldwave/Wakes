@@ -34,8 +34,9 @@
 #define SP1_GTLT_RAMP 0.1f
 
 /* The t page's track row draws a high gate at its GTLT height, 0 % shown as this
- * brightness (perceptual, before the LED gamma table) rather than dark (Adara). */
-#define SP1_GTLT_LED_FLOOR 0.05f
+ * brightness (perceptual, before the LED gamma table) rather than dark. 8 % (Adara: 5 % was
+ * too dim to see at GTLT's extremes). */
+#define SP1_GTLT_LED_FLOOR 0.08f
 
 /* tilt: -1..+1, 0 = centre (the UI applies the detent). t: 0..2 = t1..t3. */
 static inline float sp1_gtlt_gain(float tilt, int t)

@@ -12,6 +12,11 @@ the reverse. t2 is never touched. A gate stays 0 V / +5 V — +5 V is the positi
 destination a t output can reach — and GTLT scales the +5 V; the attenuverters and fader / CC
 positions do the rest. **TRIG ignores GTLT**, so rhythm stays predictable. Unsmoothed. MIDI: CC 89,
 7-bit, centred. Costs nothing per sample: the gain is folded into the routing once per audio block.
+**Pickup gets a 3 % lock on every layer change, on both modules** (Adara: a GTLT edit was carrying
+into CLOK). After `••` goes down or comes up, a fader's new parameter takes nothing until the fader
+has moved 3 % from where the finger is — Plaits' own `POT_STATE_LOCKING` threshold — so the fader's
+smoothing tail and a finger still resting on it no longer reach the other layer. Whether the fader
+then tracks or catches up is unchanged.
 
 v0.16 — 2026-10-06: **OCTV loses Plaits' LFO range** (#18, Adara). The bottom 1/11 of SETTINGS F1
 is now the **full range with no centre detent**: F1 sweeps through C4 without the flat spot and can
@@ -323,7 +328,7 @@ half-brightness "other bank" glyphs of v0.9 are gone: Adara found dimmed glyphs 
 apart in room light, which is the same finding that took the engine flash's `◐` to 33 %.
 
 **Track row, default: Marbles' own output LEDs.** t page: T1–T3 = t1–t3 gates, a high gate lit
-at its GTLT height (v0.17, #20) with 0 % shown at 5 % so a gate firing TRIG never goes dark; X page:
+at its GTLT height (v0.17, #20) with 0 % shown at 8 % so a gate firing TRIG never goes dark; X page:
 T1–T3 = |X1|–|X3| over the selected range; **T4 = |Y| on both pages.** Stopped, X and Y hold
 their last voltage (as the module does). Moving a fader shows the page's four values for
 1.2 s (bipolar ones as magnitude, as on PLAITS). The page pattern flashes on a page change and

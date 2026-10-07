@@ -22,6 +22,11 @@
  * and the bug it is the second half of the fix for, is in sp1_plaits_ui.c -- kept there
  * because that is where the symptom was, and it is the same number for the same reason. */
 #define CATCH_JUMP        0.25f
+/* After a layer change a fader must move this far from where the finger is before its new
+ * parameter takes anything (pot_controller.h, POT_STATE_LOCKING's 0.03). Without it the
+ * low-pass tail of the last move, and a finger still resting on the fader, carried a GTLT
+ * edit into CLOK as the "••" came up (#20). Same rule in sp1_plaits_ui.c. */
+#define CATCH_LOCK        0.03f
 #define DETENT_BIPOLAR    0.10f
 #define TAP_MAX_MS        300u
 #define DOUBLE_TAP_MS     400u
@@ -105,6 +110,9 @@ static float stored[SP1_MUI_LAYERS][4];
 static bool  catching[SP1_MUI_LAYERS][4];
 static float pos[4];
 static float prev[4];
+static float now01[4];                     /* this tick's UNFILTERED positions    */
+static float lock_ref[4];                  /* where each finger was at the change */
+static bool  locked[4];                    /* inside CATCH_LOCK since that change */
 static float shown[4];                     /* fader positions last reflected      */
 static uint32_t show_ms;                   /* value overlay on BASE, counts down  */
 
@@ -236,6 +244,8 @@ static void activate(enum sp1_mui_layer l)
 		prev[i] = pos[i];
 		CAT(l, i) = fabsf(VAL(l, i) - pos[i]) >= CATCH_MATCH;
 		shown[i] = pos[i];
+		lock_ref[i] = now01[i];
+		locked[i] = true;
 	}
 }
 
@@ -336,6 +346,7 @@ void sp1_mui_enter(const uint16_t raw[4], bool fnc)
 {
 	for (int i = 0; i < 4; i++) {
 		pos[i] = to01(raw[i]);
+		now01[i] = pos[i];
 	}
 	fnc_was = fnc;
 	press_dirty = true;       /* a "••" already down is not a tap */
@@ -353,7 +364,8 @@ uint32_t sp1_mui_tick(uint32_t elapsed_ms, const uint16_t raw[4], bool valid,
 
 	if (valid) {
 		for (int i = 0; i < 4; i++) {
-			pos[i] += (to01(raw[i]) - pos[i]) * FADER_LP;
+			now01[i] = to01(raw[i]);
+			pos[i] += (now01[i] - pos[i]) * FADER_LP;
 		}
 	}
 
@@ -405,6 +417,16 @@ uint32_t sp1_mui_tick(uint32_t elapsed_ms, const uint16_t raw[4], bool valid,
 				 * rests, and catches up after the port goes (sp1_plaits_ui.c). */
 				prev[i] = pos[i];
 				CAT(active, i) = fabsf(*s - pos[i]) >= CATCH_MATCH;
+			} else if (locked[i]) {
+				/* Since the layer change: the filter's tail and a resting finger
+				 * are not movement (CATCH_LOCK). Tracking or catching up was decided
+				 * at the change and is NOT re-decided here: re-checking against a
+				 * fader that has already moved would put a tracking fader into
+				 * catch-up and leave its value short of the fader. */
+				prev[i] = pos[i];
+				if (fabsf(now01[i] - lock_ref[i]) > CATCH_LOCK) {
+					locked[i] = false;
+				}
 			} else if (!CAT(active, i)) {
 				*s = pos[i];
 				prev[i] = pos[i];
@@ -717,7 +739,7 @@ static void leds_of(enum sp1_mui_layer l, uint8_t out[4])
 		/* Marbles' own output LEDs; T4 = Y on both pages. */
 		if (page == SP1_MUI_PAGE_T) {
 			/* A high gate shows its HEIGHT under GTLT (#20), on every output whatever
-			 * it is routed to, from 5 % for a 0 % gate up to full (Adara: 5 % is
+			 * it is routed to, from 8 % for a 0 % gate up to full (Adara: the floor is
 			 * "signal strength 0", so a gate still firing TRIG never goes dark). Low
 			 * gates are off. On the detent every gain is 1, so this is the old
 			 * on/off display exactly. */
