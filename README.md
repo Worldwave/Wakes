@@ -3,34 +3,36 @@
        alt="Wakes: a love letter to Mutable Instruments, by Worldwave">
 </p>
 
-Wakes is a semimodular synthesizer, built as a custom firmware for the Teenage Engineering SP-1, Teenage Engineering's unreleased stem player.
-It runs two Mutable Instruments modules combined:
+Wakes is a semimodular synthesizer, built as a custom firmware for the SP-1, an unreleased Teenage Engineering stem player that was turned into a dev board by its community.
+
+Wakes combines two Mutable Instruments modules:
 
 - **Plaits**: A macro-synthesizer voice, featuring multiple sound engines
 - **Marbles**: A playful random sequencer
 
 The development of Wakes is unaffiliated with Teenage Engineering or Mutable Instruments.
-IMPORTANT: Flashing custom firmware on the SP-1 is at your own risk. SP-1s are abandonware, they do not have manufacturer support. 
-REMEMBER: There is no way to go back to the base firmware once you've flashed it away.
+**IMPORTANT:** Flash custom firmware on the SP-1 at your own risk. SP-1s are abandonware, they do not have manufacturer support. There is no way to go back to the base firmware once you've flashed it away.
 
 ## 📖 Manual
 
-**[Wakes – Manual (PDF)](docs/Wakes%20-%20Manual.pdf)**: The manual details the layout of each page, with every control and how how to use them, in an aesthetically pleasing and readable format. Once you've installed Wakes on your SP-1, start there.
+**[Wakes – Manual (PDF)](docs/Wakes%20-%20Manual.pdf)**: The manual details the layout of each page, with every control and how how to use them, in an aesthetically pleasing and readable format. Once you've installed Wakes on your SP-1 using the Flashing section below, start here.
 
 ## Status
 
-**v0.7.2, pre-release for beta testing.** Report problems with the bug form under [Issues](https://github.com/Worldwave/Wakes/issues).
+**v0.8.0, pre-release for beta testing.** Report problems with the bug form under [Issues](https://github.com/Worldwave/Wakes/issues).
 
 ## Flashing
 
-1. **Download the latest [`wakes-sp1.bin`](https://github.com/Worldwave/Wakes/releases/latest/download/wakes-sp1.bin)**.
-   Older versions and release notes are on the [releases page](https://github.com/Worldwave/Wakes/releases).
-2. Open <https://solderless.engineering>. Hold down **T1+T4** while connecting the SP-1 over USB-C.
-3. Follow solderless.engineering's instructions on how to connect to your SP-1 to flash it.
+1. Wakes features new storage protocols for the SP-1. If you've never used Wakes before, you need to format your storage partition. 
+   To do that, download the latest [`wakes-sp1-fresh.bin`](https://github.com/Worldwave/Wakes/releases/latest/download/wakes-sp1-fresh.bin)**.
+2. If you've used Wakes before, and want to avoid touching your storage, **Download the latest [`wakes-sp1.bin`](https://github.com/Worldwave/Wakes/releases/latest/download/wakes-sp1.bin)**.
+3. Older Wakes versions and release notes are available through the repo's [releases page](https://github.com/Worldwave/Wakes/releases).
+4. Open <https://solderless.engineering>. Hold down **T1+T4**. Keep them held while connecting the SP-1 over USB-C.
+5. Follow solderless.engineering's instructions on how to connect to your SP-1 to flash it.
 3. Select the `.bin` in Solderless Engineering's "firmware utility" page, flash it, and once done, you can unplug.
 
-The T1+T4 recovery trigger in step 2 lives in Teenage Engineering's bootloader, not in Wakes, so it
-works with whatever firmware is installed. Wakes never writes below `0x20000` (and neither should your CFW's),
+The T1+T4 recovery trigger in step 4 lives in Teenage Engineering's bootloader, not in Wakes, so it
+works with whatever firmware is installed. Wakes never writes below the flash memory's `0x20000` (and neither should your CFW's),
 because that's where the bootloader lives.
 
 ## Building
