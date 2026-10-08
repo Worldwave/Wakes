@@ -111,7 +111,7 @@ So the combination space is exactly: **`••` + one button**, on either ladder
 | **T2** | previous engine (flashes its glyph) | held 2 s: **UNPATCH TIMBRE** |
 | **T3** | next engine | held 2 s: **UNPATCH MORPH** |
 | **T4** | **swap module** → MARBLES | held 2 s: **UNPATCH HARMONICS** · a short press does nothing (output select moved to SETTINGS T4 in v0.4.6) |
-| **PLAY** | Marbles' clock **run / stop** | held 3 s: **rip out the cables** (see below) |
+| **PLAY** | Marbles' clock **run / stop** | **PRST**: a press shows the current slot (one LED, T1–T4, ramping at 10 Hz for 1.6 s); a press while it shows = the **next slot** (4 → 1), loaded at once. Held 3 s from a press that did not change slot: **rip out the cables** (see below) |
 | **RWD** | one **TRIG** | **coarser** burst division |
 | **FFWD** | held: **burst** — re-triggers on the 1/div grid, running or stopped | **finer** burst division |
 | **VOL− / VOL+** | output level, 3 dB steps | **the soft-clip drive** — see below |
@@ -130,7 +130,11 @@ So the combination space is exactly: **`••` + one button**, on either ladder
   (`docs/DEFAULTS.md` is the spec). On PLAITS: engine → slot 1, the four BASE faders → that
   engine's neutral state (0.5 for a bipolar parameter, 0 for a unipolar one, F1 → centre = C4),
   all four attenuverters → 0, SETTINGS → defaults, quantizer → off, output → OUT, division → 1/32.
-  The row flickers twice, fades to black, and only commits at 3 s; letting go earlier cancels.
+  The row shows the PRST slot glyph for 1.6 s, goes black for 0.25 s, rises to full over 0.4 s,
+  then plays the Unpatch animation and commits at 3 s (#50); letting go once it is past the glyph
+  cancels and returns to the SHIFT screen. After a PRST slot change in the same `••` hold it does
+  not start at all until `••` is released. With PRST off (no filesystem) the glyph's 1.6 s show
+  the page instead; the timing is the same.
   ⚠️ Until M4b this kept the engine and BASE and was a modulation reset. It is a patch wipe now.
   ⚠️ **The faders do not move** — pickup catches them up on the next touch, so straight after a
   rip the instrument sounds neutral while the faders still look wrong. By design.
@@ -287,7 +291,7 @@ TIMBRE, MORPH or HARMONICS.
 | **`••` + T1 / T2 / T3** | **t1 / t2 / t3 destination** · held 2 s: **UNPATCH** that output | **X1 / X2 / X3 destination** · held 2 s: **UNPATCH** that output | — |
 | **`••` + T4** | **Y destination** · held 2 s: **UNPATCH Y** | **Y destination** · held 2 s: **UNPATCH Y** | — |
 | **`••` + FFWD / RWD** | *(free)* | **next / previous scale**, no wrap, excluded scales skipped | *(free)* |
-| **`••` + PLAY** | held 3 s: **rip out the cables** | the same | the same |
+| **`••` + PLAY** | PRST slot / next slot; held 3 s: **rip out the cables** | the same | the same |
 | **VOL− / VOL+** | output level | output level | output level |
 
 ⚠️ **T4 is `[J]` on the SETTINGS page, so the module swap is unavailable there.** Tap `••` once

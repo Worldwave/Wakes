@@ -200,7 +200,13 @@ static bool     burst_was;             /* FFWD burst running (PLAITS, clock stop
 static bool     ffwd_consumed;         /* FFWD pressed with "••": not transport      */
 static uint32_t burst_n0;
 static uint32_t rip_ms;                /* "••" + PLAY held, towards SP1_RIP_HOLD_MS  */
+static bool     rip_armed;             /* this PLAY press may still become ROTC      */
 static bool     rip_show_page;         /* rip done, still held: draw the page        */
+/* PRST's browser (#50): the slot glyph on show, and whether this "••" hold changed slot. */
+static bool     prst_showing;
+static uint32_t prst_show_ms;
+static bool     prst_changed;
+static bool     prst_in_hold;          /* the glyph was opened in THIS "••" hold */
 static uint32_t beats_seen;            /* Marbles t2 ticks already shown             */
 static uint32_t trig_print0;           /* TRIG edges at the last AUD line            */
 
@@ -209,27 +215,6 @@ static const char *const x_range_name[SP1_MRB_RANGE_COUNT] = {
 	"0..2 V", "0..5 V", "-5..+5 V", "INTELLIGENT",
 };
 static const char *const diversity_name[3] = { "identical", "bump", "tilt" };
-
-/* The rip animation (Adara, M4): two quick flickers of the whole row, a fade to black,
- * black -- all while "••" + PLAY are held -- then, once it completes, a fade back to
- * the page (sp1_display_flash). Times in sp1_ui_timing.h. */
-static void rip_levels(uint32_t t, uint8_t lv[4])
-{
-	uint32_t v;
-	if (t < 4u * SP1_RIP_FLICKER_MS) {
-		/* on, off, on, off */
-		v = ((t / SP1_RIP_FLICKER_MS) & 1u) ? 0u : 255u;
-	} else if (t < SP1_RIP_HOLD_MS - SP1_RIP_BLACK_MS) {
-		const uint32_t t0 = 4u * SP1_RIP_FLICKER_MS;
-		const uint32_t span = SP1_RIP_HOLD_MS - SP1_RIP_BLACK_MS - t0;
-		v = 255u - ((t - t0) * 255u) / span;
-	} else {
-		v = 0u;
-	}
-	for (int i = 0; i < 4; i++) {
-		lv[i] = (uint8_t)v;
-	}
-}
 
 /* ================= UNPATCH: "••" held + Tn held (Adara, M4e) =================
  * The one long press in this UI, and deliberately so: it is destructive, it reaches ONE
@@ -308,6 +293,39 @@ static void unpatch_levels(uint32_t t, uint8_t lv[4])
 	lv[1] = (uint8_t)mid;
 	lv[2] = (uint8_t)mid;
 	lv[3] = (uint8_t)out;
+}
+
+/* ---- PRST's slot glyph (Adara, #50) ----
+ * One LED per slot, T1..T4: that LED ramps 100 % -> 0 every SP1_PRST_RAMP_MS (10 Hz), the
+ * other three face LEDs BLACK (Adara) -- sp1_display_flash() is opaque while it holds, so
+ * nothing of the page shows through. The play row carries on as normal (Adara: face LEDs
+ * only). `t` = ms since it appeared. */
+static void prst_glyph_levels(int slot, uint32_t t, uint8_t lv[4])
+{
+	const uint32_t f = t % SP1_PRST_RAMP_MS;
+	for (int i = 0; i < 4; i++) {
+		lv[i] = (i == slot) ? (uint8_t)(255u - (f * 255u) / SP1_PRST_RAMP_MS) : 0u;
+	}
+}
+
+/* ---- ROTC's animation past the glyph (Adara, #50): t = ms since PLAY went down ----
+ * black SP1_ROTC_BLACK_MS, fade up to full over SP1_ROTC_RISE_MS, then the Unpatch
+ * animation; the wipe commits at SP1_RIP_HOLD_MS (sp1_ui_timing.h checks the sum). */
+BUILD_ASSERT(SP1_ROTC_UNPATCH_AT + SP1_UNPATCH_ANIM_MS == SP1_RIP_HOLD_MS,
+	     "ROTC: glyph + black + rise + Unpatch must be SP1_RIP_HOLD_MS (Adara: still 3 s)");
+BUILD_ASSERT(SP1_PRST_GLYPH_MS == 16u * SP1_PRST_RAMP_MS, "16 ramps (Adara)");
+
+static void rotc_levels(uint32_t t, uint8_t lv[4])
+{
+	const uint32_t rise_at = SP1_PRST_GLYPH_MS + SP1_ROTC_BLACK_MS;
+	if (t >= SP1_ROTC_UNPATCH_AT) {
+		unpatch_levels(t - SP1_ROTC_UNPATCH_AT, lv);
+		return;
+	}
+	const uint32_t v = (t < rise_at) ? 0u : ((t - rise_at) * 255u) / SP1_ROTC_RISE_MS;
+	for (int i = 0; i < 4; i++) {
+		lv[i] = (uint8_t)(v > 255u ? 255u : v);
+	}
 }
 
 #if defined(CONFIG_SP1_PLAITS)
@@ -1028,16 +1046,42 @@ static bool prst_gate(void)
 	}
 }
 
-/* The loaded slot, before audio starts. Wakes always comes up in PLAITS (Adara: the module
- * and page are not part of a slot). The faders do not move; pickup catches them up. */
-static void prst_apply(const struct sp1_prst *p)
+/* Load a slot from RAM. The faders do not move; pickup catches them up (Adara, as after a
+ * rip). Safe while audio runs: the same calls a rip makes, and the output / burst / drive
+ * changes are slewed by the synth as from the buttons. */
+static void prst_load(const struct sp1_prst *p)
 {
 	sp1_pui_put(&p->plaits);
 	sp1_mui_put(&p->marbles);
 	g_out_mode = (uint8_t)p->out_mode;
+	sp1_synth_set_output((enum sp1_synth_output)g_out_mode);
 	g_burst_div = (uint8_t)p->burst_div;
+	sp1_synth_set_burst_div(1u << g_burst_div);
 	sp1_synth_set_drive(p->drive);
+}
+
+/* At ON, before audio starts. Wakes always comes up in PLAITS (Adara: the module and page
+ * are not part of a slot). */
+static void prst_apply(const struct sp1_prst *p)
+{
+	prst_load(p);
 	g_module = SP1_MODULE_PLAITS;
+}
+
+/* Every PRST feature and key combination asks this (Adara, #43/#50): a volume that mounted
+ * AND a slot loaded this ON session. UNKNOWN counts as no. */
+static bool prst_available(void)
+{
+	return g_prst_on && sp1_store_volume() == SP1_STORE_VOL_OK;
+}
+
+/* "••" + PLAY's next slot (#50): loaded at once from RAM, the old slot's unsaved changes
+ * dropped. The module and page on show are kept. Saved at the next shutdown. */
+static void prst_select(int slot)
+{
+	g_prst_slot = slot;
+	prst_load(sp1_store_prst_slot(slot));
+	printk("PRST slot %d: %s\n", slot + 1, sp1_pui_engine_name());
 }
 
 static void prst_gather(struct sp1_prst *p)
@@ -1081,6 +1125,12 @@ static void prst_save_at_shutdown(void)
 					     : "FAILED"),
 	       (unsigned)(k_uptime_get_32() - t0));
 }
+#elif defined(CONFIG_SP1_PLAITS)
+/* Without storage there is no PRST: "••" + PLAY is ROTC alone. */
+#define SP1_PRST_SLOTS 4
+static int g_prst_slot;
+static bool prst_available(void) { return false; }
+static void prst_select(int slot) { ARG_UNUSED(slot); }
 #endif
 
 static __noinit uint32_t g_fault_key;
@@ -1358,7 +1408,11 @@ int main(void)
 		sp1_rg_init(&unpatch_eat);
 		burst_n0 = 0u;
 		rip_ms = 0u;
+		rip_armed = false;
 		rip_show_page = false;
+		prst_showing = false;
+		prst_changed = false;
+		prst_in_hold = false;
 		sp1_synth_set_burst_div(1u << g_burst_div);
 		sp1_synth_set_output((enum sp1_synth_output)g_out_mode);
 #if defined(CONFIG_SP1_MIDI)
@@ -1722,98 +1776,132 @@ int main(void)
 					}
 				}
 
-				/* ---- "••" + PLAY held: rip out the cables ----
-				 * ⚠️ A FULL PATCH WIPE of the module on show since M4d; through M4b
-				 * it kept the engine and the BASE faders. docs/DEFAULTS.md is the
-				 * spec. 3 s, with the rip animation owning the track row; letting go
-				 * before the end cancels. A "••" + PLAY press is a shift use, so it
-				 * can never start a power-off.
+				/* ---- "••" + PLAY: PRST and ROTC (Adara, #50) ----
+				 *   1. PLAY pressed with "••" held: the current slot's glyph at
+				 *      once, its LED ramping at 10 Hz for 1.6 s, then the page.
+				 *   2. PLAY pressed again while it shows: the NEXT slot (4 -> 1),
+				 *      loaded at once -- the old slot's unsaved changes dropped, the
+				 *      faders not moved (pickup) -- and its glyph shown. No
+				 *      double-tap delay, so slots can be browsed.
+				 *   3. PLAY kept held from a press that did not change slot: ROTC,
+				 *      3 s in all -- the glyph, black, a rise to full, the Unpatch
+				 *      animation, the wipe (rotc_levels, sp1_ui_timing.h).
+				 *   4. After a slot change, no ROTC until "••" is released.
+				 *   5. Letting go once ROTC's animation has begun (past the glyph)
+				 *      fades back to the SHIFT screen; nothing is wiped.
+				 * Every PRST part asks prst_available() (the volume is OK and this
+				 * ON session loaded a slot); without it this is ROTC alone, with the
+				 * glyph's 1.6 s left as it is -- the page -- so the timing is the same.
 				 *
-				 * Only the FOREGROUND module is wiped (Adara) -- and the page you
-				 * are standing on inside it is kept. The soft-clip drive is the one
-				 * exception that is cleared from either module, because "••" + VOL
-				 * reaches it from both. */
-				if (fnc && sp1_button_held(SP1_BTN_PLAY) && !shutdown_active) {
-					if (rip_ms < SP1_RIP_HOLD_MS) {
-						rip_ms += dt;
-						if (rip_ms >= SP1_RIP_HOLD_MS) {
-							if (marbles) {
-								sp1_mui_rip();
-								/* The rip routes X2 to V/Oct (#50),
-								 * so the M4b interlock applies: the
-								 * quantizer off, the range opened. */
-								voct_took_over(SP1_DEST_VOCT);
-								/* Re-seed AND re-draw the DEJA VU
-								 * loop, deferred into the audio
-								 * thread so it cannot race the
-								 * generators. The clock keeps
-								 * running and its phase jumps once
-								 * (Adara, M4d). */
-								sp1_marbles_reseed(
-									k_cycle_get_32());
-								g_seeded = true;
-								printk("RIP marbles: every output "
-								       "disconnected, %d BPM, %s, "
-								       "re-seeded%s\n",
-								       (int)sp1_mui_bpm(),
-								       sp1_marbles_model_name(
-									       sp1_mui_model()),
-								       sp1_marbles_running()
-								       ? " (clock still running)" : "");
-							} else {
-								sp1_pui_rip();
-								/* ⚠️ The drive is a PLAITS parameter
-								 * and only a PLAITS rip clears it
-								 * (Adara, M4e). M4d cleared it from
-								 * either module on the grounds that
-								 * "••" + VOL reaches it from both --
-								 * but Marbles makes no audio, so the
-								 * drive is not part of its patch and
-								 * a Marbles rip has no business
-								 * touching it. */
-								sp1_synth_set_drive(SP1_PRST_DEF_DRIVE);
-								/* PLAITS-side output controls go
-								 * back too (docs/DEFAULTS.md).
-								 * VOL is deliberately kept. */
-								g_out_mode = SP1_PRST_DEF_OUT;
-								sp1_synth_set_output(
-									(enum sp1_synth_output)g_out_mode);
-								g_burst_div = SP1_PRST_DEF_BURST;   /* 1/32 */
-								sp1_synth_set_burst_div(
-									1u << g_burst_div);
-								printk("RIP plaits: patch wiped -- %s, "
-								       "faders neutral, attenuverters 0, "
-								       "quantizer off, drive off, OUT, "
-								       "1/32\n",
-								       sp1_pui_engine_name());
-							}
-							static const uint8_t dark[4] = { 0u, 0u, 0u, 0u };
-							sp1_display_flash(dark, 0u,
-									  SP1_RIP_FADEBACK_MS);
-							/* ⚠️ Fade back to the PAGE, not the SHIFT
-							 * layer "••" would otherwise show: the rip
-							 * has just zeroed every attenuverter, which
-							 * draws DARK, so the fade went black -> black
-							 * and the rip looked unfinished until "••"
-							 * was let go (issue #4). */
-							rip_show_page = true;
-						} else {
-							uint8_t lv[4];
-							rip_levels(rip_ms, lv);
-							sp1_display_flash(lv, 100u, SP1_RIP_CANCEL_FADE_MS);
-						}
+				 * ROTC is a FULL PATCH WIPE of the module on show (docs/DEFAULTS.md);
+				 * the page you are standing on is kept. A "••" + PLAY press is a
+				 * shift use, so it can never start a power-off. */
+				const bool play_down = sp1_button_held(SP1_BTN_PLAY);
+				if (fnc && sp1_button_pressed(SP1_BTN_PLAY) && !shutdown_active) {
+					if (prst_showing && prst_in_hold && prst_available()) {
+						prst_select((g_prst_slot + 1) % SP1_PRST_SLOTS);
+						prst_changed = true;
+						prst_show_ms = 0u;            /* the new slot's glyph */
+						rip_armed = false;
+					} else {
+						prst_showing = prst_available();
+						prst_in_hold = prst_showing;
+						prst_show_ms = 0u;
+						rip_armed = !prst_changed;
 					}
-				} else {
-					if (rip_ms > 0u && rip_ms < SP1_RIP_HOLD_MS) {
-						/* cancelled: hand the row straight back */
+					rip_ms = 0u;
+				}
+
+				if (rip_armed && fnc && play_down && !shutdown_active) {
+					rip_ms += dt;
+					if (rip_ms >= SP1_PRST_GLYPH_MS) {
+						prst_showing = false;          /* ROTC's animation now */
+					}
+					if (rip_ms >= SP1_RIP_HOLD_MS) {
+						rip_armed = false;
+						if (marbles) {
+							sp1_mui_rip();
+							/* The rip routes X2 to V/Oct (#50), so the
+							 * M4b interlock applies: the quantizer off,
+							 * the range opened. */
+							voct_took_over(SP1_DEST_VOCT);
+							/* Re-seed AND re-draw the DEJA VU loop,
+							 * deferred into the audio thread so it cannot
+							 * race the generators. The clock keeps running
+							 * and its phase jumps once (Adara, M4d). */
+							sp1_marbles_reseed(k_cycle_get_32());
+							g_seeded = true;
+							printk("RIP marbles: t2 -> TRIG, X2 -> V/Oct, the rest "
+							       "out, %d BPM, %s, re-seeded%s\n",
+							       (int)sp1_mui_bpm(),
+							       sp1_marbles_model_name(sp1_mui_model()),
+							       sp1_marbles_running()
+							       ? " (clock still running)" : "");
+						} else {
+							sp1_pui_rip();
+							/* ⚠️ The drive is a PLAITS parameter and only a
+							 * PLAITS rip clears it (Adara, M4e): Marbles
+							 * makes no audio, so the drive is not part of
+							 * its patch. */
+							sp1_synth_set_drive(SP1_PRST_DEF_DRIVE);
+							/* PLAITS-side output controls go back too
+							 * (docs/DEFAULTS.md). VOL is deliberately kept. */
+							g_out_mode = SP1_PRST_DEF_OUT;
+							sp1_synth_set_output(
+								(enum sp1_synth_output)g_out_mode);
+							g_burst_div = SP1_PRST_DEF_BURST;   /* 1/32 */
+							sp1_synth_set_burst_div(1u << g_burst_div);
+							printk("RIP plaits: patch wiped -- %s, faders "
+							       "neutral, attenuverters 0, quantizer off, "
+							       "drive off, OUT, 1/32\n",
+							       sp1_pui_engine_name());
+						}
+						static const uint8_t dark[4] = { 0u, 0u, 0u, 0u };
+						sp1_display_flash(dark, 0u, SP1_RIP_FADEBACK_MS);
+						/* ⚠️ Fade back to the PAGE, not the SHIFT layer "••"
+						 * would otherwise show: the rip has just zeroed every
+						 * attenuverter, which draws DARK, so the fade went
+						 * black -> black and the rip looked unfinished until
+						 * "••" was let go (issue #4). */
+						rip_show_page = true;
+					} else if (rip_ms >= SP1_PRST_GLYPH_MS) {
 						uint8_t lv[4];
-						rip_levels(rip_ms, lv);
+						rotc_levels(rip_ms, lv);
+						sp1_display_flash(lv, 100u, SP1_RIP_CANCEL_FADE_MS);
+					}
+				} else if (rip_armed) {
+					/* PLAY (or "••") let go before the wipe. Within the glyph it
+					 * was a tap: the glyph carries on. Past it, ROTC is
+					 * cancelled: back to the SHIFT screen. */
+					if (rip_ms >= SP1_PRST_GLYPH_MS) {
+						uint8_t lv[4];
+						rotc_levels(rip_ms, lv);
 						sp1_display_flash(lv, 0u, SP1_RIP_CANCEL_FADE_MS);
 						printk("RIP cancelled\n");
 					}
+					rip_armed = false;
 					rip_ms = 0u;
-					/* The gesture is over: the ordinary layer rules again. */
+				}
+				if (!(fnc && play_down)) {
+					/* The rip's hold is over: the ordinary layer rules again. */
 					rip_show_page = false;
+				}
+				if (!fnc) {
+					prst_changed = false;                  /* (4) */
+					prst_in_hold = false;   /* (2) is per hold: the glyph may still fade */
+				}
+
+				/* The slot glyph, while it shows (and ROTC has not taken the row). */
+				if (prst_showing) {
+					prst_show_ms += dt;
+					uint8_t lv[4];
+					prst_glyph_levels(g_prst_slot, prst_show_ms, lv);
+					if (prst_show_ms >= SP1_PRST_GLYPH_MS) {
+						prst_showing = false;
+						sp1_display_flash(lv, 0u, SP1_PRST_FADEBACK_MS);
+					} else {
+						sp1_display_flash(lv, 100u, SP1_PRST_FADEBACK_MS);
+					}
 				}
 
 				/* ================= UNPATCH ("••" + Tn held, M4e) =================
@@ -1995,7 +2083,7 @@ int main(void)
 #if defined(CONFIG_SP1_MIDI)
 				/* ---- MIDI (M5a): the prompt, and the control-loop smoothing of
 				 * the offsets the two UIs are about to read ---- */
-				midi_tick(dt, shutdown_active || rip_ms > 0u ||
+				midi_tick(dt, shutdown_active || rip_ms > 0u || prst_showing ||
 					  unpatch_ms >= SP1_UNPATCH_START_MS);
 				sp1_midi_main_tick(dt);
 				/* Pickup shared / takeover: the CCs move the stored values of

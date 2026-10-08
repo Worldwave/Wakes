@@ -439,12 +439,15 @@ below — the lock is unreachable by feel otherwise.
 | Gesture | Result |
 |---|---|
 | **Press** Play | start Marbles' clock (on a beat: the first t2 tick is immediate, and the DEJA VU loop restarts from its first step); the next press stops it. On either module |
-| `••` + Play held 3 s | **rip out the cables** on the module on show: PLAITS — SHIFT + SETTINGS pages; MARBLES — the defaults above. With `••` down first, PLAY does not touch the clock |
+| `••` + Play | **PRST** (#50): the current slot's glyph; pressed again while it shows, the next slot (4 → 1), loaded at once. With `••` down first, PLAY does not touch the clock |
+| `••` + Play held 3 s | **rip out the cables** on the module on show: PLAITS — the full patch wipe (docs/DEFAULTS.md); MARBLES — the defaults above. Not after a PRST slot change in the same `••` hold |
 
-The rip animation, on the track row, all while held: two quick flickers (70 ms on / off),
-a fade to black, black for the last 0.5 s. At 3 s the reset happens and the page fades back
-in over 0.5 s. Letting go before 3 s cancels (the page returns over 150 ms). It is a shift
-use, so it never starts a power-off; the 20 s backstop still applies.
+The rip animation, on the track row, all while held (#50; through v0.7.2 two flickers, a
+fade and black): the PRST slot glyph for 1.6 s, black 0.25 s, a rise to full over 0.4 s, the
+Unpatch animation (0.75 s). At 3 s the reset happens and the page fades back in over 0.5 s.
+Letting go during the glyph is just a PRST press; letting go after it cancels (the SHIFT
+screen returns over 150 ms). It is a shift use, so it never starts a power-off; the 30 s
+backstop still applies.
 
 ~~Tap = TRIG, hold = clock~~ (v0.1–v0.8, built in M3): **Play no longer fires a TRIG** —
 RWD does, and the FFWD burst. Simpler: one button, one job.

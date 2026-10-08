@@ -180,15 +180,24 @@
 
 /* ---- engine flash (Adara, M3b): instant, brief, fades back into the page ----
  * Patterns: SLOT_GLYPHS in tools/gen_engines.py, one per slot. */
-/* "••" + PLAY held: rip out the cables (Adara, M4) -- the module on show back to its
- * defaults. The track row flickers twice, fades to black, stays black, and -- only if
- * the hold lasts SP1_RIP_HOLD_MS -- the reset happens and the page fades back in.
- * Letting go earlier cancels. */
-#define SP1_RIP_HOLD_MS         3000u   /* to complete                              */
-#define SP1_RIP_FLICKER_MS        70u   /* each on / off of the two flickers        */
-#define SP1_RIP_BLACK_MS         500u   /* black at the end of the hold             */
-#define SP1_RIP_FADEBACK_MS      500u   /* after the reset: black -> the page       */
-#define SP1_RIP_CANCEL_FADE_MS   150u   /* let go early: back to the page           */
+/* ---- "••" + PLAY: PRST and ROTC on one combination (Adara, #50) ----
+ * PLAY pressed with "••" held shows the current PRST slot's glyph at once (one LED per
+ * slot, T1..T4): that LED ramps 100 % -> 0 every SP1_PRST_RAMP_MS, SP1_PRST_GLYPH_MS in
+ * all (16 ramps at 10 Hz), then the page fades back in. PLAY pressed again while it shows
+ * = the next slot. PLAY kept held from the first press = ROTC ("rip out the cables"),
+ * still SP1_RIP_HOLD_MS in total:
+ *   glyph SP1_PRST_GLYPH_MS -> all four black SP1_ROTC_BLACK_MS -> fade up to full over
+ *   SP1_ROTC_RISE_MS -> the Unpatch animation (SP1_UNPATCH_ANIM_MS) -> the wipe.
+ * Letting go once the ROTC animation has begun (past the glyph) fades back to the SHIFT
+ * screen and wipes nothing. Through v0.7.2 the rip was two flickers, a fade and black. */
+#define SP1_PRST_GLYPH_MS       1600u   /* the slot glyph: 16 ramps                  */
+#define SP1_PRST_RAMP_MS         100u   /* one ramp, 100 % -> 0 (10 Hz)              */
+#define SP1_PRST_FADEBACK_MS     250u   /* the glyph's end: back to the page         */
+#define SP1_ROTC_BLACK_MS        250u   /* after the glyph: all four dark            */
+#define SP1_ROTC_RISE_MS         400u   /* then 0 -> 100 %, all four                 */
+#define SP1_RIP_HOLD_MS         3000u   /* to complete                               */
+#define SP1_RIP_FADEBACK_MS      500u   /* after the reset: black -> the page        */
+#define SP1_RIP_CANCEL_FADE_MS   150u   /* let go early: back to the SHIFT screen    */
 /* ---- the fresh format at ON entry (Adara, M6 #43) ----
  * The UI waits while wakes-sp1-fresh formats the eMMC. The track row is a progress bar
  * through the format (sp1_led_bar, full brightness); when it completes the row flickers
@@ -238,6 +247,10 @@
 #define SP1_UNPATCH_LATCH_MS    120u    /* 0 -> 100 %, the third blink, and held    */
 #define SP1_UNPATCH_SWEEP_MS    240u    /* 100 % -> dark, middle outwards           */
 #define SP1_UNPATCH_BLINK_LEVEL 204u    /* 80 % of 255 (Adara)                      */
+
+/* ROTC's phases must add up to its 3 s (Adara: "still 3 s in total"). */
+#define SP1_ROTC_UNPATCH_AT (SP1_PRST_GLYPH_MS + SP1_ROTC_BLACK_MS + SP1_ROTC_RISE_MS)
+/* (checked in main.c) */
 
 /* ---- the MIDI prompt (M5a, Adara; M5 plan B9) ----
  * MIDI plugged in -> the Unpatch animation REVERSED (the cable going in); unplugged -> the
