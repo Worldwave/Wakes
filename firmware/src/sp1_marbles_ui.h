@@ -155,8 +155,8 @@ bool sp1_mui_scale_step(int dir);
 /* "••" + PLAY held 3 s on MARBLES: a **FULL WIPE** of the module (Adara, M4d --
  * docs/DEFAULTS.md is the spec).
  *
- *   routing    -> EVERY destination to none. ⚠️ So PLAY makes no sound afterwards until
- *                 something is dialled back in. That is the point of the gesture's name
+ *   routing    -> t2 -> TRIG, X2 -> V/Oct, everything else none (Adara, #50; through
+ *                 v0.7.2 every destination went to none)
  *   every fader-> its default, BASE included (t RATE/BIAS/JITTER, X SPREAD/BIAS/STEPS,
  *                 the shared DEJA VU and LENGTH, the SHIFT pages and the Y page)
  *   buttons    -> coin toss, x1 range, [J] INTELLIGENT, identical, major, [F] and [G] on

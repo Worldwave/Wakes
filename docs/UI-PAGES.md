@@ -391,7 +391,7 @@ internal envelope between gates and the attenuverter would change meaning severa
 | | |
 |---|---|
 | routing at **boot** | **t2 → TRIG** (the master clock, so every tick fires a note — the most predictable "press PLAY and hear something" default, with no rhythmic randomness); **X1 → V/Oct**; everything else → none |
-| routing after a **rip** | **everything → none.** "Rip out the cables" means what it says, so PLAY makes no sound until something is dialled back in |
+| routing after a **rip** | **t2 → TRIG, X2 → V/Oct**, everything else → none (#50; through v0.7.2 a rip cleared everything). X2 on V/Oct turns the PLAITS quantizer off, as routing it by hand does |
 | a rip also | **re-seeds and re-draws the DEJA VU loop**, and **leaves the clock running** — its phase jumps once. Every t and X BASE fader resets; the page you are standing on is kept |
 | t | coin toss, ×1 range, RATE centre = **120 BPM**, BIAS centre, no jitter, DEJA VU locked |
 | X | SPREAD centre, BIAS centre, STEPS 0.66 (so X is quantized and Y is not), DEJA VU locked, `[J]` **INTELLIGENT** (X and Y), identical diversity, **major** |

@@ -120,6 +120,13 @@ enum sp1_power_result {
  * no reset is involved, the device is simply already awake. */
 enum sp1_power_result sp1_power_tick(uint32_t elapsed_ms, bool fnc_held);
 
+/* ---- PRST's save at shutdown (M6, #50) ----
+ * Called once when the ordinary shutdown animation COMPLETES, before the peripherals are
+ * quiesced -- on the way to STANDBY and to SYSTEM_OFF alike. Never from the 30 s backstop:
+ * the forced power-off does not wait for a save (rule 5a). The hook itself must be bounded
+ * and feed the watchdog (main.c's waits at most 4 s). NULL = none. */
+void sp1_power_set_save_hook(void (*fn)(void));
+
 /* Tell the shutdown gesture that "••" was used as a modifier during this hold.
  * Suppresses shutdown until "••" is released.
  *

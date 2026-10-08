@@ -459,6 +459,13 @@ void sp1_power_on_gate(void)
 	}
 }
 
+static void (*save_hook)(void);
+
+void sp1_power_set_save_hook(void (*fn)(void))
+{
+	save_hook = fn;
+}
+
 enum sp1_power_result sp1_power_tick(uint32_t elapsed_ms, bool fnc_held)
 {
 	/* ================================================================
@@ -610,7 +617,16 @@ enum sp1_power_result sp1_power_tick(uint32_t elapsed_ms, bool fnc_held)
 				 * Plugged in, the destination is STANDBY, not
 				 * SYSTEM_OFF -- and no reset is needed, because we
 				 * are already awake. Unplugged, it is a real
-				 * SYSTEM_OFF. */
+				 * SYSTEM_OFF.
+				 *
+				 * PRST (M6, #50): the save goes HERE, after the
+				 * animation and before anything is powered down --
+				 * and ONLY here. The 30 s backstop above never calls
+				 * it (rule 5a: the forced power-off never waits for a
+				 * save), and the hook is bounded (4 s, main.c). */
+				if (save_hook != NULL) {
+					save_hook();
+				}
 				if (sp1_usb_present()) {
 					sp1_quiesce_peripherals();
 					gesture_reset();

@@ -297,11 +297,16 @@ static void boot_routing(struct sp1_mui_patch *p)
 
 static void rip_routing(struct sp1_mui_patch *p)
 {
-	/* Every destination disconnected: "rip out the cables" now means what it says.
-	 * ⚠️ So after a rip on MARBLES, pressing PLAY makes no sound until something is
-	 * dialled back in. Intended (Adara, M4d). */
+	/* Two cables back in after a rip (Adara, #50): t2 -> TRIG and X2 -> V/Oct, so PLAY
+	 * plays straight away; everything else disconnected. Through v0.7.2 a rip cleared
+	 * every destination (M4d). Also the routing of every PRST default slot, which comes
+	 * from here (sp1_prst.h).
+	 * ⚠️ X2, not boot's X1. And V/Oct means the PLAITS quantizer cannot stay on (the M4b
+	 * interlock): main.c's MARBLES rip turns it off, as routing V/Oct by hand does. */
 	for (int i = 0; i < 3; i++) { p->t_dest[i] = SP1_DEST_NONE; }
 	for (int i = 0; i < 4; i++) { p->dest[i] = SP1_DEST_NONE; }
+	p->t_dest[1] = SP1_DEST_TRIG;
+	p->dest[1] = SP1_DEST_VOCT;
 }
 
 /* Every BASE fader back to its default. The rip resets these too (docs/DEFAULTS.md):

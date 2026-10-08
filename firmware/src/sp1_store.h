@@ -100,6 +100,53 @@ void sp1_store_standby_tick(bool host);
 uint32_t sp1_store_activity(void);
 #endif
 
+#if defined(CONFIG_SP1_PLAITS)
+#include <stdbool.h>
+#include "sp1_prst.h"
+
+/* ---- PRST: the four slots (M6, #50) ----
+ * WAKES/PRST/1 .. 4 on the volume, one `.prst` per folder, any name: the FOLDER decides the
+ * slot (Adara). More than one file in a folder -> the first in alphabetical order (case
+ * ignored, byte order), never the others. WAKES/PRST/SLOT holds the last-loaded slot's
+ * number (missing or unreadable -> slot 1).
+ *
+ * LOAD: the ON job reads all four into RAM right after the volume check, so a slot change
+ * never touches the card while playing. A folder with no `.prst` (or no folder) is that
+ * slot at the ROTC defaults, PRST staying on. A card that fails -- it does not start, no
+ * filesystem, a read error -- turns PRST off for the session. main.c waits for the answer
+ * before audio starts, at most SP1_PRST_LOAD_MS (10 s, Adara), and treats a late answer
+ * as off.
+ *
+ * SAVE: only at a normal shutdown (sp1_power_set_save_hook), into the current slot. The
+ * text goes to a temporary file in the slot's folder (not ending in `.prst`, so never
+ * loaded), which then replaces the last-loaded file -- or becomes `N.prst` in an empty
+ * folder. Other files in the folder are never touched. Then SLOT. */
+#define SP1_PRST_SLOTS   4
+#define SP1_PRST_LOAD_MS 10000u
+#define SP1_PRST_SAVE_MS 4000u
+
+enum sp1_store_prst {
+	SP1_STORE_PRST_WAIT = 0,     /* the ON job has not read the slots yet          */
+	SP1_STORE_PRST_READY,        /* all four in RAM: sp1_store_prst_slot()         */
+	SP1_STORE_PRST_OFF,          /* no card, no filesystem, or a read failed       */
+};
+enum sp1_store_prst sp1_store_prst(void);
+/* After READY only. 0..3. */
+int sp1_store_prst_current(void);
+const struct sp1_prst *sp1_store_prst_slot(int slot);
+
+/* Main thread, at shutdown: write `p` into `slot` and make it the current one. Queues the
+ * job and returns; false if it could not be queued (PRST is not READY). Poll the result. */
+bool sp1_store_prst_save(int slot, const struct sp1_prst *p);
+enum sp1_store_save {
+	SP1_STORE_SAVE_IDLE = 0,
+	SP1_STORE_SAVE_BUSY,
+	SP1_STORE_SAVE_OK,
+	SP1_STORE_SAVE_FAILED,
+};
+enum sp1_store_save sp1_store_save_result(void);
+#endif
+
 /* From sp1_quiesce_peripherals(), on every way out of ON and out of STANDBY: stop the job,
  * take the card from a host, drop queued jobs, and power the card down now. A job cut short by this fails its remaining steps; a format cut short
  * leaves no FRESH.ID, so the fresh image formats again at the next ON. Never waits. */

@@ -91,5 +91,7 @@ void sp1_prst_parse(const char *text, size_t len, struct sp1_prst *out,
 
 /* How many fields a slot file has (tools/gen_prst.py), for the log and the tests. */
 int sp1_prst_fields(void);
+/* The format this firmware writes and reads (tools/gen_prst.py). */
+int sp1_prst_format(void);
 
 #endif /* SP1_PRST_H */

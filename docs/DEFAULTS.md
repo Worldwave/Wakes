@@ -171,10 +171,11 @@ A ROTC on MARBLES now leaves the drive alone, deliberately.
 | parameter | boot | ROTC |
 |---|---|---|
 | t1 destination | none | none |
-| t2 destination | TRIG | none |
+| t2 destination | TRIG | **TRIG** (#50) |
 | t3 destination | none | none |
 | X1 destination | V/Oct | none |
-| X2, X3, Y destination | none | none |
+| X2 destination | none | **V/Oct** (#50) |
+| X3, Y destination | none | none |
 
 ### Transport
 
@@ -246,8 +247,13 @@ Adara's answers, 2026-09-24. **This is the build list.**
 | 11 | re-draw the DEJA VU loop? | **yes**, as the consequence of 10 |
 | 12 | reset both modules? | **no — only the foreground module** |
 
-Routing on ROTC is the headline change: **every destination goes to `none`.** "Rip out the
-cables" now means what it says.
+Routing on ROTC: **t2 → TRIG and X2 → V/Oct, every other destination `none`** (Adara, #50 —
+through v0.7.2 every destination went to `none`). PRST's default slots carry the same routing.
+Because X2 lands on V/Oct, a MARBLES ROTC also turns the PLAITS quantizer off and opens the
+FREQUENCY range, exactly as routing V/Oct by hand does (the M4b interlock).
+
+⚠️ **The first bullet below describes M4d's all-`none` rip and no longer applies** — after a
+MARBLES ROTC, PLAY plays (t2 fires a note on every tick, X2 sets its pitch).
 
 ⚠️ **Two consequences of the routing decision, both intended as far as I can tell, both worth a
 sentence before they surprise anyone on hardware:**

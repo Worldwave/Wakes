@@ -966,6 +966,123 @@ static bool storage_gate(void)
 }
 #endif
 
+#if defined(CONFIG_SP1_STORAGE) && defined(CONFIG_SP1_PLAITS)
+/* ---- PRST (M6, #50): ON waits for the slots, shutdown saves one ----
+ * Adara: "Hold ON entry until the four slots are read, with a time limit of 10 seconds. If it
+ * can't load from storage, disable PRST and move to default patch." The storage thread reads
+ * them in the ON job (sp1_store.h); main waits here, between the fresh format and audio, with
+ * the power path exactly as in storage_gate(): sp1_power_tick() every tick, so the 30 s
+ * backstop is untouched (rule 5a), and the ordinary 3 s gesture held off by shift
+ * suppression. Nothing is drawn: the power-on fill finishes fading.
+ *
+ * g_prst_on is decided HERE, once per ON session: an answer that arrives after the limit is
+ * ignored, and with PRST off nothing is loaded and nothing is saved. */
+static bool g_prst_on;
+static int  g_prst_slot;
+
+static bool prst_gate(void)
+{
+	int64_t last = k_uptime_get();
+	uint32_t waited = 0u;
+	g_prst_on = false;
+	for (;;) {
+		const enum sp1_store_prst st = sp1_store_prst();
+		if (st == SP1_STORE_PRST_READY) {
+			g_prst_on = true;
+			g_prst_slot = sp1_store_prst_current();
+			printk("PRST on: slot %d, read in %u ms\n", g_prst_slot + 1, (unsigned)waited);
+			return true;
+		}
+		if (st == SP1_STORE_PRST_OFF) {
+			printk("PRST off this session: the patch in memory, nothing saved\n");
+			return true;
+		}
+		if (waited >= SP1_PRST_LOAD_MS) {
+			printk("PRST off this session: the slots took over %u ms\n",
+			       (unsigned)SP1_PRST_LOAD_MS);
+			return true;
+		}
+
+		sp1_wdt_feed();
+		const int64_t now = k_uptime_get();
+		int64_t delta = now - last;
+		last = now;
+		if (delta < 1) {
+			delta = 1;
+		} else if (delta > 4 * TICK_MS) {
+			delta = 4 * TICK_MS;
+		}
+		const uint32_t dt = (uint32_t)delta;
+		const bool fnc = sp1_fnc_pressed();
+		if (fnc) {
+			(void)sp1_shift_used();   /* no 3 s shutdown while loading; the backstop stays */
+		}
+		if (sp1_power_tick(dt, fnc) == SP1_PWR_TO_STANDBY) {
+			printk("PRST load interrupted by the 30 s hold -- STANDBY\n");
+			return false;
+		}
+		sp1_console_poll(dt, "PRST");
+		sp1_led_tick(dt);
+		k_msleep(TICK_MS);
+		waited += dt;
+	}
+}
+
+/* The loaded slot, before audio starts. Wakes always comes up in PLAITS (Adara: the module
+ * and page are not part of a slot). The faders do not move; pickup catches them up. */
+static void prst_apply(const struct sp1_prst *p)
+{
+	sp1_pui_put(&p->plaits);
+	sp1_mui_put(&p->marbles);
+	g_out_mode = (uint8_t)p->out_mode;
+	g_burst_div = (uint8_t)p->burst_div;
+	sp1_synth_set_drive(p->drive);
+	g_module = SP1_MODULE_PLAITS;
+}
+
+static void prst_gather(struct sp1_prst *p)
+{
+	sp1_pui_get(&p->plaits);
+	sp1_mui_get(&p->marbles);
+	p->out_mode = g_out_mode;
+	p->burst_div = g_burst_div;
+	p->drive = sp1_synth_drive();
+}
+
+/* ---- the save: sp1_power_tick() calls this when the shutdown animation completes ----
+ * Adara: "the shutdown animation completes -> the UI freezes -> save -> OFF or STANDBY",
+ * with the UI locked and the LEDs off, limit 4 s. The UI is frozen because main is in here;
+ * audio stops first (sp1_quiesce_peripherals() would stop it a moment later anyway), so the
+ * storage thread has the CPU. Never called by the 30 s backstop (sp1_power.h). */
+static void prst_save_at_shutdown(void)
+{
+	if (!g_prst_on) {
+		return;
+	}
+	g_prst_on = false;
+	sp1_leds_all_off();
+	sp1_audio_stop();
+	struct sp1_prst p;
+	prst_gather(&p);
+	const uint32_t t0 = k_uptime_get_32();
+	if (!sp1_store_prst_save(g_prst_slot, &p)) {
+		printk("PRST save: not possible (storage not ready) -- nothing saved\n");
+		return;
+	}
+	while (sp1_store_save_result() == SP1_STORE_SAVE_BUSY &&
+	       k_uptime_get_32() - t0 < SP1_PRST_SAVE_MS) {
+		sp1_wdt_feed();
+		k_msleep(TICK_MS);
+	}
+	const enum sp1_store_save r = sp1_store_save_result();
+	printk("PRST save slot %d: %s after %u ms\n", g_prst_slot + 1,
+	       r == SP1_STORE_SAVE_OK ? "saved" : (r == SP1_STORE_SAVE_BUSY
+					     ? "NOT finished in time -- powering off anyway"
+					     : "FAILED"),
+	       (unsigned)(k_uptime_get_32() - t0));
+}
+#endif
+
 static __noinit uint32_t g_fault_key;
 static __noinit uint32_t g_fault_reason;
 static __noinit uint32_t g_fault_pc;
@@ -1124,6 +1241,9 @@ int main(void)
 	sp1_pui_init();                /* page defaults: once per boot, kept across ON */
 	sp1_mui_init();
 #endif
+#if defined(CONFIG_SP1_STORAGE) && defined(CONFIG_SP1_PLAITS)
+	sp1_power_set_save_hook(prst_save_at_shutdown);   /* PRST (#50) */
+#endif
 
 	/* ---- top-level state machine ----
 	 * STANDBY: plugged in and not running. ON: running.
@@ -1172,6 +1292,16 @@ int main(void)
 		if (!storage_gate()) {
 			standby = true;           /* the 30 s backstop, plugged in */
 			continue;
+		}
+#endif
+#if defined(CONFIG_SP1_PLAITS)
+		/* PRST (#50): the current slot, read by the same job, applied before audio. */
+		if (!prst_gate()) {
+			standby = true;           /* the 30 s backstop, plugged in */
+			continue;
+		}
+		if (g_prst_on) {
+			prst_apply(sp1_store_prst_slot(g_prst_slot));
 		}
 #endif
 #endif
@@ -1609,6 +1739,10 @@ int main(void)
 						if (rip_ms >= SP1_RIP_HOLD_MS) {
 							if (marbles) {
 								sp1_mui_rip();
+								/* The rip routes X2 to V/Oct (#50),
+								 * so the M4b interlock applies: the
+								 * quantizer off, the range opened. */
+								voct_took_over(SP1_DEST_VOCT);
 								/* Re-seed AND re-draw the DEJA VU
 								 * loop, deferred into the audio
 								 * thread so it cannot race the

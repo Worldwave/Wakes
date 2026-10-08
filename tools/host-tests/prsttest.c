@@ -111,7 +111,7 @@ static void unusual(struct sp1_prst *p)
 	p->marbles.dest[0] = SP1_DEST_FM;
 	p->marbles.dest[1] = SP1_DEST_TIMBRE;
 	p->marbles.dest[2] = SP1_DEST_MORPH;
-	p->marbles.dest[3] = SP1_DEST_VOCT;
+	p->marbles.dest[3] = SP1_DEST_LEVEL;   /* not V/Oct: the quantizer is on (M4b) */
 }
 
 /* Everything a parse returns must be safe to hand to the UIs: every value finite and in
@@ -149,6 +149,10 @@ static bool safe(const struct sp1_prst *p)
 	}
 	for (int k = 0; k < 4; k++) {
 		if (!sp1_mui_dest_allowed(false, m->dest[k])) { return false; }
+		/* the V/Oct interlock (M4b): never a quantizer AND a V/Oct route */
+		if (m->dest[k] == SP1_DEST_VOCT && p->plaits.scale != SP1_PUI_SCALE_OFF) {
+			return false;
+		}
 	}
 	return true;
 }
@@ -200,8 +204,11 @@ int main(void)
 	CHECK(d.plaits.v[SP1_PUI_BASE][0] == 0.5f && d.plaits.v[SP1_PUI_BASE][1] == 0.5f &&
 	      d.plaits.v[SP1_PUI_BASE][2] == 0.0f && d.plaits.v[SP1_PUI_BASE][3] == 0.5f,
 	      "virtual analog's neutral BASE is wrong");
-	CHECK(d.marbles.t_dest[1] == SP1_DEST_NONE && d.marbles.dest[0] == SP1_DEST_NONE,
-	      "a rip leaves a cable in");
+	/* #50: t2 -> TRIG and X2 -> V/Oct, every other cable out */
+	CHECK(d.marbles.t_dest[0] == SP1_DEST_NONE && d.marbles.t_dest[1] == SP1_DEST_TRIG &&
+	      d.marbles.t_dest[2] == SP1_DEST_NONE && d.marbles.dest[0] == SP1_DEST_NONE &&
+	      d.marbles.dest[1] == SP1_DEST_VOCT && d.marbles.dest[2] == SP1_DEST_NONE &&
+	      d.marbles.dest[3] == SP1_DEST_NONE, "the ROTC routing is not t2 TRIG + X2 V/Oct");
 	CHECK(d.out_mode == SP1_OUT_MAIN && d.burst_div == 5 && d.drive == 0,
 	      "main's defaults wrong");
 	/* boot is NOT the rip: t2 -> TRIG and X1 -> V/Oct (M4d) */
@@ -312,6 +319,13 @@ int main(void)
 	      strcmp(rep.first_bad, "engine") == 0, "an unknown engine is not slot 1");
 	CHECK(fabsf(a.plaits.v[SP1_PUI_BASE][2] - b.plaits.v[SP1_PUI_BASE][2]) < 0.0001f &&
 	      a.marbles.model == 5, "an unknown engine took the rest of the file with it");
+	/* the V/Oct interlock: the quantizer goes, the route stays */
+	m = with(text, "x2", "voct", buf, sizeof(buf));
+	sp1_prst_parse(buf, (size_t)m, &a, &rep);
+	CHECK(a.marbles.dest[1] == SP1_DEST_VOCT && a.plaits.scale == SP1_PUI_SCALE_OFF &&
+	      rep.bad == 1 && rep.first_bad && strcmp(rep.first_bad, "quantizer") == 0,
+	      "quantizer + V/Oct: scale %d, x2 %d, bad %d", a.plaits.scale, a.marbles.dest[1],
+	      rep.bad);
 	/* every value missing: all defaults, nothing called bad */
 	sp1_prst_parse("[wakes]\nformat = 1\n", 19, &a, &rep);
 	CHECK(rep.format_ok && rep.defaulted == sp1_prst_fields() && rep.bad == 0,

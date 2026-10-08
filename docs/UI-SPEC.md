@@ -387,7 +387,7 @@ low gate is 0 V, not "nothing", or the attenuverter would change meaning several
 
 ### Defaults — also what `••` + PLAY held 3 s restores on MARBLES ("rip out the cables")
 
-coin toss · **t2 → TRIG** (v0.12; t1 + t3 until v0.11) · **X1 → V/Oct** *(boot only — a rip now disconnects everything)* (V/Oct has no attenuverter, so TIMBRE,
+coin toss · **t2 → TRIG** (v0.12; t1 + t3 until v0.11) · **X1 → V/Oct** *(boot only — a rip routes **X2** to V/Oct instead, with t2 → TRIG and everything else out; #50)* (V/Oct has no attenuverter, so TIMBRE,
 MORPH and FM stay on Plaits' internal envelope) · X2, X3, Y → none · RATE at centre =
 **120 BPM** · clock range ×1 · `[J]` **INTELLIGENT**, one setting for X and Y (v0.13/v0.14; X was
 0–2 V and Y was ±5 V before it existed) · STEPS just above centre, so X is quantized and Y is not ·

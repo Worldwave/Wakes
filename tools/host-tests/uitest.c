@@ -478,11 +478,14 @@ int main(void)
 		sp1_mui_rip();
 		sp1_mui_routing(&r);
 		sp1_mui_params(&b);
+		/* #50 (Adara): t2 -> TRIG and X2 -> V/Oct come back; nothing else */
 		for (int i = 0; i < 3; i++) {
-			CHECK(r.t_dest[i] == SP1_DEST_NONE, "rip left t%d routed", i + 1);
+			CHECK(r.t_dest[i] == (i == 1 ? SP1_DEST_TRIG : SP1_DEST_NONE),
+			      "rip: t%d -> %u", i + 1, r.t_dest[i]);
 		}
 		for (int i = 0; i < 4; i++) {
-			CHECK(r.dest[i] == SP1_DEST_NONE, "rip left X/Y %d routed", i + 1);
+			CHECK(r.dest[i] == (i == 1 ? SP1_DEST_VOCT : SP1_DEST_NONE),
+			      "rip: X/Y %d -> %u", i + 1, r.dest[i]);
 		}
 		CHECK(sp1_mui_model() == 0, "rip did not return the model to coin toss");
 		CHECK(sp1_mui_scale() == 0, "rip did not return the scale to major");
@@ -492,7 +495,7 @@ int main(void)
 		CHECK(fabsf(b.x_bias - 0.5f) < 1e-3f, "rip did not reset X BIAS");
 		CHECK(fabsf(b.t_bias - 0.5f) < 1e-3f, "rip did not reset t BIAS");
 		CHECK(b.t_jitter == 0.0f, "rip did not reset JITTER");
-		printf("   marbles rip: every output disconnected, %d BPM, model 1, major\n",
+		printf("   marbles rip: t2 -> TRIG, X2 -> V/Oct, the rest out, %d BPM, model 1, major\n",
 		       (int)sp1_mui_bpm());
 		/* and the page you were standing on is kept */
 		CHECK(sp1_mui_page() == SP1_MUI_PAGE_X, "rip moved me off the X page");

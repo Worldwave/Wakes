@@ -342,6 +342,29 @@ void sp1_prst_parse(const char *text, size_t len, struct sp1_prst *out,
 			}
 		}
 	}
+
+	/* ---- the V/Oct interlock (M4b): a quantizer AND a Marbles output on V/Oct ----
+	 * Wakes never lets both exist (main.c turns the scale off when something is routed to
+	 * V/Oct), so a file holding both was edited by hand or is corrupt. The routing is kept,
+	 * as it would be on the device; the quantizer takes its default, off. */
+	if (out->plaits.scale != SP1_PUI_SCALE_OFF) {
+		for (int k = 0; k < 4; k++) {
+			if (out->marbles.dest[k] == SP1_DEST_VOCT) {
+				out->plaits.scale = SP1_PUI_SCALE_OFF;
+				rep->defaulted++;
+				rep->bad++;
+				if (rep->first_bad == NULL) {
+					rep->first_bad = "quantizer";
+				}
+				break;
+			}
+		}
+	}
+}
+
+int sp1_prst_format(void)
+{
+	return SP1_PRST_FORMAT;
 }
 
 int sp1_prst_fields(void)
