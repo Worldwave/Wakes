@@ -24,7 +24,7 @@ The development of Wakes is unaffiliated with Teenage Engineering or Mutable Ins
 ## Flashing
 
 1. Wakes features new storage protocols for the SP-1. If you've never used Wakes before, you need to format your storage partition. 
-   To do that, Download the latest Fresh bin **[`wakes-sp1-fresh.bin`](https://github.com/Worldwave/Wakes/releases/latest/download/wakes-sp1-fresh.bin)**.
+   To do that, **Download the latest Fresh bin [`wakes-sp1-fresh.bin`](https://github.com/Worldwave/Wakes/releases/latest/download/wakes-sp1-fresh.bin)**.
 2. If you've used Wakes before, and want to avoid touching your storage, **Download the latest regular bin [`wakes-sp1.bin`](https://github.com/Worldwave/Wakes/releases/latest/download/wakes-sp1.bin)**.
 3. Older Wakes versions and release notes are available through the repo's [releases page](https://github.com/Worldwave/Wakes/releases).
 4. Open <https://solderless.engineering>. Hold down **T1+T4**. Keep them held while connecting the SP-1 over USB-C.
