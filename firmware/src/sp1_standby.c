@@ -5,6 +5,10 @@
 #include "sp1_power.h"
 #include "sp1_ui_timing.h"
 #include "sp1_console.h"
+#if defined(CONFIG_SP1_DRIVE)
+#include "sp1_store.h"
+#include "sp1_usbd.h"
+#endif
 
 #include <zephyr/kernel.h>
 
@@ -22,6 +26,14 @@ void sp1_standby_run(void)
 	sp1_charger_enable(true);
 	uint32_t poll_ms   = SP1_STANDBY_POLL_MS;   /* force a sample on entry */
 	uint32_t breath_ms = 0u;
+#if defined(CONFIG_SP1_DRIVE)
+	/* Drive mode (M6): the activity chase on the model row, T1 T3 T2 T4. */
+	static const uint8_t chase[4] = { 0u, 2u, 1u, 3u };
+	uint32_t act_seen = sp1_store_activity();
+	uint32_t step_ms = SP1_DRIVE_STEP_MS;
+	unsigned chase_i = 0u;
+	sp1_store_standby_enter();
+#endif
 
 	sp1_leds_all_off();
 	sp1_console_set_status_period(SP1_CONSOLE_PERIOD_STANDBY_MS);
@@ -113,13 +125,26 @@ void sp1_standby_run(void)
 			draw_bar(level, SP1_STANDBY_BAR_LEVEL);
 		}
 
-		/* Status lights, dim, on the model row: T2 = plugged, T3 = charging.
-		 * T1/T4 stay dark so the pair reads as a symmetric indicator. */
-		sp1_led_set(SP1_ROW_TRACK, 0, 0);
-		sp1_led_set(SP1_ROW_TRACK, 1, SP1_STANDBY_STATUS_LEVEL);
-		sp1_led_set(SP1_ROW_TRACK, 2,
-			    charging ? SP1_STANDBY_STATUS_LEVEL : 0u);
-		sp1_led_set(SP1_ROW_TRACK, 3, 0);
+#if defined(CONFIG_SP1_DRIVE)
+		/* Drive mode: a host (not a charger) gets the card, once per visit. Then each
+		 * tick that saw host transfers -- at most one step per SP1_DRIVE_STEP_MS --
+		 * lights the next LED of the chase at 50 % and ramps it down. The transfer
+		 * path only counts (sp1_store_activity); all of the drawing is here. */
+		sp1_store_standby_tick(sp1_usbd_host());
+		step_ms += SP1_TICK_MS;
+		const uint32_t act = sp1_store_activity();
+		if (act != act_seen && step_ms >= SP1_DRIVE_STEP_MS) {
+			act_seen = act;
+			step_ms = 0u;
+			const int led = chase[chase_i++ & 3u];
+			sp1_led_set(SP1_ROW_TRACK, led, SP1_DRIVE_LED_PEAK);
+			sp1_led_fade(SP1_ROW_TRACK, led, 0u, SP1_DRIVE_RAMP_MS);
+		}
+#endif
+
+		/* No status lights on the model row any more (Adara, M6): the play-row bar's
+		 * breathing already says "charging", and the row belongs to the drive's
+		 * activity. It stays dark otherwise. */
 
 		sp1_led_tick(SP1_TICK_MS);
 		k_msleep(SP1_TICK_MS);

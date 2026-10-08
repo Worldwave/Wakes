@@ -107,12 +107,14 @@ static void usb_thread_find(const struct k_thread *t, void *user_data)
 		found[0] = (k_tid_t)t;
 	} else if (strcmp(name, "usbd") == 0) {
 		found[1] = (k_tid_t)t;
+	} else if (strcmp(name, "usbd_msc") == 0) {
+		found[2] = (k_tid_t)t;
 	}
 }
 
 static int usb_threads_below_audio(void)
 {
-	k_tid_t found[2] = { NULL, NULL };
+	k_tid_t found[3] = { NULL, NULL, NULL };
 	int n = 0;
 
 	k_thread_foreach_unlocked(usb_thread_find, found);
@@ -121,6 +123,15 @@ static int usb_threads_below_audio(void)
 			k_thread_priority_set(found[i], K_PRIO_PREEMPT(CONFIG_MAIN_THREAD_PRIORITY));
 			n++;
 		}
+	}
+	/* M6 drive mode: the mass-storage class runs every SCSI command -- and with it every
+	 * eMMC transfer -- in its own thread, which Zephyr starts at the system work queue's
+	 * COOPERATIVE priority. Left there, a host polling the drive while ON would run inside
+	 * audio blocks. One step below main: in STANDBY it gets everything main leaves; in ON
+	 * it only answers "no medium". Not counted in `n`, which the boot log reads as "the
+	 * two core USB threads moved". */
+	if (found[2] != NULL) {
+		k_thread_priority_set(found[2], K_PRIO_PREEMPT(CONFIG_MAIN_THREAD_PRIORITY + 1));
 	}
 	return n;
 }
@@ -156,8 +167,21 @@ int sp1_usbd_init(void)
 	if (err == 0) {
 		/* Every compiled-in class: CDC ACM (devicetree), feldd's MIDI class
 		 * (USBD_DEFINE_CLASS in usb_midi1.c) and USB audio out (wakes_uac, sp1_uac.c),
-		 * in that order -- linker order is by name (sp1_uac.c says why it matters). */
-		err = usbd_register_all_classes(&sp1_usbd, USBD_SPEED_FS, 1, NULL);
+		 * in that order -- linker order is by name (sp1_uac.c says why it matters).
+		 * Mass storage is held back from that list and added LAST (M6): by name it would
+		 * land between CDC and MIDI and renumber every interface after it. */
+		static const char *const later[] = { "msc_0", NULL };
+		err = usbd_register_all_classes(&sp1_usbd, USBD_SPEED_FS, 1, later);
+	}
+#if defined(CONFIG_SP1_DRIVE)
+	if (err == 0) {
+		err = usbd_register_class(&sp1_usbd, "msc_0", USBD_SPEED_FS, 1);
+	}
+#endif
+	if (err == 0) {
+		/* The function set's version (Kconfig SP1_USB_BCD_DEVICE): changes when the
+		 * functions do, so the PID never has to. */
+		err = usbd_device_set_bcd_device(&sp1_usbd, CONFIG_SP1_USB_BCD_DEVICE);
 	}
 	if (err != 0) {
 		return err;

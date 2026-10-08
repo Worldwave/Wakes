@@ -108,14 +108,54 @@ config SP1_STORAGE_TEST
 	  survives power cycles and reflashes, 64 KB written, read back, compared and
 	  deleted, free space and the WAKES directory. Off in release builds.
 
+config SP1_EMMC_VERIFY
+	bool "Diagnostics: read every eMMC write back and log any mismatch (#43)"
+	depends on SP1_STORAGE
+	help
+	  Every written block is read straight back; a block that reads back wrong is logged
+	  ("EMMC VERIFY FAIL": where in its burst, the card's token and busy, whether a slow
+	  re-read agrees) and rewritten on its own. Halves write speed. For hunting the lost
+	  burst writes seen on 2026-10-07 (src/sp1_emmc.c).
+
 config SP1_FRESH
 	bool "wakes-sp1-fresh: FORMAT the eMMC on the first entry to ON (#43)"
 	depends on SP1_STORAGE
 	select FILE_SYSTEM_MKFS
+	select FS_FATFS_EXTRA_NATIVE_API    # f_setlabel: the volume is labelled "SP-1"
 	help
 	  ⚠️ Erases the whole eMMC: one FAT32 partition from 4 MB, the build's ID written to
 	  WAKES/FRESH.ID, never again while that file matches (src/sp1_store.h). A normal
 	  build contains no formatter at all, and tools/ci/check_image.py fails one that does.
+
+config SP1_DRIVE
+	bool "Drive mode: the eMMC as a USB drive in STANDBY (#43)"
+	depends on SP1_STORAGE
+	select USBD_MSC_CLASS
+	help
+	  A USB mass-storage interface, always in the descriptor (so going STANDBY <-> ON
+	  never re-enumerates and MIDI / audio are never disturbed). In STANDBY with a host
+	  attached the card is the host's; turning ON takes it back -- the host then sees "no
+	  medium" -- after any command already in progress finishes (src/sp1_store.h). The
+	  interface goes LAST, after CDC, MIDI and audio, so their numbers do not move, and
+	  bcdDevice changes (SP1_USB_BCD_DEVICE) because the function set did.
+
+config SP1_USB_BCD_DEVICE
+	hex "USB bcdDevice"
+	default 0x0500 if SP1_DRIVE
+	default 0x0403
+	help
+	  The device release number. 0x0403 is what Zephyr 4.3 put there by default
+	  (USB_BCD_DRN) and every release through v0.7.2 shipped with it. One PID for good:
+	  when the set of USB functions changes, this changes instead (M5c), so a host that
+	  cached the old layout treats the device as new. 0x0500 = + the drive (M6).
+
+# The drive's transfers: 16 blocks per disk call, so a host's large reads and writes become
+# CMD18 / CMD25 bursts (sp1_emmc.h). 8 KB of RAM, only in drive builds.
+config USBD_MSC_SCSI_BUFFER_SIZE
+	default 8192 if SP1_DRIVE
+
+config USBD_MSC_STACK_SIZE
+	default 2048 if SP1_DRIVE
 
 # ⚠️ Zephyr formats a volume it cannot mount unless told not to. The card arrives holding
 # whatever an earlier firmware left there, so a failed mount must NEVER format: only
@@ -123,6 +163,12 @@ config SP1_FRESH
 # they win; check_image.py also fails an image built with MOUNT_MKFS on.
 config FS_FATFS_MOUNT_MKFS
 	default n
+
+# Long file names (Adara, M6): presets are "<name>.prst", which 8.3 cannot hold, and samples
+# will want readable names. ~0.5 KB of RAM for the name buffer (BSS mode), a few KB of flash;
+# nothing in the audio path.
+config FS_FATFS_LFN
+	default y if SP1_STORAGE
 
 config FS_FATFS_CUSTOM_MOUNT_POINT_COUNT
 	default 1 if SP1_STORAGE

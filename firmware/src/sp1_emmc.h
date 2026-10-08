@@ -10,7 +10,7 @@
  * transfer"); every block read is CRC-checked and every block write must get the card's
  * "accepted" token.
  *
- * ⚠️ Commands sent: 0, 1, 2, 3, 7, 8, 12, 13, 16, 17, 18, 24, 25. Nothing that touches EXT_CSD
+ * ⚠️ Commands sent: 0, 1, 2, 3, 7, 8, 12, 13, 16, 17, 18, 23, 24, 25. Nothing that touches EXT_CSD
  * (CMD6), nothing that erases (CMD35/36/38), nothing that partitions. The card's OTP
  * settings are never written.
  *
@@ -48,6 +48,8 @@ struct sp1_emmc_stats {
 	uint32_t wr_busy_max_us; /* longest programming busy after a write               */
 	uint32_t multi_blocks;   /* blocks moved inside CMD18 / CMD25 bursts             */
 	uint32_t multi_fallbacks;/* bursts that had to finish block by block            */
+	uint32_t verify_fails;   /* CONFIG_SP1_EMMC_VERIFY: written blocks read back wrong */
+	uint32_t verify_fixed;   /* ...and right after a single-block rewrite            */
 };
 
 /* Power the card, identify it, select it, block length 512, read its size. Bounded:
@@ -78,6 +80,11 @@ bool sp1_emmc_write_block(uint32_t block, const uint8_t buf[SP1_EMMC_BLOCK]);
  * (SPIM3 DMAs into it); writes copy through a RAM frame, so any source works. */
 bool sp1_emmc_read_blocks(uint32_t block, uint8_t *buf, uint32_t n);
 bool sp1_emmc_write_blocks(uint32_t block, const uint8_t *buf, uint32_t n);
+
+/* Burst READS closed-ended (CMD23 first, the card stops itself; the DEFAULT and the fix) or
+ * open-ended (stopped by CMD12, which returns junk on this card -- sp1_emmc.c). Writes are
+ * always open-ended. Only the storage test's comparison switches it. */
+void sp1_emmc_set_closed_ended(bool on);
 
 void sp1_emmc_get_stats(struct sp1_emmc_stats *s);
 

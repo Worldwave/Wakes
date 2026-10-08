@@ -5,9 +5,10 @@
  *
  * ---- the card ----
  * One MBR partition, FAT32, starting at block 8192 (4 MB: the card's erase group, so the
- * volume and its data area sit on erase boundaries), 32 KB clusters, two FATs -- the
- * layout an SD card formatter makes, so a computer reading the card later sees an
- * ordinary drive. Mounted at "/EMMC:". 8.3 names only (no LFN): /EMMC:/WAKES/...
+ * volume and its data area sit on erase boundaries), 32 KB clusters, two FATs, volume
+ * label "SP-1" (Adara: what the computer calls the drive) -- the layout an SD card
+ * formatter makes, so a computer sees an ordinary drive. Mounted at "/EMMC:". Long file
+ * names (Adara: presets are "<name>.prst", ini inside): /EMMC:/WAKES/...
  *
  * ---- formatting: ONLY wakes-sp1-fresh (Adara, 2026-10-07) ----
  * "Flashing wakes-sp1-fresh formats the eMMC. Flashing a normal wakes-sp1 bin does not
@@ -57,13 +58,50 @@ enum sp1_store_format sp1_store_format_result(void);
  * make for this card (exact for FAT32: both FATs, the root cluster, the boot sectors). */
 uint8_t sp1_store_progress(void);
 
-/* Every entry to ON (main thread): queue the ON job -- the fresh check and format
- * (CONFIG_SP1_FRESH), the report and file test (CONFIG_SP1_STORAGE_TEST). Returns at
- * once; skipped, with a log line, if the previous job is still running. */
+/* ---- is there a filesystem to use? (Adara, 2026-10-07) ----
+ * "On boot, check if the partition is formatted. If it's not formatted, don't format unless
+ * it's Fresh. In this state, boot, but disable the PRST feature and key combos related to
+ * it. As we add the PRST feature and related combos, we should build them with a check of
+ * whether the partition is formatted or not."
+ * So EVERY PRST feature and key combo asks sp1_store_volume() and does nothing unless it
+ * says OK. "Formatted" = a FAT volume FatFs can mount (wakes-sp1-fresh's, or a FAT32 a
+ * computer made); WAKES/ is created when first needed. Set by the ON job a fraction of a
+ * second after ON, and by the drive job in STANDBY. UNKNOWN means "not looked yet" --
+ * treat it as NO, never as yes. Without a volume the drive is not offered either: a
+ * computer shown a raw card offers to format it, possibly as exFAT, which Wakes cannot
+ * read. */
+enum sp1_store_volume {
+	SP1_STORE_VOL_UNKNOWN = 0,
+	SP1_STORE_VOL_OK,
+	SP1_STORE_VOL_NONE,      /* no card, or no FAT volume on it: PRST is off           */
+};
+enum sp1_store_volume sp1_store_volume(void);
+
+/* Every entry to ON (main thread): queue the ON job -- take the card from a host (drive
+ * mode), the fresh check and format (CONFIG_SP1_FRESH), the report and file test
+ * (CONFIG_SP1_STORAGE_TEST). Returns at once. Never dropped: if another job is running it
+ * runs next, ahead of anything else queued. */
 void sp1_store_on_enter(void);
 
-/* From sp1_quiesce_peripherals(), on every way out of ON: stop the job and power the
- * card down now. A job cut short by this fails its remaining steps; a format cut short
+#if defined(CONFIG_SP1_DRIVE)
+#include <stdbool.h>
+
+/* ---- drive mode (M6, Adara 2026-10-07) ----
+ * In STANDBY with a host attached the card is a USB drive (automatic, no gesture); turning
+ * ON takes it back after the transfer in flight. The mass-storage interface is always in
+ * the descriptor: while the host does not own the card it reads "no medium", so going
+ * STANDBY <-> ON never re-enumerates. ⚠️ A host that EJECTS the drive does not get it back
+ * until the next USB reset (a replug): Zephyr's class keeps "ejected" until then, the way
+ * a card reader keeps a removed card out.
+ * sp1_standby_run() calls these: enter once per visit, tick every control tick with
+ * sp1_usbd_host(). sp1_store_activity() counts the host's transfers, for the LEDs. */
+void sp1_store_standby_enter(void);
+void sp1_store_standby_tick(bool host);
+uint32_t sp1_store_activity(void);
+#endif
+
+/* From sp1_quiesce_peripherals(), on every way out of ON and out of STANDBY: stop the job,
+ * take the card from a host, drop queued jobs, and power the card down now. A job cut short by this fails its remaining steps; a format cut short
  * leaves no FRESH.ID, so the fresh image formats again at the next ON. Never waits. */
 void sp1_store_abort(void);
 

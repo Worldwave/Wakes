@@ -400,6 +400,11 @@ static bool busy_wait(bool slow)
  * and a trailing idle byte inside the DMA would let it fly past (the tape-looper). */
 static uint8_t txf[2u + SP1_EMMC_BLOCK + 2u];
 
+/* The last write_data()'s CRC-status token (-1 = none seen) and busy, for the verify
+ * trace below. */
+static int last_tok;
+static uint32_t last_busy_us;
+
 /* One data block TO the card after CMD24's response (or the previous block of a CMD25);
  * then its CRC-status token (010 = accepted) and its busy. True only if accepted and
  * programmed. */
@@ -470,7 +475,10 @@ static bool write_data(const uint8_t *buf, enum mode m)
 	}
 	/* Wait out the busy whatever the token said: a rejected block can still leave the
 	 * card busy, and the next command must not land on it. */
+	const uint32_t b0 = k_cycle_get_32();
 	const bool done = busy_wait(slow);
+	last_tok = status;
+	last_busy_us = k_cyc_to_us_floor32(k_cycle_get_32() - b0);
 	if (status != 0x2) {
 		st.wr_rejects++;
 		return false;
@@ -502,6 +510,34 @@ static bool stop_transmission(bool after_write)
 	uint8_t r[(R1_BITS + 7u) / 8u];
 	const bool ok = send_cmd_retry(12, 0, r, R1_BITS);
 	return (after_write ? busy_wait(false) : true) && ok;
+}
+
+/* ---- burst READS are closed-ended (M6, proven 2026-10-07) ----
+ * ⚠️ Open-ended CMD18 (the tape-looper's way: run until CMD12) RETURNS JUNK on this card.
+ * CMD12 lands while the card is already fetching the block after the last one wanted, and
+ * some later burst then hands back, as its SECOND block, the card's internal buffer -- with a
+ * valid CRC, so nothing below this layer can see it. Measured on hardware
+ * (logs/sp1-20261007-221018.log, 4 ON entries x 3 rounds of FAT scan + 512 KB read):
+ * open-ended 5 bad blocks, every one at position 1 of its burst, every one the same
+ * buffer-like bytes give or take a few bits; closed-ended 0. Earlier runs: the host's own
+ * FAT scan set it up and Wakes' next read caught it (-202944, -210404, -215523).
+ * So every burst read is CMD23 SET_BLOCK_COUNT + CMD18: the card stops itself after exactly
+ * n blocks, and CMD12 is sent only to cut a failed burst short.
+ * Burst WRITES stay open-ended (CMD25 ... CMD12): ~10 000 verified blocks, 0 wrong. */
+static bool closed_ended = true;
+
+void sp1_emmc_set_closed_ended(bool on)
+{
+	closed_ended = on;
+}
+
+static bool set_block_count(uint32_t n)
+{
+	if (!closed_ended) {
+		return true;
+	}
+	uint8_t r[(R1_BITS + 7u) / 8u];
+	return send_cmd_retry(23, n & 0xffffu, r, R1_BITS);
 }
 
 /* ---------------------------------------------------------------- API */
@@ -641,12 +677,9 @@ bool sp1_emmc_read_block(uint32_t block, uint8_t buf[SP1_EMMC_BLOCK])
 	return sp1_emmc_ready() && block < sectors && read_cmd_block(17, block, buf);
 }
 
-bool sp1_emmc_write_block(uint32_t block, const uint8_t buf[SP1_EMMC_BLOCK])
+static bool write_block_raw(uint32_t block, const uint8_t *buf)
 {
 	static const enum mode modes[] = { M_SPIM, M_FAST, M_SLOW };
-	if (!sp1_emmc_ready() || block >= sectors) {
-		return false;
-	}
 	uint8_t r[(R1_BITS + 7u) / 8u];
 	for (unsigned t = 0; t < ARRAY_SIZE(modes) && !aborted; t++) {
 		/* CMD24 WRITE_BLOCK. Its R1 reports this command's own errors (address out
@@ -664,6 +697,81 @@ bool sp1_emmc_write_block(uint32_t block, const uint8_t buf[SP1_EMMC_BLOCK])
 	return false;
 }
 
+#if defined(CONFIG_SP1_EMMC_VERIFY)
+/* ---- read every write back (diagnostics, M6) ----
+ * Hardware 2026-10-07 (logs/sp1-20261007-202944.log, -210404.log): in about a third of ON
+ * entries the 512 KB test file read back with one or two blocks still holding the card's
+ * OLD contents -- every token "accepted", no CRC error, no timeout, all in CMD25 bursts.
+ * So a write was lost or landed elsewhere. This reads each written block straight back,
+ * and on a mismatch says where in its burst it was, what the card answered for it, and
+ * whether a slow re-read agrees (a lost WRITE) or not (a READ problem); then rewrites it
+ * on its own and checks again. */
+static uint8_t vbuf[SP1_EMMC_BLOCK];
+static uint8_t vbuf2[SP1_EMMC_BLOCK];
+
+static bool read_back(uint32_t block, uint8_t *dst, enum mode m)
+{
+	uint8_t r[(R1_BITS_DATA + 7u) / 8u];
+	return send_cmd_retry(17, block, r, R1_BITS_DATA) && read_data(dst, m);
+}
+
+static void hex16(char *out, const uint8_t *d)
+{
+	static const char hx[] = "0123456789abcdef";
+	for (int i = 0; i < 16; i++) {
+		out[3 * i] = ' ';
+		out[3 * i + 1] = hx[d[i] >> 4];
+		out[3 * i + 2] = hx[d[i] & 15u];
+	}
+	out[48] = '\0';
+}
+
+static bool verify_block(uint32_t block, const uint8_t *src, const char *how, uint32_t pos,
+			 uint32_t n, int tok, uint32_t busy_us, uint32_t prev_busy_us)
+{
+	if (read_back(block, vbuf, M_SPIM) && memcmp(vbuf, src, SP1_EMMC_BLOCK) == 0) {
+		return true;
+	}
+	st.verify_fails++;
+	const bool slow_ok = read_back(block, vbuf2, M_SLOW);
+	const bool slow_right = slow_ok && memcmp(vbuf2, src, SP1_EMMC_BLOCK) == 0;
+	const bool same = slow_ok && memcmp(vbuf2, vbuf, SP1_EMMC_BLOCK) == 0;
+	uint32_t diff = 0;
+	for (uint32_t i = 0; i < SP1_EMMC_BLOCK; i++) {
+		diff += (vbuf[i] != src[i]);
+	}
+	printk("EMMC VERIFY FAIL: %s LBA %u = block %u of %u; token %d, busy %u us (block before: "
+	       "%u us); %u bytes differ; slow re-read %s\n", how, (unsigned)block, (unsigned)pos,
+	       (unsigned)n, tok, (unsigned)busy_us, (unsigned)prev_busy_us, (unsigned)diff,
+	       !slow_ok ? "FAILED" : (slow_right ? "is RIGHT -> a READ problem"
+				     : (same ? "agrees -> the WRITE was lost"
+					     : "differs from both")));
+	char a[49], b[49];
+	hex16(a, vbuf);
+	hex16(b, src);
+	printk("EMMC VERIFY FAIL: read  %s\nEMMC VERIFY FAIL: wrote %s\n", a, b);
+	const bool fixed = write_block_raw(block, src) && read_back(block, vbuf, M_SPIM) &&
+			   memcmp(vbuf, src, SP1_EMMC_BLOCK) == 0;
+	if (fixed) {
+		st.verify_fixed++;
+	}
+	printk("EMMC VERIFY: rewritten on its own: %s\n", fixed ? "now right" : "STILL WRONG");
+	return fixed;
+}
+#endif
+
+bool sp1_emmc_write_block(uint32_t block, const uint8_t buf[SP1_EMMC_BLOCK])
+{
+	if (!sp1_emmc_ready() || block >= sectors || !write_block_raw(block, buf)) {
+		return false;
+	}
+#if defined(CONFIG_SP1_EMMC_VERIFY)
+	return verify_block(block, buf, "CMD24", 0, 1, last_tok, last_busy_us, 0);
+#else
+	return true;
+#endif
+}
+
 bool sp1_emmc_read_blocks(uint32_t block, uint8_t *buf, uint32_t n)
 {
 	if (!sp1_emmc_ready() || n == 0u || block >= sectors || n > sectors - block) {
@@ -675,11 +783,15 @@ bool sp1_emmc_read_blocks(uint32_t block, uint8_t *buf, uint32_t n)
 	uint32_t done = 0;
 	if (multi >= 2u) {
 		uint8_t r[(R1_BITS_DATA + 7u) / 8u];
-		if (send_cmd_retry(18, block, r, R1_BITS_DATA)) {
+		if (set_block_count(multi) && send_cmd_retry(18, block, r, R1_BITS_DATA)) {
 			while (done < multi && read_data(buf + done * SP1_EMMC_BLOCK, M_SPIM)) {
 				done++;
 			}
-			(void)stop_transmission(false);
+			/* Closed-ended and complete: the card stopped by itself. Otherwise
+			 * (open-ended, or cut short) it must be told. */
+			if (!closed_ended || done < multi) {
+				(void)stop_transmission(false);
+			}
 			st.multi_blocks += done;
 			if (done < multi) {
 				st.multi_fallbacks++;
@@ -702,9 +814,19 @@ bool sp1_emmc_write_blocks(uint32_t block, const uint8_t *buf, uint32_t n)
 	uint32_t done = 0;
 	if (n >= 2u) {
 		uint8_t r[(R1_BITS + 7u) / 8u];
+#if defined(CONFIG_SP1_EMMC_VERIFY)
+		static int8_t btok[64];
+		static uint32_t bbusy[64];
+#endif
 		if (send_cmd_retry(25, block, r, R1_BITS) &&
 		    (resp_bits(r, 8, 32) & WRITE_FATAL) == 0u) {
 			while (done < n && write_data(buf + done * SP1_EMMC_BLOCK, M_SPIM)) {
+#if defined(CONFIG_SP1_EMMC_VERIFY)
+				if (done < 64u) {
+					btok[done] = (int8_t)last_tok;
+					bbusy[done] = last_busy_us;
+				}
+#endif
 				done++;
 			}
 			if (!stop_transmission(true)) {
@@ -714,6 +836,16 @@ bool sp1_emmc_write_blocks(uint32_t block, const uint8_t *buf, uint32_t n)
 			if (done < n) {
 				st.multi_fallbacks++;
 			}
+#if defined(CONFIG_SP1_EMMC_VERIFY)
+			for (uint32_t j = 0; j < done; j++) {
+				const bool rec = j < 64u;
+				if (!verify_block(block + j, buf + j * SP1_EMMC_BLOCK, "CMD25", j, n,
+						  rec ? btok[j] : -2, rec ? bbusy[j] : 0u,
+						  (rec && j > 0u) ? bbusy[j - 1u] : 0u)) {
+					return false;
+				}
+			}
+#endif
 		}
 	}
 	for (; done < n; done++) {               /* rewriting a block is harmless */

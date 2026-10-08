@@ -296,4 +296,8 @@ void sp1_emmc_report_stats(void)
 	     (unsigned)s.wr_busy_max_us);
 	LINE("EMMC fast transfer: %u blocks in multi-block bursts, %u bursts finished "
 	     "block by block\n", (unsigned)s.multi_blocks, (unsigned)s.multi_fallbacks);
+	if (IS_ENABLED(CONFIG_SP1_EMMC_VERIFY)) {
+		LINE("EMMC verify: %u written blocks read back wrong, %u right after a rewrite\n",
+		     (unsigned)s.verify_fails, (unsigned)s.verify_fixed);
+	}
 }

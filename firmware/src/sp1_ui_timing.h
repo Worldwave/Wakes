@@ -109,10 +109,17 @@
 
 /* ---- STANDBY (off, plugged in) ----
  * The play row is a charge bar filling from the "••" end toward PLAY. It breathes
- * while charging and sits solid when complete. Status lights live on the model
- * row at T2/T3, dim so they read as indicators rather than as UI. */
-#define SP1_STANDBY_STATUS_LEVEL   38u   /* ~15 % of 255 -- T2/T3 status       */
+ * while charging and sits solid when complete -- the only charging indicator now: the
+ * T2/T3 plugged/charging lights are gone (Adara, M6), to free the model row for the
+ * drive's activity below. */
 #define SP1_STANDBY_BAR_LEVEL      77u   /* ~30 % of 255 -- the charge bar     */
+/* Drive mode's activity (Adara, M6 #43): on host reads and writes the model row steps
+ * T1, T3, T2, T4 (2 and 3 swapped on purpose), each LED a fast downward ramp from 50 %.
+ * One step at most every SP1_DRIVE_STEP_MS, so a transfer reads as a chase rather than
+ * all four glowing at once. Tune on hardware. */
+#define SP1_DRIVE_LED_PEAK        128u   /* 50 %                               */
+#define SP1_DRIVE_STEP_MS          50u
+#define SP1_DRIVE_RAMP_MS         150u
 #define SP1_STANDBY_BREATH_MS    2200u   /* one full breath cycle              */
 #define SP1_STANDBY_BREATH_DEPTH   60u   /* peak-to-trough at FULL brightness;
                                           * scaled down with the bar level so a
