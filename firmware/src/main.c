@@ -201,6 +201,7 @@ static bool     ffwd_consumed;         /* FFWD pressed with "••": not transp
 static uint32_t burst_n0;
 static uint32_t rip_ms;                /* "••" + PLAY held, towards SP1_RIP_HOLD_MS  */
 static bool     rip_armed;             /* this PLAY press may still become ROTC      */
+static bool     rip_glyph;             /* ...and it opened the PRST glyph (PRST on)  */
 static bool     rip_show_page;         /* rip done, still held: draw the page        */
 /* PRST's browser (#50): the slot glyph on show, and whether this "••" hold changed slot. */
 static bool     prst_showing;
@@ -325,6 +326,23 @@ static void rotc_levels(uint32_t t, uint8_t lv[4])
 	const uint32_t v = (t < rise_at) ? 0u : ((t - rise_at) * 255u) / SP1_ROTC_RISE_MS;
 	for (int i = 0; i < 4; i++) {
 		lv[i] = (uint8_t)(v > 255u ? 255u : v);
+	}
+}
+
+/* ---- ROTC with PRST off (Adara, #50): a slower fade where the glyph would be ----
+ * No slot to show, so the first SP1_PRST_GLYPH_MS are a slow fade of the face LEDs from what
+ * the page shows (the SHIFT layer, "••" being held) down to black; then the same black, rise
+ * and Unpatch animation as with PRST on. Past the glyph's span it is rotc_levels(). */
+static void rotc_or_fade_levels(uint32_t t, bool marbles, uint8_t lv[4])
+{
+	if (t >= SP1_PRST_GLYPH_MS) {
+		rotc_levels(t, lv);
+		return;
+	}
+	(marbles ? sp1_mui_leds : sp1_pui_leds)(lv);
+	const uint32_t k = 256u - (t * 256u) / SP1_PRST_GLYPH_MS;
+	for (int i = 0; i < 4; i++) {
+		lv[i] = (uint8_t)(((uint32_t)lv[i] * k) >> 8);
 	}
 }
 
@@ -1409,6 +1427,7 @@ int main(void)
 		burst_n0 = 0u;
 		rip_ms = 0u;
 		rip_armed = false;
+		rip_glyph = false;
 		rip_show_page = false;
 		prst_showing = false;
 		prst_changed = false;
@@ -1790,8 +1809,8 @@ int main(void)
 				 *   5. Letting go once ROTC's animation has begun (past the glyph)
 				 *      fades back to the SHIFT screen; nothing is wiped.
 				 * Every PRST part asks prst_available() (the volume is OK and this
-				 * ON session loaded a slot); without it this is ROTC alone, with the
-				 * glyph's 1.6 s left as it is -- the page -- so the timing is the same.
+				 * ON session loaded a slot); without it this is ROTC alone, the glyph's
+				 * 1.6 s a slow fade to black instead (Adara; rotc_or_fade_levels).
 				 *
 				 * ROTC is a FULL PATCH WIPE of the module on show (docs/DEFAULTS.md);
 				 * the page you are standing on is kept. A "••" + PLAY press is a
@@ -1808,6 +1827,7 @@ int main(void)
 						prst_in_hold = prst_showing;
 						prst_show_ms = 0u;
 						rip_armed = !prst_changed;
+						rip_glyph = prst_showing;
 					}
 					rip_ms = 0u;
 				}
@@ -1864,18 +1884,19 @@ int main(void)
 						 * black -> black and the rip looked unfinished until
 						 * "••" was let go (issue #4). */
 						rip_show_page = true;
-					} else if (rip_ms >= SP1_PRST_GLYPH_MS) {
+					} else if (rip_ms >= SP1_PRST_GLYPH_MS || !rip_glyph) {
 						uint8_t lv[4];
-						rotc_levels(rip_ms, lv);
+						rotc_or_fade_levels(rip_ms, marbles, lv);
 						sp1_display_flash(lv, 100u, SP1_RIP_CANCEL_FADE_MS);
 					}
 				} else if (rip_armed) {
 					/* PLAY (or "••") let go before the wipe. Within the glyph it
-					 * was a tap: the glyph carries on. Past it, ROTC is
-					 * cancelled: back to the SHIFT screen. */
-					if (rip_ms >= SP1_PRST_GLYPH_MS) {
+					 * was a tap: the glyph carries on. Past it -- or anywhere
+					 * with PRST off, where the slow fade is ROTC's own -- ROTC
+					 * is cancelled: back to the SHIFT screen. */
+					if (rip_ms >= SP1_PRST_GLYPH_MS || !rip_glyph) {
 						uint8_t lv[4];
-						rotc_levels(rip_ms, lv);
+						rotc_or_fade_levels(rip_ms, marbles, lv);
 						sp1_display_flash(lv, 0u, SP1_RIP_CANCEL_FADE_MS);
 						printk("RIP cancelled\n");
 					}

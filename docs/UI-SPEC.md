@@ -445,6 +445,7 @@ below — the lock is unreachable by feel otherwise.
 The rip animation, on the track row, all while held (#50; through v0.7.2 two flickers, a
 fade and black): the PRST slot glyph for 1.6 s, black 0.25 s, a rise to full over 0.4 s, the
 Unpatch animation (0.75 s). At 3 s the reset happens and the page fades back in over 0.5 s.
+With PRST off the glyph's 1.6 s are a slow fade of the face LEDs to black instead.
 Letting go during the glyph is just a PRST press; letting go after it cancels (the SHIFT
 screen returns over 150 ms). It is a shift use, so it never starts a power-off; the 30 s
 backstop still applies.

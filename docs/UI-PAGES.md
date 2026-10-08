@@ -133,8 +133,8 @@ So the combination space is exactly: **`••` + one button**, on either ladder
   The row shows the PRST slot glyph for 1.6 s, goes black for 0.25 s, rises to full over 0.4 s,
   then plays the Unpatch animation and commits at 3 s (#50); letting go once it is past the glyph
   cancels and returns to the SHIFT screen. After a PRST slot change in the same `••` hold it does
-  not start at all until `••` is released. With PRST off (no filesystem) the glyph's 1.6 s show
-  the page instead; the timing is the same.
+  not start at all until `••` is released. With PRST off (no filesystem) there is no glyph: the
+  first 1.6 s are a slow fade of the face LEDs to black (Adara), then the same; a press is ROTC only.
   ⚠️ Until M4b this kept the engine and BASE and was a modulation reset. It is a patch wipe now.
   ⚠️ **The faders do not move** — pickup catches them up on the next touch, so straight after a
   rip the instrument sounds neutral while the faders still look wrong. By design.
