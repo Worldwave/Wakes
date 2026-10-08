@@ -209,13 +209,14 @@ void sp1_pui_load_mods(const float shift[4], const float settings[4])
 	}
 }
 
+/* SHIFT: four attenuverters, all at centre -- a gain of exactly ZERO. */
+static const float kShift[4] = { 0.5f, 0.5f, 0.5f, 0.5f };
+/* SETTINGS (M4a order): octave range 255/256 = full (plaits/settings.cc's own
+ * default), LPG colour 0, decay 128/256, LEVEL disconnected. */
+static const float kSettings[4] = { 255.0f / 256.0f, 0.0f, 0.5f, 0.0f };
+
 void sp1_pui_default_mods(void)
 {
-	/* SHIFT: four attenuverters, all at centre -- a gain of exactly ZERO. */
-	static const float kShift[4] = { 0.5f, 0.5f, 0.5f, 0.5f };
-	/* SETTINGS (M4a order): octave range 255/256 = full (plaits/settings.cc's own
-	 * default), LPG colour 0, decay 128/256, LEVEL disconnected. */
-	static const float kSettings[4] = { 255.0f / 256.0f, 0.0f, 0.5f, 0.0f };
 	sp1_pui_load_mods(kShift, kSettings);
 	/* The FREQUENCY quantizer is a SETTINGS-page value, so it resets with the page:
 	 * off, i.e. every semitone available (M4b). */
@@ -597,14 +598,86 @@ void sp1_pui_rip(void)
 	 * ⚠️ Neutral is a MOMENT IN TIME (Adara). Step to an engine with a different bipolar
 	 * set afterwards and the values stay where the rip put them. Re-neutralising on
 	 * every engine change would mean losing a patch just by browsing engines. */
-	slot = SP1_ENGINE_DEFAULT_SLOT;
-	const uint8_t c = SP1_ENGINE_TABLE[slot].centre;
-	stored[SP1_PUI_BASE][0] = 0.5f;                        /* FREQUENCY -> C4 */
-	stored[SP1_PUI_BASE][1] = (c & C_T) ? 0.5f : 0.0f;     /* TIMBRE          */
-	stored[SP1_PUI_BASE][2] = (c & C_M) ? 0.5f : 0.0f;     /* MORPH           */
-	stored[SP1_PUI_BASE][3] = (c & C_H) ? 0.5f : 0.0f;     /* HARMONICS       */
-	sp1_pui_default_mods();          /* attenuverters 0, SETTINGS, quantizer off */
+	struct sp1_pui_patch p;
+	sp1_pui_rip_patch(SP1_ENGINE_DEFAULT_SLOT, &p);
+	sp1_pui_put(&p);
+}
+
+static bool slot_ok(int s)
+{
+	return s >= 0 && s < SP1_ENGINE_SLOTS && SP1_ENGINE_TABLE[s].on;
+}
+
+void sp1_pui_rip_patch(int s, struct sp1_pui_patch *p)
+{
+	if (!slot_ok(s)) {
+		s = SP1_ENGINE_DEFAULT_SLOT;
+	}
+	const uint8_t c = SP1_ENGINE_TABLE[s].centre;
+	p->slot = s;
+	p->v[SP1_PUI_BASE][0] = 0.5f;                        /* FREQUENCY -> C4 */
+	p->v[SP1_PUI_BASE][1] = (c & C_T) ? 0.5f : 0.0f;     /* TIMBRE          */
+	p->v[SP1_PUI_BASE][2] = (c & C_M) ? 0.5f : 0.0f;     /* MORPH           */
+	p->v[SP1_PUI_BASE][3] = (c & C_H) ? 0.5f : 0.0f;     /* HARMONICS       */
+	for (int i = 0; i < 4; i++) {                        /* attenuverters 0, SETTINGS */
+		p->v[SP1_PUI_SHIFT][i] = kShift[i];
+		p->v[SP1_PUI_SETTINGS][i] = kSettings[i];
+	}
+	p->scale = SP1_PUI_SCALE_OFF;                        /* quantizer off   */
+}
+
+void sp1_pui_get(struct sp1_pui_patch *p)
+{
+	p->slot = slot;
+	for (int l = 0; l < SP1_PUI_LAYERS; l++) {
+		for (int i = 0; i < 4; i++) {
+			p->v[l][i] = stored[l][i];
+		}
+	}
+	p->scale = scale;
+}
+
+void sp1_pui_put(const struct sp1_pui_patch *p)
+{
+	slot = slot_ok(p->slot) ? p->slot : SP1_ENGINE_DEFAULT_SLOT;
+	for (int l = 0; l < SP1_PUI_LAYERS; l++) {
+		for (int i = 0; i < 4; i++) {
+			const float x = p->v[l][i];
+			stored[l][i] = isfinite(x) ? clamp01(x) : 0.0f;
+		}
+	}
+	sp1_pui_set_scale(p->scale);       /* anything unknown -> off */
+	base_seeded = true;
 	pickup_all();
+}
+
+static int lower(int ch)
+{
+	return (ch >= 'A' && ch <= 'Z') ? ch - 'A' + 'a' : ch;
+}
+
+int sp1_pui_slot_of(const char *name, int len)
+{
+	for (int s = 0; s < SP1_ENGINE_SLOTS; s++) {
+		const char *n = SP1_ENGINE_TABLE[s].name;
+		if (!SP1_ENGINE_TABLE[s].on || n == NULL) {
+			continue;
+		}
+		int k = 0;
+		while (k < len && n[k] != '\0' && lower((unsigned char)n[k]) ==
+						     lower((unsigned char)name[k])) {
+			k++;
+		}
+		if (k == len && n[k] == '\0') {
+			return s;
+		}
+	}
+	return -1;
+}
+
+const char *sp1_pui_slot_name(int s)
+{
+	return slot_ok(s) ? SP1_ENGINE_TABLE[s].name : "";
 }
 
 void sp1_pui_engine_leds(uint8_t out[4])

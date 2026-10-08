@@ -249,82 +249,133 @@ static void activate(enum sp1_mui_layer l)
 	}
 }
 
-static void defaults_pages(void)
+static void defaults_pages(struct sp1_mui_patch *p)
 {
-	stored[SP1_MUI_T_SHIFT][0] = 0.5f;       /* GTLT on its detent: disengaged  */
-	stored[SP1_MUI_T_SHIFT][1] = 0.5f;       /* gate length 128/256 (Marbles)   */
-	stored[SP1_MUI_T_SHIFT][2] = 0.0f;       /* no randomness                   */
-	stored[SP1_MUI_T_SHIFT][3] = DEF_LENGTH;
-	stored[SP1_MUI_X_SHIFT][0] = 0.0f;                 /* reserved (M4a)        */
-	stored[SP1_MUI_X_SHIFT][1] = 0.0f;                 /* reserved (M4a)        */
-	stored[SP1_MUI_X_SHIFT][2] = 0.0f;                 /* reserved              */
+	p->v[SP1_MUI_T_SHIFT][0] = 0.5f;       /* GTLT on its detent: disengaged  */
+	p->v[SP1_MUI_T_SHIFT][1] = 0.5f;       /* gate length 128/256 (Marbles)   */
+	p->v[SP1_MUI_T_SHIFT][2] = 0.0f;       /* no randomness                   */
+	p->v[SP1_MUI_T_SHIFT][3] = DEF_LENGTH;
+	p->v[SP1_MUI_X_SHIFT][0] = 0.0f;                 /* reserved (M4a)        */
+	p->v[SP1_MUI_X_SHIFT][1] = 0.0f;                 /* reserved (M4a)        */
+	p->v[SP1_MUI_X_SHIFT][2] = 0.0f;                 /* reserved              */
 	/* X_SHIFT[3] is not a slot: F4 there addresses T_SHIFT[3] (LENGTH), see canon(). */
-	stored[SP1_MUI_Y][0] = 0.5f;                       /* Marbles: 128/256      */
-	stored[SP1_MUI_Y][1] = 0.5f;
-	stored[SP1_MUI_Y][2] = 0.0f;
-	stored[SP1_MUI_Y][3] = 6.5f / 12.0f;               /* 1/8 of t2 (128/256)   */
-	q_ydiv = 6;
-	q_length = 57;
-	model = 0;
-	t_range = 1;
-	range = DEF_RANGE;
-	diversity = 0;
-	scale = 0;                                         /* major                 */
+	p->v[SP1_MUI_X_SHIFT][3] = 0.0f;
+	p->v[SP1_MUI_Y][0] = 0.5f;                       /* Marbles: 128/256      */
+	p->v[SP1_MUI_Y][1] = 0.5f;
+	p->v[SP1_MUI_Y][2] = 0.0f;
+	p->v[SP1_MUI_Y][3] = 6.5f / 12.0f;               /* 1/8 of t2 (128/256)   */
+	p->model = 0;
+	p->t_range = 1;
+	p->range = DEF_RANGE;
+	p->diversity = 0;
+	p->scale = 0;                                    /* major                 */
 	/* [F] and [G]: Marbles applies DEJA VU to both sections unless you turn one off. */
-	dv_t = true;
-	dv_x = true;
+	p->dv_t = 1;
+	p->dv_x = 1;
 }
 
 /* ---- boot routing vs rip routing: they are NOT the same any more (Adara, M4d) ----
  * docs/DEFAULTS.md is the spec. Boot gives you something that plays the moment you press
  * PLAY; a rip gives you a blank patch bay. */
-static void boot_routing(void)
+static void boot_routing(struct sp1_mui_patch *p)
 {
 	/* ⚠️ TRIG comes from t2, the MASTER clock, which fires on every tick in every
 	 * model -- so this is a steady stream of notes with no rhythmic randomness. That
 	 * is deliberate (Adara, M4d): it is the most predictable "press PLAY and hear
 	 * something" default there is, and t1 / t3 are then yours to route. It replaces
 	 * M4b's t1 + t3, which gave the models' random rhythm straight away. */
-	route.t_dest[0] = SP1_DEST_NONE;
-	route.t_dest[1] = SP1_DEST_TRIG;
-	route.t_dest[2] = SP1_DEST_NONE;
+	p->t_dest[0] = SP1_DEST_NONE;
+	p->t_dest[1] = SP1_DEST_TRIG;
+	p->t_dest[2] = SP1_DEST_NONE;
 	/* X1 -> V/Oct (no attenuverter, so Plaits' internal envelope keeps TIMBRE /
 	 * MORPH / FM / HARMONICS); X2, X3 and Y start disconnected. */
-	route.dest[0] = SP1_DEST_VOCT;
-	route.dest[1] = SP1_DEST_NONE;
-	route.dest[2] = SP1_DEST_NONE;
-	route.dest[3] = SP1_DEST_NONE;
+	p->dest[0] = SP1_DEST_VOCT;
+	p->dest[1] = SP1_DEST_NONE;
+	p->dest[2] = SP1_DEST_NONE;
+	p->dest[3] = SP1_DEST_NONE;
 }
 
-static void rip_routing(void)
+static void rip_routing(struct sp1_mui_patch *p)
 {
 	/* Every destination disconnected: "rip out the cables" now means what it says.
 	 * ⚠️ So after a rip on MARBLES, pressing PLAY makes no sound until something is
 	 * dialled back in. Intended (Adara, M4d). */
-	for (int i = 0; i < 3; i++) { route.t_dest[i] = SP1_DEST_NONE; }
-	for (int i = 0; i < 4; i++) { route.dest[i] = SP1_DEST_NONE; }
+	for (int i = 0; i < 3; i++) { p->t_dest[i] = SP1_DEST_NONE; }
+	for (int i = 0; i < 4; i++) { p->dest[i] = SP1_DEST_NONE; }
 }
 
 /* Every BASE fader back to its default. The rip resets these too (docs/DEFAULTS.md):
  * t RATE / BIAS / JITTER / DEJA VU and X SPREAD / BIAS / STEPS. */
-static void defaults_base(void)
+static void defaults_base(struct sp1_mui_patch *p)
 {
-	stored[SP1_MUI_T_BASE][0] = DEF_RATE;
-	stored[SP1_MUI_T_BASE][1] = 0.5f;
-	stored[SP1_MUI_T_BASE][2] = 0.0f;
-	stored[SP1_MUI_T_BASE][3] = 0.0f;      /* DEJA VU, shared with the X page */
-	stored[SP1_MUI_X_BASE][0] = 0.5f;
-	stored[SP1_MUI_X_BASE][1] = 0.5f;
-	stored[SP1_MUI_X_BASE][2] = DEF_STEPS;
+	p->v[SP1_MUI_T_BASE][0] = DEF_RATE;
+	p->v[SP1_MUI_T_BASE][1] = 0.5f;
+	p->v[SP1_MUI_T_BASE][2] = 0.0f;
+	p->v[SP1_MUI_T_BASE][3] = 0.0f;      /* DEJA VU, shared with the X page */
+	p->v[SP1_MUI_X_BASE][0] = 0.5f;
+	p->v[SP1_MUI_X_BASE][1] = 0.5f;
+	p->v[SP1_MUI_X_BASE][2] = DEF_STEPS;
+	p->v[SP1_MUI_X_BASE][3] = 0.0f;      /* not a slot: see canon()         */
+}
+
+static bool in_ring(const uint8_t *ring, int n, int d)
+{
+	for (int i = 0; i < n; i++) {
+		if (ring[i] == d) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool sp1_mui_dest_allowed(bool t_side, int d)
+{
+	return t_side ? in_ring(t_ring, T_RING_N, d) : in_ring(x_ring, X_RING_N, d);
+}
+
+/* Set the module's values from a patch. Out-of-range entries take the ROTC default (a
+ * sanitiser for internal callers; sp1_prst.c's field check is the one that reports). The
+ * zone selectors start at the zone their value is in, as the defaults' 6 and 57 always did. */
+static void apply(const struct sp1_mui_patch *p)
+{
+	struct sp1_mui_patch d;
+	sp1_mui_rip_patch(&d);
+	for (int l = 0; l < SP1_MUI_LAYERS; l++) {
+		for (int i = 0; i < 4; i++) {
+			const float x = p->v[l][i];
+			stored[l][i] = isfinite(x) ? clamp01(x) : d.v[l][i];
+		}
+	}
+	model     = (p->model >= 0 && p->model < 6) ? p->model : d.model;
+	t_range   = (p->t_range >= 0 && p->t_range <= 2) ? p->t_range : d.t_range;
+	range     = (p->range >= 0 && p->range < SP1_MRB_RANGE_COUNT) ? p->range : d.range;
+	diversity = (p->diversity >= 0 && p->diversity <= 2) ? p->diversity : d.diversity;
+	scale     = sp1_mui_scale_included(p->scale) ? p->scale : d.scale;
+	dv_t = p->dv_t != 0;
+	dv_x = p->dv_x != 0;
+	for (int k = 0; k < 3; k++) {
+		route.t_dest[k] = (uint8_t)(sp1_mui_dest_allowed(true, p->t_dest[k])
+					    ? p->t_dest[k] : d.t_dest[k]);
+	}
+	for (int k = 0; k < 4; k++) {
+		route.dest[k] = (uint8_t)(sp1_mui_dest_allowed(false, p->dest[k])
+					  ? p->dest[k] : d.dest[k]);
+	}
+	q_ydiv = (int)(stored[SP1_MUI_Y][3] * 12.0f);
+	q_ydiv = q_ydiv > 11 ? 11 : q_ydiv;
+	q_length = (int)(stored[SP1_MUI_T_SHIFT][3] * (float)LOOP_STEPS);
+	q_length = q_length > LOOP_STEPS - 1 ? LOOP_STEPS - 1 : q_length;
 }
 
 /* ---- API ---------------------------------------------------------------------- */
 void sp1_mui_init(void)
 {
 	/* X_BASE[3] is not a slot: F4 there addresses T_BASE[3] (DEJA VU), see canon(). */
-	defaults_base();
-	defaults_pages();
-	boot_routing();
+	struct sp1_mui_patch p;
+	defaults_base(&p);
+	defaults_pages(&p);
+	boot_routing(&p);
+	apply(&p);
 	page = SP1_MUI_PAGE_T;
 	settings = false;
 	active = SP1_MUI_T_BASE;
@@ -336,9 +387,39 @@ void sp1_mui_rip(void)
 	 * whether SETTINGS is latched are kept (Adara, M4d). main.c re-seeds the random
 	 * stream and re-draws the DEJA VU loop, and leaves the clock running.
 	 * ⚠️ The faders do not move; pickup catches them up, as on PLAITS. */
-	defaults_base();
-	defaults_pages();
-	rip_routing();
+	struct sp1_mui_patch p;
+	sp1_mui_rip_patch(&p);
+	sp1_mui_put(&p);
+}
+
+void sp1_mui_rip_patch(struct sp1_mui_patch *p)
+{
+	defaults_base(p);
+	defaults_pages(p);
+	rip_routing(p);
+}
+
+void sp1_mui_get(struct sp1_mui_patch *p)
+{
+	for (int l = 0; l < SP1_MUI_LAYERS; l++) {
+		for (int i = 0; i < 4; i++) {
+			p->v[l][i] = stored[l][i];
+		}
+	}
+	p->model = model;
+	p->t_range = t_range;
+	p->range = range;
+	p->diversity = diversity;
+	p->scale = scale;
+	p->dv_t = dv_t ? 1 : 0;
+	p->dv_x = dv_x ? 1 : 0;
+	for (int k = 0; k < 3; k++) { p->t_dest[k] = route.t_dest[k]; }
+	for (int k = 0; k < 4; k++) { p->dest[k] = route.dest[k]; }
+}
+
+void sp1_mui_put(const struct sp1_mui_patch *p)
+{
+	apply(p);
 	activate(active);
 }
 

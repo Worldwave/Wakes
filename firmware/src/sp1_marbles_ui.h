@@ -170,6 +170,28 @@ bool sp1_mui_scale_step(int dir);
  * ⚠️ The faders do not move; pickup catches them up, as on PLAITS. */
 void sp1_mui_rip(void);
 
+/* ---- the MARBLES half of a PRST slot (M6, #50) ----
+ * Every value of every layer (BPM and GTLT are fader values, so they come with them), the
+ * button settings and the routing. NOT the page on show (Wakes always comes up in PLAITS),
+ * not the clock's run/stop, not the seed (Adara: too temporary). */
+struct sp1_mui_patch {
+	float v[SP1_MUI_LAYERS][4];       /* stored values, 0..1; see canon() for the X F4s */
+	int   model, t_range, range, diversity, scale;
+	int   dv_t, dv_x;                 /* [F] and [G]: 0 / 1                       */
+	int   t_dest[3];                  /* enum sp1_mui_dest, t ring               */
+	int   dest[4];                    /* X1..X3, Y: enum sp1_mui_dest, X ring    */
+};
+void sp1_mui_get(struct sp1_mui_patch *p);
+/* Load a patch; the page you are on is kept and pickup re-evaluated (as a rip). Sanitises
+ * rather than trusts -- anything out of its range takes the ROTC default -- but the real
+ * field check is sp1_prst.c's. */
+void sp1_mui_put(const struct sp1_mui_patch *p);
+/* What a MARBLES rip gives. sp1_mui_rip() is exactly this, then put: the ONE source of
+ * MARBLES' ROTC defaults, which PRST's field check also uses. */
+void sp1_mui_rip_patch(struct sp1_mui_patch *p);
+/* May destination `d` sit on a t output (t_side) / an X or Y output? (The two rings.) */
+bool sp1_mui_dest_allowed(bool t_side, int d);
+
 /* ---- outputs ---- */
 void sp1_mui_params(struct sp1_marbles_params *out);
 void sp1_mui_routing(struct sp1_mui_routing *out);

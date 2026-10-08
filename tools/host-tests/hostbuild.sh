@@ -24,6 +24,8 @@ OBJ=$SP/hostobj$SP1_PLAITS_BLOCK
 python3 "$HERE/mkovr.py" "$OVR" >/dev/null
 mkdir -p "$GEN" "$OBJ"
 python3 "$ROOT/tools/gen_engines.py" "$ROOT/config/engines.csv" "$GEN/sp1_engines_gen.h" >/dev/null
+# M6 (#50): the PRST field table -- also where a format change without a version bump fails.
+python3 "$ROOT/tools/gen_prst.py" "$GEN/sp1_prst_gen.h" >/dev/null
 # The MIDI script (M5a) as the firmware build generates it -- with ONE change: its `pickup`
 # forced to `sum`, because miditest.cc checks the offset maths and the other suites were
 # written against offsets. miditest_pickup.cc runs the shipped script as it is otherwise, once
@@ -97,6 +99,7 @@ g++ $CXXFLAGS $INC -c $SRC/sp1_marbles.cc -o $OBJ/sp1_marbles.o
 g++ $CXXFLAGS $INC -c $SRC/sp1_midi.cc    -o $OBJ/sp1_midi.o
 gcc $CFLAGS  $INC -c $SRC/sp1_plaits_ui.c  -o $OBJ/pui.o
 gcc $CFLAGS  $INC -c $SRC/sp1_marbles_ui.c -o $OBJ/mui.o
+gcc $CFLAGS  $INC -c $SRC/sp1_prst.c       -o $OBJ/prst.o
 
 # Binaries land in the build dir, never in the repo.
 for t in "$@"; do
@@ -149,7 +152,7 @@ for t in "$@"; do
       out=${out}_takeover ;;
     *.cc) g++ $CXXFLAGS $INC "$t" $OBJ/sp1_synth.o $OBJ/sp1_marbles.o $OBJ/sp1_midi.o \
               $OBJ/pui.o $OBJ/mui.o "$LIB" -lm -o "$out" ;;
-    *.c)  gcc $CFLAGS  $INC "$t" $OBJ/pui.o $OBJ/mui.o $OBJ/sp1_midi.o -lm -o "$out" ;;
+    *.c)  gcc $CFLAGS  $INC "$t" $OBJ/pui.o $OBJ/mui.o $OBJ/prst.o $OBJ/sp1_midi.o -lm -o "$out" ;;
   esac
   echo "$out"
 done

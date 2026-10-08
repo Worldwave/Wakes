@@ -72,6 +72,20 @@ add_custom_command(
 add_custom_target(sp1_audio_gen DEPENDS ${SP1_AUDIO_H})
 add_dependencies(app sp1_audio_gen)
 
+# ---- PRST (M6, #50): the slot file's field table, from tools/gen_prst.py ----
+# No user input: the field list lives in the script. It also holds the format versions, and
+# FAILS the build if the field list changed without a new version (Adara, #50).
+set(SP1_PRST_GEN ${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_prst.py)
+set(SP1_PRST_H   ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated/sp1_prst_gen.h)
+add_custom_command(
+	OUTPUT  ${SP1_PRST_H}
+	COMMAND ${Python3_EXECUTABLE} ${SP1_PRST_GEN} ${SP1_PRST_H}
+	DEPENDS ${SP1_PRST_GEN}
+	COMMENT "Generating the PRST field table (tools/gen_prst.py)"
+)
+add_custom_target(sp1_prst_gen DEPENDS ${SP1_PRST_H})
+add_dependencies(app sp1_prst_gen)
+
 target_sources(app PRIVATE
 	src/main.c
 	src/sp1_led.c
@@ -406,7 +420,7 @@ if(CONFIG_SP1_PLAITS)
 	)
 	# A Zephyr library declared from the APPLICATION is not linked on its own.
 	target_link_libraries(app PRIVATE sp1_plaits)
-	target_sources(app PRIVATE src/sp1_marbles_ui.c)
+	target_sources(app PRIVATE src/sp1_marbles_ui.c src/sp1_prst.c)
 	target_include_directories(app PRIVATE src)
 
 	# ---- M5a: USB-MIDI in (the MIDI script is generated above, with the engines) ----

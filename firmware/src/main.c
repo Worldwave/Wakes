@@ -92,6 +92,7 @@
 #include "sp1_plaits_ui.h"
 #include "sp1_marbles.h"
 #include "sp1_marbles_ui.h"
+#include "sp1_prst.h"            /* M6 (#50): the ROTC defaults main.c owns */
 #include "sp1_release_guard.h"
 #include "sp1_midi.h"
 #endif
@@ -168,13 +169,13 @@ static uint32_t batt_fade_ms;
 /* FFWD burst subdivision as a power of two: 1/(1 << g_burst_div). Kept across ON
  * sessions (RAM), default 1/32. "••" + FFWD finer, "••" + RWD coarser (M3d). */
 #define SP1_BURST_DIV_MAX 7            /* 1/128 */
-static uint8_t g_burst_div = 5;        /* 1/32  */
+static uint8_t g_burst_div = SP1_PRST_DEF_BURST;   /* 1/32  */
 
 /* Output select (M3f): OUT / AUX / OUT+AUX / OUTxAUX, cycled by T4 on the PLAITS
  * SETTINGS panel (#11; it was "••" + T4 until v0.4.6). RAM only, like the burst
  * division: a real power-off returns to OUT.
  * Shown by flashing one track LED per mode, T1 = OUT ... T4 = OUTxAUX. */
-static uint8_t g_out_mode = SP1_OUT_MAIN;
+static uint8_t g_out_mode = SP1_PRST_DEF_OUT;
 
 static const char *const out_mode_name[SP1_OUT_COUNT] = {
 	"OUT", "AUX", "OUT+AUX", "OUTxAUX",
@@ -1636,14 +1637,14 @@ int main(void)
 								 * drive is not part of its patch and
 								 * a Marbles rip has no business
 								 * touching it. */
-								sp1_synth_set_drive(0);
+								sp1_synth_set_drive(SP1_PRST_DEF_DRIVE);
 								/* PLAITS-side output controls go
 								 * back too (docs/DEFAULTS.md).
 								 * VOL is deliberately kept. */
-								g_out_mode = SP1_OUT_MAIN;
+								g_out_mode = SP1_PRST_DEF_OUT;
 								sp1_synth_set_output(
 									(enum sp1_synth_output)g_out_mode);
-								g_burst_div = 5u;          /* 1/32 */
+								g_burst_div = SP1_PRST_DEF_BURST;   /* 1/32 */
 								sp1_synth_set_burst_div(
 									1u << g_burst_div);
 								printk("RIP plaits: patch wiped -- %s, "

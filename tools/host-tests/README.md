@@ -13,15 +13,16 @@ proved on a laptop, and because there is exactly one SP-1 (`docs/SAFETY.md`).
 | `miditest_clock.cc` | the same as `miditest.cc`, with real cycle-counter stamps on every tick | MIDI clock and transport into Marbles (M5b): tempo and position from ticks, ±1 ms of USB jitter, a stopped clock waiting, Start arming beat 1 on its own Plaits block, Marbles' beats at the host's tempo, RATE as Marbles' ratio table (×4, ×1/4), Stop / Continue, a stalled clock, PLAY on the host's clock, and the cable pulled (Marbles stops, own clock again) |
 | `miditest_alt.cc` | the same, built against `midi-alt.ini` (pickup `sum`) | omni, legato on, Yarns' portamento curve, velocity -> LEVEL, aftertouch -> TIMBRE, no sustain pedal, bend range |
 | `third_party/feldd/test/test_usb_rt_parse.c` | feldd's packet validator | feldd's own test, unmodified |
+| `prsttest.c` | `sp1_prst.c` + both UI files, with the same stubs as `uitest` | PRST slot files (#50): the ROTC defaults come from the rip code and a rip still gives them, write -> read returns the patch, every corrupt field (NaN, inf, out of range, exponent, unknown token, a destination off its ring, a scale not included) loads only THAT field's default and a bad BASE fader the loaded engine's neutral, unknown engine -> slot 1, an unknown or missing format -> the whole slot from defaults, hand-edited text (CRLF, case, comments, duplicates), the writer never overruns, and ~23 000 truncated / damaged / random files all give a safe patch |
 | `uactest.c` | Ryan Gilmore's USB audio ring and packet regulator (`third_party/sp1-usb-audio`, with Wakes' word-copy patch applied as the firmware will) at Wakes' tuning, `firmware/src/sp1_uac_tuning.h` | USB audio out (M5c): ±200 ppm of clock drift, a heavy patch starting and stopping, a 200 % block every 997, with no underflow, no lost frame, a margin left in the ring, at most 20 packet-size corrections a second and none from load alone; priming, underflow, overflow |
 
 ```sh
 tools/host-tests/hostbuild.sh routetest.cc uitest.c miditest.cc miditest_alt.cc \
     miditest_pickup.cc miditest_clock.cc ../../third_party/feldd/test/test_usb_rt_parse.c \
-    uactest.c
+    uactest.c prsttest.c
 cd /tmp/wakes-sp1-host && ./routetest && ./uitest && ./miditest && ./miditest_alt \
     && ./miditest_pickup_shared && ./miditest_pickup_takeover && ./miditest_clock \
-    && ./test_usb_rt_parse && ./uactest
+    && ./test_usb_rt_parse && ./uactest && ./prsttest
 ```
 
 Builds go to `$TMPDIR/wakes-sp1-host` (override with `SP1_HOST_BUILD_DIR`); nothing is written

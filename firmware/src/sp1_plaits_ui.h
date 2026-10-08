@@ -71,8 +71,10 @@ void sp1_pui_init(void);
  * all go through here so that when M5 makes these persist, loading a stored snapshot
  * is a change to ONE call site rather than a hunt.
  *
+ * (M6: a PRST slot loads through sp1_pui_put(), which sets these layers too.)
+ *
  * ⚠️ The faders never seed these layers. Only BASE is seeded from the physical faders,
- * and only on the first ON after boot: an attenuverter that picked up wherever the
+ * and only on the first ON after boot (and not at all once a PRST slot is loaded): an attenuverter that picked up wherever the
  * fader happened to be sitting would start the instrument modulating something the
  * user did not ask for (Adara, from hardware). They start at gain 0 and stay there
  * until a fader is moved WHILE the layer is showing, which pickup then catches. */
@@ -182,6 +184,31 @@ void sp1_pui_slot_leds(int slot, uint8_t out[4]);
  *
  * ⚠️ The faders do not move; pickup catches them up (Adara: by design). */
 void sp1_pui_rip(void);
+
+/* ---- the PLAITS half of a PRST slot (M6, #50) ----
+ * Everything this module stores in a preset: the engine, the three layers' values and the
+ * quantizer. (The output mode, burst division and drive are main.c's; src/sp1_prst.h.)
+ * Pickup state is NOT part of it -- sp1_pui_put() re-evaluates it, as a rip does. */
+struct sp1_pui_patch {
+	int   slot;                       /* engine: position in config/engines.csv  */
+	float v[SP1_PUI_LAYERS][4];       /* stored values, pot space 0..1          */
+	int   scale;                      /* FREQUENCY quantizer, SP1_PUI_SCALE_OFF */
+};
+void sp1_pui_get(struct sp1_pui_patch *p);
+/* Load a patch: the faders do not move, pickup catches them up (Adara, as after a rip).
+ * Also marks BASE as seeded, so the next ON keeps these values instead of taking the
+ * faders. Sanitises rather than trusts: an empty or unknown slot -> slot 1, a value that is
+ * not a finite number -> 0, the rest clamped. The real field check is sp1_prst.c's. */
+void sp1_pui_put(const struct sp1_pui_patch *p);
+/* What a rip gives, with BASE at the neutral state of `slot`'s engine (0.5 bipolar, 0
+ * unipolar, F1 at C4). sp1_pui_rip() is exactly this for slot 1, then put. The ONE
+ * source of PLAITS' ROTC defaults: PRST's field check takes its defaults from here too. */
+void sp1_pui_rip_patch(int slot, struct sp1_pui_patch *p);
+/* The slot whose engine is called `name` (case-insensitive), among the FILLED slots of
+ * config/engines.csv; -1 if there is none. */
+int  sp1_pui_slot_of(const char *name, int len);
+const char *sp1_pui_slot_name(int slot);
+
 const char *sp1_pui_engine_name(void);
 /* The glyph of the engine PLAYING (sp1_pui_eslot: the selection moved by MIDI's MODEL CC) as
  * LED levels -- fixed per slot, tools/gen_engines.py. What T1, T2/T3 and the module swap flash. */
