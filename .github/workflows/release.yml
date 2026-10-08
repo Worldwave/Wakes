@@ -9,8 +9,10 @@
 #
 # It is attached twice: versioned, and as plain `wakes-sp1.bin`, so that
 # releases/latest/download/wakes-sp1.bin (the README's download link) always names
-# the newest PUBLISHED release. GitHub's "latest" skips drafts and pre-releases, so
-# that link moves only when a person publishes a full release.
+# the newest PUBLISHED release. `wakes-sp1-fresh.bin`, the image that FORMATS the eMMC
+# (#49), is attached the same two ways; the fallback is attached versioned only.
+# GitHub's "latest" skips drafts and pre-releases, so that link moves only when a
+# person publishes a full release.
 name: release
 
 on:
@@ -85,6 +87,8 @@ jobs:
           mkdir dist
           cp in/wakes-sp1-plaits/build/zephyr/wakes-sp1.bin   "dist/wakes-sp1-$t.bin"
           cp in/wakes-sp1-plaits/build/zephyr/wakes-sp1.bin   dist/wakes-sp1.bin
+          cp in/wakes-sp1-fresh/build/zephyr/wakes-sp1-fresh.bin "dist/wakes-sp1-$t-fresh.bin"
+          cp in/wakes-sp1-fresh/build/zephyr/wakes-sp1-fresh.bin dist/wakes-sp1-fresh.bin
           cp in/wakes-sp1-fallback/build/zephyr/wakes-sp1.bin "dist/wakes-sp1-$t-fallback.bin"
           # The MIDI CC chart for exactly this build's script (M5a, tools/gen_midi.py).
           cp in/wakes-sp1-plaits/build/zephyr/wakes-sp1-midi.md  "dist/wakes-sp1-$t-midi.md"
@@ -105,12 +109,27 @@ jobs:
             echo
             echo "\`wakes-sp1.bin\` is the same file under a fixed name, for the README's download link."
             echo "Check the file against \`SHA256SUMS\` before flashing."
-            echo "\`wakes-sp1-$t-fallback.bin\` is the test-tone build without Plaits or Marbles,"
-            echo "for diagnosing hardware only. It is not the instrument."
+            echo
+            echo "### Storage: \`wakes-sp1\` vs \`wakes-sp1-fresh\`"
+            echo
+            echo "- **\`wakes-sp1-$t.bin\` never formats the SP-1's internal storage (the eMMC).** Flash"
+            echo "  it to update: your presets and files stay where they are."
+            echo "- **\`wakes-sp1-$t-fresh.bin\` FORMATS the eMMC** the first time it turns ON, and"
+            echo "  **erases everything on it**, including whatever another firmware left there (stock"
+            echo "  stems, tape-looper recordings). Flash it once to set the storage up, or to start"
+            echo "  over; a progress bar shows on T1-T4 while it formats. Flashing the same fresh file"
+            echo "  again does not format a second time. \`wakes-sp1-fresh.bin\` is the same file under"
+            echo "  a fixed name."
+            echo "- Without a formatted card Wakes still plays; the storage features stay off."
+            echo
+            echo "\`wakes-sp1-$t-fallback.bin\` is the test-tone recovery build without Plaits or Marbles."
+            echo "It never touches the eMMC, and is for diagnosing hardware only. It is not the instrument."
             echo
             echo "## Size${PREV:+ vs $PREV}"
             echo
             cat in/wakes-sp1-plaits/size-plaits.md
+            echo
+            cat in/wakes-sp1-fresh/size-fresh.md
             echo
             cat in/wakes-sp1-fallback/size-fallback.md
             echo

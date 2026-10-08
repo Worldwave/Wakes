@@ -76,15 +76,11 @@ bool sp1_emmc_write_block(uint32_t block, const uint8_t buf[SP1_EMMC_BLOCK]);
 
 /* `n` consecutive blocks in one CMD18 / CMD25 burst (fast transfer). A burst that fails
  * part-way is stopped and the rest done block by block through the calls above, so the
- * result is the same as n single calls, only faster. `buf` must be in RAM for reads
+ * result is the same as n single calls, only faster. Reads are closed-ended (CMD23 first:
+ * open-ended reads return junk on this card -- sp1_emmc.c). `buf` must be in RAM for reads
  * (SPIM3 DMAs into it); writes copy through a RAM frame, so any source works. */
 bool sp1_emmc_read_blocks(uint32_t block, uint8_t *buf, uint32_t n);
 bool sp1_emmc_write_blocks(uint32_t block, const uint8_t *buf, uint32_t n);
-
-/* Burst READS closed-ended (CMD23 first, the card stops itself; the DEFAULT and the fix) or
- * open-ended (stopped by CMD12, which returns junk on this card -- sp1_emmc.c). Writes are
- * always open-ended. Only the storage test's comparison switches it. */
-void sp1_emmc_set_closed_ended(bool on);
 
 void sp1_emmc_get_stats(struct sp1_emmc_stats *s);
 

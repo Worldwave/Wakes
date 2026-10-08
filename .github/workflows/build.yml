@@ -49,11 +49,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Every Plaits image carries the eMMC storage and drive mode (#49); they differ
+        # only in whether the image FORMATS the card. Adara, 2026-10-08:
+        #   plaits   -> wakes-sp1.bin        never formats (no formatter linked at all)
+        #   fresh    -> wakes-sp1-fresh.bin  formats the eMMC once per build (SP1_FRESH)
+        #   fallback -> the test-tone recovery image: no Plaits, never touches the eMMC
         include:
           - config: plaits
             plaits: y
+            extra: ""
+            bin: wakes-sp1
+          - config: fresh
+            plaits: y
+            extra: -DCONFIG_SP1_FRESH=y
+            bin: wakes-sp1-fresh
           - config: fallback
             plaits: n
+            extra: ""
+            bin: wakes-sp1
     defaults:
       run:
         working-directory: ws
@@ -68,9 +81,9 @@ jobs:
         run: |
           python -m west build -p always -b stem_player wakes-sp1/firmware -d build \
             -- -DBOARD_ROOT="$PWD/wakes-sp1" -DCONFIG_SP1_PLAITS=${{ matrix.plaits }} \
-            2>&1 | tee build.log
+            ${{ matrix.extra }} 2>&1 | tee build.log
 
-      # Both configs build with 0 warnings; keep it that way. This also catches a
+      # Every config builds with 0 warnings; keep it that way. This also catches a
       # Kconfig "assigned ... but got ..." warning, i.e. a -DCONFIG_ that did not take.
       - name: No warnings
         run: |
@@ -82,6 +95,24 @@ jobs:
       # The gate. check_image.py prints every check and exits non-zero on any failure.
       - name: Check the image (0x20000, SAFETY.md constraints)
         run: python wakes-sp1/tools/ci/check_image.py build | tee check.txt
+
+      # A formatting image must never ship under the plain name, and the others must be
+      # what their names say. Checked from the build's own .config, not from the matrix.
+      - name: The configuration is what the name says
+        run: |
+          cfg=build/zephyr/.config
+          on() { grep -qx "CONFIG_$1=y" "$cfg"; }
+          fail() { echo "::error::${{ matrix.config }}: $1"; exit 1; }
+          case "${{ matrix.config }}" in
+            plaits)   { on SP1_STORAGE && on SP1_DRIVE; } || fail "storage or drive mode missing"
+                      if on SP1_FRESH; then fail "a formatting image named wakes-sp1"; fi ;;
+            fresh)    { on SP1_STORAGE && on SP1_DRIVE && on SP1_FRESH; } || fail "not a fresh image" ;;
+            fallback) if on SP1_STORAGE; then fail "the recovery image must not touch the eMMC"; fi ;;
+          esac
+          for d in SP1_STORAGE_TEST SP1_EMMC_VERIFY; do
+            if on $d; then fail "diagnostic $d is on"; fi
+          done
+          echo "${{ matrix.config }}: OK"
 
       - name: Size
         run: python wakes-sp1/tools/ci/size_report.py report build -o size-head.json
@@ -106,7 +137,7 @@ jobs:
         run: |
           if ! python -m west build -p always -b stem_player base/firmware -d build-base \
                -- -DBOARD_ROOT="$PWD/base" -DCONFIG_SP1_PLAITS=${{ matrix.plaits }} \
-               > build-base.log 2>&1; then
+               ${{ matrix.extra }} > build-base.log 2>&1; then
             tail -n 40 build-base.log
             exit 1
           fi
@@ -136,6 +167,16 @@ jobs:
             echo "</details>"
           } | tee "size-${{ matrix.config }}.md" >> "$GITHUB_STEP_SUMMARY"
 
+      # The tools all expect wakes-sp1.bin (CONFIG_KERNEL_BIN_NAME); the fresh image is
+      # RENAMED, not copied, so its artifact holds no file a person could take for the
+      # one that does not format.
+      - name: Name the image (${{ matrix.bin }}.bin)
+        if: always() && matrix.bin != 'wakes-sp1'
+        run: |
+          if [ -f build/zephyr/wakes-sp1.bin ]; then
+            mv build/zephyr/wakes-sp1.bin "build/zephyr/${{ matrix.bin }}.bin"
+          fi
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -144,7 +185,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
           path: |
-            ws/build/zephyr/wakes-sp1.bin
+            ws/build/zephyr/${{ matrix.bin }}.bin
             ws/build/zephyr/wakes-sp1-midi.md
             ws/build/zephyr/wakes-sp1-midi.csv
             ws/build/zephyr/wakes-sp1.elf

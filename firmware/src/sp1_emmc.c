@@ -524,18 +524,8 @@ static bool stop_transmission(bool after_write)
  * So every burst read is CMD23 SET_BLOCK_COUNT + CMD18: the card stops itself after exactly
  * n blocks, and CMD12 is sent only to cut a failed burst short.
  * Burst WRITES stay open-ended (CMD25 ... CMD12): ~10 000 verified blocks, 0 wrong. */
-static bool closed_ended = true;
-
-void sp1_emmc_set_closed_ended(bool on)
-{
-	closed_ended = on;
-}
-
 static bool set_block_count(uint32_t n)
 {
-	if (!closed_ended) {
-		return true;
-	}
 	uint8_t r[(R1_BITS + 7u) / 8u];
 	return send_cmd_retry(23, n & 0xffffu, r, R1_BITS);
 }
@@ -787,9 +777,8 @@ bool sp1_emmc_read_blocks(uint32_t block, uint8_t *buf, uint32_t n)
 			while (done < multi && read_data(buf + done * SP1_EMMC_BLOCK, M_SPIM)) {
 				done++;
 			}
-			/* Closed-ended and complete: the card stopped by itself. Otherwise
-			 * (open-ended, or cut short) it must be told. */
-			if (!closed_ended || done < multi) {
+			/* Complete: the card stopped by itself. Cut short: it must be told. */
+			if (done < multi) {
 				(void)stop_transmission(false);
 			}
 			st.multi_blocks += done;

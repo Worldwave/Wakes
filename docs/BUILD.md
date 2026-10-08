@@ -23,6 +23,20 @@ Artifact: **`build\zephyr\wakes-sp1.bin`**. (`CONFIG_KERNEL_BIN_NAME="wakes-sp1"
 `firmware/prj.conf` renames the outputs from Zephyr's default `zephyr.*`. The
 `build\zephyr\` directory name itself comes from the CMake target and is unaffected.)
 
+### The three images
+
+| Image | Build | eMMC |
+|---|---|---|
+| `wakes-sp1.bin` | as above | storage + drive mode; **never formats** (no formatter is linked) |
+| `wakes-sp1-fresh.bin` | add `-DCONFIG_SP1_FRESH=y` after the `--` | **formats the eMMC** on its first ON, once per build |
+| fallback | add `-DCONFIG_SP1_PLAITS=n` | test tone, recovery only; never touches the eMMC |
+
+The fresh build still writes `build\zephyr\wakes-sp1.bin`: **rename it to
+`wakes-sp1-fresh.bin` straight away**, so it is never flashed by mistake as the image that
+does not format. CI does the same, and checks each image's `.config` against its name.
+Storage diagnostics, off in every shipped image: `-DCONFIG_SP1_STORAGE_TEST=y` (eMMC report
++ a 512 KB pattern test on each ON) and `-DCONFIG_SP1_EMMC_VERIFY=y` (every write read back).
+
 ### Three things that are not optional
 
 **Quote `BOARD_ROOT` and use forward slashes.** Unquoted, the argument splits at the

@@ -69,6 +69,10 @@ bool sp1_fnc_pressed(void);
  * left DISARMED until "••" is released, so a continuous press cannot roll from
  * power-on straight into power-off.
  *
+ * With CONFIG_SP1_DRIVE, every block the computer reads or writes restarts the fill, so
+ * ON needs SP1_PWR_ON_FILL_MS without a transfer (M6, #43): turning ON takes the card
+ * from the computer. No time limit; the hold blocks for as long as the transfers last.
+ *
  * Does not power anything off; the caller decides what an early release means. */
 bool sp1_power_on_hold(void);
 

@@ -44,47 +44,11 @@ static K_MUTEX_DEFINE(card_lock);
 static atomic_t activity;          /* host transfers, for STANDBY's LEDs */
 static atomic_t vol_state = ATOMIC_INIT(SP1_STORE_VOL_UNKNOWN);
 
-/* Where the volume's regions start, from the last mount (FATFS volbase/fatbase/database).
- * For the host-activity diagnostics below. */
-static uint32_t r_vol, r_fat, r_data;
-
-#if defined(CONFIG_SP1_DRIVE)
-/* ---- what the host did with the card, per STANDBY visit (diagnostics, M6) ----
- * Hardware 2026-10-07 (logs/sp1-20261007-202944.log): after the host had the drive, two
- * Wakes test files read back with one 512-byte block of foreign data and no driver error.
- * Suspect: the host kept its cached FAT / directories across "no medium" and wrote them
- * back over Wakes' changes. These counters say whether it re-read the volume's metadata
- * after getting the card back, and what it wrote; printed when ON takes the card back. */
-static struct {
-	bool     any;
-	bool     first_write;              /* the first command was a write            */
-	uint32_t first_lba;
-	uint32_t rd[4], wr[4];             /* blocks: before volume, boot area, FAT, data */
-	uint32_t vbr_reads;                /* reads covering the volume's boot sector   */
-} hs;
-
-static unsigned region(uint32_t lba)
-{
-	return lba < r_vol ? 0u : (lba < r_fat ? 1u : (lba < r_data ? 2u : 3u));
-}
-
-static void host_note(bool write, uint32_t lba, uint32_t n)
-{
-	if (!hs.any) {
-		hs.any = true;
-		hs.first_write = write;
-		hs.first_lba = lba;
-	}
-	if (write) {
-		hs.wr[region(lba)] += n;
-	} else {
-		hs.rd[region(lba)] += n;
-		if (lba <= r_vol && r_vol < lba + n) {
-			hs.vbr_reads++;
-		}
-	}
-}
-#endif /* CONFIG_SP1_DRIVE */
+#if defined(CONFIG_SP1_STORAGE_TEST)
+/* Where the data region starts, from the last mount (FATFS database): the file test's
+ * mismatch report turns a cluster into an LBA with it. */
+static uint32_t r_data;
+#endif
 
 /* Jobs waiting for the thread (a bit each), so a request made while another job runs is
  * queued rather than dropped: turning ON must always take the card back from a host. */
@@ -224,9 +188,6 @@ static int h_read(struct disk_info *d, uint8_t *buf, uint32_t start, uint32_t n)
 	ARG_UNUSED(d);
 	k_mutex_lock(&card_lock, K_FOREVER);
 	const bool ok = atomic_get(&owner) == OWN_HOST && sp1_emmc_read_blocks(start, buf, n);
-	if (ok) {
-		host_note(false, start, n);
-	}
 	k_mutex_unlock(&card_lock);
 	atomic_inc(&activity);
 	return ok ? 0 : -EIO;
@@ -237,9 +198,6 @@ static int h_write(struct disk_info *d, const uint8_t *buf, uint32_t start, uint
 	ARG_UNUSED(d);
 	k_mutex_lock(&card_lock, K_FOREVER);
 	const bool ok = atomic_get(&owner) == OWN_HOST && sp1_emmc_write_blocks(start, buf, n);
-	if (ok) {
-		host_note(true, start, n);
-	}
 	k_mutex_unlock(&card_lock);
 	atomic_inc(&activity);
 	return ok ? 0 : -EIO;
@@ -295,11 +253,11 @@ static int mount_vol(void)
 	if (!mounted) {
 		const int rc = fs_mount(&mnt);
 		mounted = (rc == 0);
+#if defined(CONFIG_SP1_STORAGE_TEST)
 		if (mounted) {
-			r_vol = (uint32_t)fat.volbase;
-			r_fat = (uint32_t)fat.fatbase;
 			r_data = (uint32_t)fat.database;
 		}
+#endif
 		return rc;
 	}
 	return 0;
@@ -313,7 +271,8 @@ static void unmount_vol(void)
 	}
 }
 
-static int write_file(const char *path, const void *d, size_t n)
+/* Used by the fresh stamp and the storage test now; by PRST (#43) next. */
+__maybe_unused static int write_file(const char *path, const void *d, size_t n)
 {
 	struct fs_file_t f;
 	fs_file_t_init(&f);
@@ -330,7 +289,7 @@ static int write_file(const char *path, const void *d, size_t n)
 	return rc != 0 ? rc : rc2;
 }
 
-static int read_file(const char *path, void *d, size_t max, size_t *got)
+__maybe_unused static int read_file(const char *path, void *d, size_t max, size_t *got)
 {
 	struct fs_file_t f;
 	fs_file_t_init(&f);
@@ -525,88 +484,6 @@ static uint8_t pattern(uint32_t i, uint32_t seed)
 	return (uint8_t)(i * 131u + seed * 7u + (i >> 9));
 }
 
-/* ---- the read-junk reproduction (M6 diagnostics) ----
- * Hardware 2026-10-07: after the host scanned the whole FAT (944 blocks in 16-block reads,
- * each stopped with CMD12), the second block of one of Wakes' 32-block CMD18 reads came
- * back as card-buffer junk with a valid CRC, while every write had verified. This repeats
- * the host's pattern on the device: scan FAT 1 in 16-block bursts, then read TEST.BIN in
- * 16 KB chunks against its pattern -- three rounds with open-ended bursts (CMD12, as so
- * far) and three closed-ended (CMD23). Bad blocks per way, where in the chunk, and what
- * the first one held. */
-static uint32_t stress_round(uint32_t boots, uint32_t *pos_hist, uint8_t first[16],
-			     bool *have_first)
-{
-	uint32_t bad = 0;
-	k_mutex_lock(&card_lock, K_FOREVER);
-	for (uint32_t lba = r_fat; lba + 16u <= r_fat + fat.fsize && !stop; lba += 16u) {
-		(void)sp1_emmc_read_blocks(lba, bulk, 16u);
-	}
-	k_mutex_unlock(&card_lock);
-	struct fs_file_t f;
-	fs_file_t_init(&f);
-	int rc = fs_open(&f, TESTFILE, FS_O_READ);
-	for (uint32_t c = 0; rc == 0 && c < TEST_KB * 1024u / CHUNK && !stop; c++) {
-		const ssize_t r = fs_read(&f, bulk, CHUNK);
-		rc = (r == (ssize_t)CHUNK) ? 0 : -EIO;
-		for (uint32_t b = 0; rc == 0 && b < CHUNK / SP1_EMMC_BLOCK; b++) {
-			bool wrong = false;
-			for (uint32_t i = 0; i < SP1_EMMC_BLOCK && !wrong; i++) {
-				const uint32_t at = b * SP1_EMMC_BLOCK + i;
-				wrong = (bulk[at] != pattern(c * CHUNK + at, boots));
-			}
-			if (wrong) {
-				bad++;
-				pos_hist[b]++;
-				if (!*have_first) {
-					*have_first = true;
-					memcpy(first, &bulk[b * SP1_EMMC_BLOCK], 16);
-				}
-			}
-		}
-	}
-	(void)fs_close(&f);
-	return bad;
-}
-
-static void stress(uint32_t boots)
-{
-	static const char *const way[2] = { "open-ended (CMD12)", "closed-ended (CMD23)" };
-	for (int w = 0; w < 2 && !stop; w++) {
-		sp1_emmc_set_closed_ended(w == 1);
-		uint32_t pos_hist[CHUNK / SP1_EMMC_BLOCK] = { 0 };
-		uint8_t first[16] = { 0 };
-		bool have_first = false;
-		uint32_t bad = 0;
-		const uint32_t t0 = k_uptime_get_32();
-		for (int round = 0; round < 3 && !stop; round++) {
-			bad += stress_round(boots, pos_hist, first, &have_first);
-		}
-		LINE("STORE stress %s: 3 rounds (FAT scan + 512 KB read) in %u ms, %u bad block(s)\n",
-		     way[w], (unsigned)(k_uptime_get_32() - t0), (unsigned)bad);
-		if (bad) {
-			char hist[CHUNK / SP1_EMMC_BLOCK * 9 + 1];
-			size_t o = 0;
-			for (uint32_t b = 0; b < CHUNK / SP1_EMMC_BLOCK; b++) {
-				if (pos_hist[b] != 0u && o + 10u < sizeof(hist)) {
-					o += (size_t)snprintk(&hist[o], sizeof(hist) - o, " %u:%u",
-							      (unsigned)b, (unsigned)pos_hist[b]);
-				}
-			}
-			char hex[16 * 3 + 1];
-			for (int i = 0; i < 16; i++) {
-				static const char hx[] = "0123456789abcdef";
-				hex[3 * i] = ' ';
-				hex[3 * i + 1] = hx[first[i] >> 4];
-				hex[3 * i + 2] = hx[first[i] & 15u];
-			}
-			hex[48] = '\0';
-			LINE("STORE stress %s: bad by position in the chunk (pos:count)%s; first held%s\n",
-			     way[w], hist, hex);
-		}
-	}
-	sp1_emmc_set_closed_ended(true);     /* back to the default: the fix */
-}
-
 static void file_test(void)
 {
 	int rc = fs_mkdir(DIR_WAKES);
@@ -715,7 +592,6 @@ static void file_test(void)
 		hex[sizeof(hex) - 1] = '\0';
 		LINE("STORE test: it held:%s\n", hex);
 	}
-	stress(boots);
 	rc = fs_unlink(TESTFILE);
 	LINE("STORE test: TEST.BIN %s\n", rc == 0 ? "deleted" : "delete FAILED");
 
@@ -754,17 +630,6 @@ static void claim_for_wakes(void)
 #if defined(CONFIG_SP1_DRIVE)
 	if (was_host) {
 		LINE("STORE drive: the host lets go -- the card is Wakes' again\n");
-		if (hs.any) {
-			/* rd/wr = blocks before the volume (MBR) / boot area / FAT / data. */
-			LINE("STORE drive: host first %s at LBA %u; VBR read %u x; "
-			     "read %u/%u/%u/%u, wrote %u/%u/%u/%u (mbr/boot/fat/data)\n",
-			     hs.first_write ? "WROTE" : "read", (unsigned)hs.first_lba,
-			     (unsigned)hs.vbr_reads, (unsigned)hs.rd[0], (unsigned)hs.rd[1],
-			     (unsigned)hs.rd[2], (unsigned)hs.rd[3], (unsigned)hs.wr[0],
-			     (unsigned)hs.wr[1], (unsigned)hs.wr[2], (unsigned)hs.wr[3]);
-		} else {
-			LINE("STORE drive: the host did not touch the card\n");
-		}
 	}
 #else
 	ARG_UNUSED(was_host);
@@ -850,7 +715,6 @@ static void job_host(void)
 		unmount_vol();
 		atomic_set(&vol_state, vol ? SP1_STORE_VOL_OK : SP1_STORE_VOL_NONE);
 	}
-	memset(&hs, 0, sizeof(hs));
 	if (vol) {
 		atomic_set(&owner, OWN_HOST);
 	} else {

@@ -1,7 +1,8 @@
-# Every PR to main, and every push to main, that touches a build input: build both
-# configs, run the host suites, gate on check_image.py, and put the size diff in the
-# run's summary. Administrative changes (see `paths`) run nothing. Tags always build
-# (release.yml), and workflow_dispatch builds on demand.
+# Every PR to main, and every push to main, that touches a build input: build every
+# image (wakes-sp1, wakes-sp1-fresh, fallback), run the host suites, gate on
+# check_image.py, and put the size diff in the run's summary. Administrative changes
+# (see `paths`) run nothing. Tags always build (release.yml), and workflow_dispatch
+# builds on demand.
 name: ci
 
 on:
