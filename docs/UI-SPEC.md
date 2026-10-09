@@ -439,7 +439,7 @@ below — the lock is unreachable by feel otherwise.
 | Gesture | Result |
 |---|---|
 | **Press** Play | start Marbles' clock (on a beat: the first t2 tick is immediate, and the DEJA VU loop restarts from its first step); the next press stops it. On either module |
-| `••` + Play | **PRST** (#50): the current slot's glyph; pressed again while it shows, the next slot (4 → 1), loaded at once. With `••` down first, PLAY does not touch the clock |
+| `••` + Play | **PRST** (#50): the current slot's glyph; pressed again while it shows, the next slot (4 → 1), loaded at once. Letting go of `••` leaves the browser: the glyph ends and the page you were on returns. With `••` down first, PLAY does not touch the clock |
 | `••` + Play held 3 s | **rip out the cables** on the module on show: PLAITS — the full patch wipe (docs/DEFAULTS.md); MARBLES — the defaults above. Not after a PRST slot change in the same `••` hold |
 
 The rip animation, on the track row, all while held (#50; through v0.7.2 two flickers, a

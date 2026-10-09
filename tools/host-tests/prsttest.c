@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "sp1_prst.h"
+#include "sp1_engines_gen.h"     /* which engines config/engines.csv lists */
 
 /* ---- stubs for the parts that live in the audio thread (as uitest.c) ---- */
 uint8_t sp1_marbles_last_gates(void) { return 0u; }
@@ -493,6 +494,75 @@ int main(void)
 	}
 	CHECK(unsafe == 0, "%d of %d corrupt files gave an unsafe patch", unsafe, runs);
 	printf("   %d corrupt files, all safe\n", runs);
+
+	/* ---------- 9. an engine OFF the list (#50) ---------- */
+	printf("9. engines off engines.csv\n");
+	{
+		int off = -1, first = -1, last = -1;
+		for (int i = 0; i < SP1_ENGINE_SLOTS; i++) {
+			if (SP1_ENGINE_TABLE[i].on) {
+				first = first < 0 ? i : first;
+				last = i;
+			}
+		}
+		for (int e = 0; e < SP1_PLAITS_ENGINE_COUNT && off < 0; e++) {
+			bool listed = false;
+			for (int i = 0; i < SP1_ENGINE_SLOTS; i++) {
+				listed = listed ||
+					 (SP1_ENGINE_TABLE[i].on && SP1_ENGINE_TABLE[i].plaits == e);
+			}
+			if (!listed) {
+				off = e;
+			}
+		}
+		CHECK(off >= 0, "every engine is listed: nothing to test");
+		if (off >= 0) {
+			const char *nm = SP1_PLAITS_ENGINES[off].name;
+			printf("   %s (plaits %d) is not on the list\n", nm, off);
+			/* the file: by name (case ignored), resolved off the list, its own neutral */
+			unusual(&b);
+			n = sp1_prst_write(&b, text, sizeof(text));
+			char up[64];
+			snprintf(up, sizeof(up), "%s", nm);
+			for (char *c = up; *c; c++) {
+				*c = (char)((*c >= 'a' && *c <= 'z') ? *c - 32 : *c);
+			}
+			with(text, "engine", up, buf2, sizeof(buf2));
+			m = with(buf2, "morph", "nan", buf, sizeof(buf));
+			sp1_prst_parse(buf, (size_t)m, &a, &rep);
+			const uint8_t c = SP1_PLAITS_ENGINES[off].centre;
+			CHECK(a.plaits.slot == SP1_PUI_OFFLIST + off && rep.bad == 1,
+			      "engine = %s -> slot %d, bad %d", up, a.plaits.slot, rep.bad);
+			CHECK(a.plaits.v[SP1_PUI_BASE][2] == ((c & 0x4u) ? 0.5f : 0.0f),
+			      "bad MORPH is not %s's neutral: %.2f", nm, a.plaits.v[SP1_PUI_BASE][2]);
+			CHECK(safe(&a), "an off-list engine gave an unsafe patch");
+			/* and back out: written by its name */
+			n = sp1_prst_write(&a, text, sizeof(text));
+			sp1_prst_parse(text, (size_t)n, &b, &rep);
+			CHECK(diff(&a, &b, "off-list round trip") == 0 && rep.bad == 0,
+			      "an off-list engine does not survive a round trip");
+			/* the UI plays it, with its own detents and no glyph */
+			sp1_pui_put(&a.plaits);
+			struct sp1_synth_params sp;
+			sp1_pui_params(&sp);
+			uint8_t lv[4] = { 1, 1, 1, 1 };
+			sp1_pui_engine_leds(lv);
+			CHECK(sp1_pui_engine() == off && sp.engine == off &&
+			      sp1_pui_engine_centre() == c && strcmp(sp1_pui_engine_name(), nm) == 0,
+			      "the UI does not play %s", nm);
+			CHECK(sp1_pui_offlist(sp1_pui_slot()) && !lv[0] && !lv[1] && !lv[2] && !lv[3],
+			      "an off-list engine drew a glyph");
+			/* T3 -> the first listed engine, T2 -> the last (Adara) */
+			CHECK(sp1_pui_engine_step(+1) == first, "T3 from off the list: not the first");
+			sp1_pui_put(&a.plaits);
+			CHECK(sp1_pui_engine_step(-1) == last, "T2 from off the list: not the last");
+			CHECK(sp1_pui_engine_step(+1) != last, "stepping on from the last is stuck");
+		}
+		/* still: a name no engine of this build has -> list position 1 */
+		m = with(text, "engine", "6-op FM D", buf, sizeof(buf));
+		sp1_prst_parse(buf, (size_t)m, &a, &rep);
+		CHECK(a.plaits.slot == 0 && rep.bad == 1, "an unknown engine is not slot 1");
+	}
 
 	printf(fails ? "\nprsttest: %d FAILED\n" : "\nprsttest: all passed\n", fails);
 	return fails ? 1 : 0;

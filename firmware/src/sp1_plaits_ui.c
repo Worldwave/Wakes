@@ -75,7 +75,12 @@ static bool  locked[4];                   /* inside CATCH_LOCK since that change
 static enum sp1_pui_layer page = SP1_PUI_BASE;
 static enum sp1_pui_layer active = SP1_PUI_BASE;
 static bool  base_seeded;
-static int   slot = SP1_ENGINE_DEFAULT_SLOT;   /* position in the generated table */
+/* The SELECTED engine: a position in the generated table -- or, past the table, an engine
+ * that is NOT in config/engines.csv, loaded from a PRST slot (#50): SP1_PUI_OFFLIST + its
+ * Plaits index. Every build contains all of Plaits' engines; the CSV only decides which
+ * ones T2/T3 reach. Read the engine's facts through engine_of() / centre_of() / name_of(),
+ * never SP1_ENGINE_TABLE[slot] directly. */
+static int   slot = SP1_ENGINE_DEFAULT_SLOT;
 
 static bool     fnc_was;
 static bool     press_dirty;              /* activity seen during this press     */
@@ -104,6 +109,33 @@ static float clamp01(float x)
 	return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x);
 }
 
+/* ---- engines, listed or not (#50) ---- */
+static bool offlist(int s)
+{
+	return s >= SP1_PUI_OFFLIST && s < SP1_PUI_OFFLIST + SP1_PLAITS_ENGINE_COUNT;
+}
+
+/* A selection the UI can hold: a FILLED list position, or an engine off the list. */
+static bool slot_ok(int s)
+{
+	return (s >= 0 && s < SP1_ENGINE_SLOTS && SP1_ENGINE_TABLE[s].on) || offlist(s);
+}
+
+static int engine_of(int s)
+{
+	return offlist(s) ? s - SP1_PUI_OFFLIST : SP1_ENGINE_TABLE[s].plaits;
+}
+
+static uint8_t centre_of(int s)
+{
+	return SP1_PLAITS_ENGINES[engine_of(s)].centre;
+}
+
+static const char *name_of(int s)
+{
+	return SP1_PLAITS_ENGINES[engine_of(s)].name;
+}
+
 /* ---- the engine that PLAYS (M5a) ----
  * `slot` is what T2/T3 selected; MIDI's MODEL CC offsets it, through the filled slots of
  * config/engines.csv in order, clamped at both ends (Plaits' own MODEL CV input is an offset
@@ -118,7 +150,7 @@ static int eslot(void)
 		return slot;
 	}
 	int filled[SP1_ENGINE_SLOTS];
-	int n = 0, here = 0;
+	int n = 0, here = 0;           /* off the list: MODEL counts from position 1 (#50) */
 	for (int i = 0; i < SP1_ENGINE_SLOTS; i++) {
 		if (SP1_ENGINE_TABLE[i].on) {
 			if (i == slot) {
@@ -127,7 +159,7 @@ static int eslot(void)
 			filled[n++] = i;
 		}
 	}
-	if (n <= 1) {
+	if (n <= 1 && !offlist(slot)) {
 		return slot;
 	}
 	const float step = off * (float)(n - 1);
@@ -166,7 +198,7 @@ static bool bipolar(enum sp1_pui_layer l, int i)
 	case SP1_PUI_SETTINGS:
 		return false;                            /* range, colour, decay, LEVEL      */
 	default: {
-		const uint8_t c = SP1_ENGINE_TABLE[eslot()].centre;
+		const uint8_t c = centre_of(eslot());
 		return (i == 1 && (c & C_T)) || (i == 2 && (c & C_M)) || (i == 3 && (c & C_H));
 	}
 	}
@@ -412,7 +444,7 @@ void sp1_pui_params(struct sp1_synth_params *p)
 	const float *sh = stored[SP1_PUI_SHIFT];
 	const float *st = stored[SP1_PUI_SETTINGS];
 	const int es = eslot();
-	const uint8_t c = SP1_ENGINE_TABLE[es].centre;
+	const uint8_t c = centre_of(es);
 	/* ---- MIDI is driving the pitch: the quantizer stands aside (M5a, Adara) ----
 	 * While MIDI is active the FREQUENCY scale is bypassed -- no quantizing, no note
 	 * latch, and mode 9 back to whole octaves. The selected scale is kept and returns at
@@ -520,7 +552,7 @@ void sp1_pui_params(struct sp1_synth_params *p)
 
 	p->lpg_colour = clamp01(st[1]);
 	p->decay      = clamp01(st[2]);
-	p->engine     = SP1_ENGINE_TABLE[es].plaits;
+	p->engine     = engine_of(es);
 	p->engine_centre = c;          /* how a MIDI CC on F2-F4 reads (sp1_midi.h) */
 }
 
@@ -552,9 +584,9 @@ enum sp1_pui_layer sp1_pui_active(void) { return active; }
 enum sp1_pui_layer sp1_pui_page(void)   { return page; }
 bool sp1_pui_catching(int f)            { return f >= 0 && f < 4 && catching[active][f]; }
 bool sp1_pui_level_connected(void)      { return stored[SP1_PUI_SETTINGS][3] >= LEVEL_OFF; }
-int  sp1_pui_engine(void)               { return SP1_ENGINE_TABLE[eslot()].plaits; }
+int  sp1_pui_engine(void)               { return engine_of(eslot()); }
 int  sp1_pui_slot(void)                 { return slot; }
-uint8_t sp1_pui_engine_centre(void)     { return SP1_ENGINE_TABLE[eslot()].centre; }
+uint8_t sp1_pui_engine_centre(void)     { return centre_of(eslot()); }
 int  sp1_pui_scale(void)                { return scale; }
 
 void sp1_pui_set_scale(int s)
@@ -603,17 +635,12 @@ void sp1_pui_rip(void)
 	sp1_pui_put(&p);
 }
 
-static bool slot_ok(int s)
-{
-	return s >= 0 && s < SP1_ENGINE_SLOTS && SP1_ENGINE_TABLE[s].on;
-}
-
 void sp1_pui_rip_patch(int s, struct sp1_pui_patch *p)
 {
 	if (!slot_ok(s)) {
 		s = SP1_ENGINE_DEFAULT_SLOT;
 	}
-	const uint8_t c = SP1_ENGINE_TABLE[s].centre;
+	const uint8_t c = centre_of(s);
 	p->slot = s;
 	p->v[SP1_PUI_BASE][0] = 0.5f;                        /* FREQUENCY -> C4 */
 	p->v[SP1_PUI_BASE][1] = (c & C_T) ? 0.5f : 0.0f;     /* TIMBRE          */
@@ -656,28 +683,44 @@ static int lower(int ch)
 	return (ch >= 'A' && ch <= 'Z') ? ch - 'A' + 'a' : ch;
 }
 
+static bool same_name(const char *n, const char *name, int len)
+{
+	int k = 0;
+	while (k < len && n[k] != '\0' && lower((unsigned char)n[k]) ==
+					     lower((unsigned char)name[k])) {
+		k++;
+	}
+	return k == len && n[k] == '\0';
+}
+
 int sp1_pui_slot_of(const char *name, int len)
 {
-	for (int s = 0; s < SP1_ENGINE_SLOTS; s++) {
-		const char *n = SP1_ENGINE_TABLE[s].name;
-		if (!SP1_ENGINE_TABLE[s].on || n == NULL) {
-			continue;
-		}
-		int k = 0;
-		while (k < len && n[k] != '\0' && lower((unsigned char)n[k]) ==
-						     lower((unsigned char)name[k])) {
-			k++;
-		}
-		if (k == len && n[k] == '\0') {
-			return s;
+	int e = -1;
+	for (int i = 0; i < SP1_PLAITS_ENGINE_COUNT; i++) {
+		if (same_name(SP1_PLAITS_ENGINES[i].name, name, len)) {
+			e = i;
+			break;
 		}
 	}
-	return -1;
+	if (e < 0) {
+		return -1;                           /* not an engine of this build */
+	}
+	for (int s = 0; s < SP1_ENGINE_SLOTS; s++) {
+		if (SP1_ENGINE_TABLE[s].on && SP1_ENGINE_TABLE[s].plaits == e) {
+			return s;                    /* on the list: its position */
+		}
+	}
+	return SP1_PUI_OFFLIST + e;                  /* in the build, off the list (#50) */
 }
 
 const char *sp1_pui_slot_name(int s)
 {
-	return slot_ok(s) ? SP1_ENGINE_TABLE[s].name : "";
+	return slot_ok(s) ? name_of(s) : "";
+}
+
+bool sp1_pui_offlist(int s)
+{
+	return offlist(s);
 }
 
 void sp1_pui_engine_leds(uint8_t out[4])
@@ -687,7 +730,7 @@ void sp1_pui_engine_leds(uint8_t out[4])
 	 * the two are the same slot. */
 	sp1_pui_slot_leds(eslot(), out);
 }
-const char *sp1_pui_engine_name(void)   { return SP1_ENGINE_TABLE[eslot()].name; }
+const char *sp1_pui_engine_name(void)   { return name_of(eslot()); }
 int  sp1_pui_eslot(void)                { return eslot(); }
 
 void sp1_pui_slot_leds(int s, uint8_t out[4])
@@ -695,6 +738,14 @@ void sp1_pui_slot_leds(int s, uint8_t out[4])
 	static const uint8_t L[3] = { 0u, SP1_ENGINE_LED_HALF, SP1_ENGINE_LED_FULL };
 	if (s < 0 || s >= SP1_ENGINE_SLOTS) {
 		s = slot;
+	}
+	if (s < 0 || s >= SP1_ENGINE_SLOTS) {
+		/* Off the list: no glyph of its own -- the list owns the glyphs. main.c draws
+		 * the off-list animation instead (sp1_pui_offlist). Dark here. */
+		for (int i = 0; i < 4; i++) {
+			out[i] = 0u;
+		}
+		return;
 	}
 	for (int i = 0; i < 4; i++) {
 		const uint8_t k = SP1_ENGINE_TABLE[s].led[i];
@@ -707,6 +758,18 @@ void sp1_pui_slot_leds(int s, uint8_t out[4])
  * skipped. The build guarantees at least one slot is filled. Wraps at both ends. */
 int sp1_pui_engine_step(int dir)
 {
+	if (offlist(slot)) {
+		/* From an engine off the list (#50, Adara): T3 -> the first listed engine,
+		 * T2 -> the last. */
+		int s2 = -1;
+		for (int i = 0; i < SP1_ENGINE_SLOTS; i++) {
+			if (SP1_ENGINE_TABLE[i].on && (s2 < 0 || dir < 0)) {
+				s2 = i;
+			}
+		}
+		slot = s2;
+		return slot;
+	}
 	int s2 = slot;
 	for (int n = 0; n < SP1_ENGINE_SLOTS; n++) {
 		s2 = (s2 + (dir < 0 ? SP1_ENGINE_SLOTS - 1 : 1)) % SP1_ENGINE_SLOTS;

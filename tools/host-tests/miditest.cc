@@ -568,6 +568,40 @@ int main() {
         "MODEL may change at most every 50 ms: 8 ms after the last change it must hold");
   sp1_midi_main_tick(48);
   CHECK(sp1_pui_engine() == sel, "MODEL 0 -> the selection, once 50 ms have passed");
+  {
+    // #50: an engine OFF the list (loaded from a PRST slot) -- MODEL counts from list
+    // position 1, and MODEL 0 plays the off-list engine again.
+    int off = -1;
+    for (int e = 0; e < SP1_PLAITS_ENGINE_COUNT && off < 0; ++e) {
+      bool listed = false;
+      for (int i = 0; i < SP1_ENGINE_SLOTS; ++i)
+        listed = listed || (SP1_ENGINE_TABLE[i].on && SP1_ENGINE_TABLE[i].plaits == e);
+      if (!listed) off = e;
+    }
+    if (off >= 0) {
+      struct sp1_pui_patch pp;
+      sp1_pui_get(&pp);
+      const int keep = pp.slot;
+      pp.slot = SP1_PUI_OFFLIST + off;
+      sp1_pui_put(&pp);
+      CHECK(sp1_pui_engine() == off, "off-list engine %d not playing (got %d)", off,
+            sp1_pui_engine());
+      sp1_midi_main_tick(56);
+      cc(105, 127);
+      render_rms(1);
+      sp1_midi_main_tick(8);
+      CHECK(sp1_pui_engine() == SP1_ENGINE_TABLE[lastf].plaits,
+            "off-list + MODEL 127 -> the last filled slot, got engine %d", sp1_pui_engine());
+      sp1_midi_main_tick(56);
+      cc(105, 0);
+      render_rms(1);
+      sp1_midi_main_tick(56);
+      CHECK(sp1_pui_engine() == off, "off-list + MODEL 0 -> the off-list engine, got %d",
+            sp1_pui_engine());
+      pp.slot = keep;
+      sp1_pui_put(&pp);
+    }
+  }
   sp1_pui_params(&sp);
   CHECK(sp.level_patched == 0, "LEVEL fader at 0 is disconnected");
   cc(26, 127);                                 // LEVEL CC pushes the fader up

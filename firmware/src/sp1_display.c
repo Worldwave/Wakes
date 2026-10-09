@@ -89,6 +89,7 @@ static uint8_t  eng_level[4];
 static uint32_t eng_ms;                /* 0 = inactive; counts UP */
 static uint32_t eng_hold = SP1_DISP_ENGINE_HOLD_MS;
 static uint32_t eng_fade = SP1_DISP_ENGINE_FADE_MS;
+static uint32_t eng_count;             /* every flash: sp1_display_flash_count() */
 
 void sp1_display_flash(const uint8_t level[4], uint32_t hold_ms, uint32_t fade_ms)
 {
@@ -98,6 +99,12 @@ void sp1_display_flash(const uint8_t level[4], uint32_t hold_ms, uint32_t fade_m
 	eng_hold = hold_ms;
 	eng_fade = fade_ms > 0u ? fade_ms : 1u;
 	eng_ms = 1u;                       /* (re)start: hold, then fade */
+	eng_count++;
+}
+
+uint32_t sp1_display_flash_count(void)
+{
+	return eng_count;
 }
 
 void sp1_display_engine(const uint8_t level[4])

@@ -77,6 +77,9 @@ void sp1_display_engine(const uint8_t level[4]);
  * SP1_DISP_ENGINE_HOLD_MS / SP1_DISP_ENGINE_FADE_MS. Calling it every tick with a
  * hold longer than a tick keeps `level` on the row (the rip animation). */
 void sp1_display_flash(const uint8_t level[4], uint32_t hold_ms, uint32_t fade_ms);
+/* How many flashes have been started: an animation that redraws itself every tick compares
+ * it with its own last call, and stands down when something else took the row (#50). */
+uint32_t sp1_display_flash_count(void);
 
 /* Resting display when nothing else is showing. Defaults to dark. Identical
  * storage to sp1_display_meter(); use whichever name says what you mean. */

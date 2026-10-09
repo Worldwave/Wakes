@@ -198,6 +198,19 @@ def generate(csv_path, out_path):
         out.append("\t{ %2d, %d, 0x%x, { %d, %d, %d, %d }, %s },   /* slot %2d */"
                    % ((s["plaits"], int(s["on"]), s["centre"]) + tuple(s["levels"])
                       + (c_str(s["name"]), s["slot"])))
+    # Every engine in the build, listed or not, by its Plaits index (#50): a PRST slot may
+    # name an engine that is not in this CSV, and the firmware plays it -- every build
+    # contains all of Plaits' engines; the CSV only chooses which ones T2/T3 reach.
+    by_idx = sorted(facts().values(), key=lambda e: e["plaits"])
+    out += ["};", "",
+            "#define SP1_PLAITS_ENGINE_COUNT %d" % len(by_idx), "",
+            "/* By Plaits index: name and centre detents (as above), listed or not. */",
+            "static const struct {",
+            "\tuint8_t centre;",
+            "\tconst char *name;",
+            "} SP1_PLAITS_ENGINES[SP1_PLAITS_ENGINE_COUNT] = {"]
+    for e in by_idx:
+        out.append("\t{ 0x%x, %s },   /* plaits %2d */" % (e["centre"], c_str(e["name"]), e["plaits"]))
     out += ["};", "", "#endif /* SP1_ENGINES_GEN_H */", ""]
     text = "\n".join(out)
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)

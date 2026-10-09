@@ -765,10 +765,28 @@ static void prst_load_all(void)
 	LINE("STORE PRST on: slot %d current\n", prst_current + 1);
 }
 
-static int mkdir_ok(const char *path)
+/* Verify `path` is a FOLDER; create it if nothing is there (Adara, #50). 0 when there is a
+ * folder to save into. Something else with that name -- a computer can leave a FILE called
+ * "3" where slot 3's folder should be -- is -ENOTDIR and is left alone: the save fails with
+ * that in the log rather than touching a file it did not write. */
+static int ensure_dir(const char *path)
 {
-	const int rc = fs_mkdir(path);
-	return rc == -EEXIST ? 0 : rc;
+	static struct fs_dirent st;
+	int rc = fs_stat(path, &st);
+	if (rc == 0) {
+		if (st.type == FS_DIR_ENTRY_DIR) {
+			return 0;
+		}
+		LINE("STORE PRST: %s is a file, not a folder -- not saving there\n", path);
+		return -ENOTDIR;
+	}
+	if (rc != -ENOENT) {
+		return rc;
+	}
+	rc = fs_mkdir(path);
+	LINE("STORE PRST: no folder %s -- %s (%d)\n", path, rc == 0 ? "created" : "create FAILED",
+	     rc);
+	return rc;
 }
 
 #if defined(CONFIG_SP1_FRESH)
@@ -784,10 +802,10 @@ static int prst_write_defaults(void)
 	if (n < 0) {
 		return -ENOMEM;
 	}
-	int rc = mkdir_ok(DIR_PRST);
+	int rc = ensure_dir(DIR_PRST);
 	for (int i = 0; rc == 0 && i < SP1_PRST_SLOTS && !stop; i++) {
 		snprintk(path, sizeof(path), DIR_PRST "/%c", (char)('1' + i));
-		rc = mkdir_ok(path);
+		rc = ensure_dir(path);
 		if (rc == 0) {
 			snprintk(path, sizeof(path), DIR_PRST "/%c/%c.prst", (char)('1' + i),
 				 (char)('1' + i));
@@ -820,13 +838,13 @@ static void job_save(void)
 	}
 	snprintk(tmp, sizeof(tmp), DIR_PRST "/%d", i + 1);
 	if (rc == 0 && !stop) {
-		rc = mkdir_ok(DIR_WAKES);
+		rc = ensure_dir(DIR_WAKES);
 	}
 	if (rc == 0 && !stop) {
-		rc = mkdir_ok(DIR_PRST);
+		rc = ensure_dir(DIR_PRST);
 	}
 	if (rc == 0 && !stop) {
-		rc = mkdir_ok(tmp);
+		rc = ensure_dir(tmp);
 	}
 	if (prst_name[i][0] == '\0') {
 		snprintk(prst_name[i], sizeof(prst_name[i]), "%d.prst", i + 1);

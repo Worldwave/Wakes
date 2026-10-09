@@ -207,7 +207,6 @@ static bool     rip_show_page;         /* rip done, still held: draw the page   
 static bool     prst_showing;
 static uint32_t prst_show_ms;
 static bool     prst_changed;
-static bool     prst_in_hold;          /* the glyph was opened in THIS "••" hold */
 static uint32_t beats_seen;            /* Marbles t2 ticks already shown             */
 static uint32_t trig_print0;           /* TRIG edges at the last AUD line            */
 
@@ -307,6 +306,74 @@ static void prst_glyph_levels(int slot, uint32_t t, uint8_t lv[4])
 	for (int i = 0; i < 4; i++) {
 		lv[i] = (i == slot) ? (uint8_t)(255u - (f * 255u) / SP1_PRST_RAMP_MS) : 0u;
 	}
+}
+
+/* ---- the engine flash, for an engine on the list or off it (#50) ----
+ * On the list: its fixed glyph through sp1_display_engine(), as always. Off the list (a PRST
+ * slot loaded an engine engines.csv does not list): no glyph exists, so all four face LEDs
+ * ramp 70 % -> 0 every SP1_OFFLIST_RAMP_MS for SP1_DISP_ENGINE_HOLD_MS, then the same fade
+ * (Adara). Redrawn every tick by offlist_glyph_tick(); anything else that flashes the row
+ * stops it (sp1_display_flash_count). Use this wherever the ENGINE glyph is shown. */
+static uint32_t offlist_ms;            /* 0 = not animating; else ms into it + 1 */
+static uint32_t offlist_count;         /* sp1_display_flash_count() after our own flash */
+
+static void offlist_levels(uint32_t t, uint8_t lv[4])
+{
+	const uint32_t f = t % SP1_OFFLIST_RAMP_MS;
+	const uint8_t v = (uint8_t)(SP1_OFFLIST_LEVEL - (f * SP1_OFFLIST_LEVEL) / SP1_OFFLIST_RAMP_MS);
+	for (int i = 0; i < 4; i++) {
+		lv[i] = v;
+	}
+}
+
+static void engine_flash(void)
+{
+	uint8_t lv[4];
+	if (sp1_pui_offlist(sp1_pui_eslot())) {
+		offlist_levels(0u, lv);
+		sp1_display_flash(lv, 100u, SP1_DISP_ENGINE_FADE_MS);
+		offlist_ms = 1u;
+		offlist_count = sp1_display_flash_count();
+		return;
+	}
+	offlist_ms = 0u;
+	sp1_pui_engine_leds(lv);
+	sp1_display_engine(lv);
+}
+
+static void offlist_glyph_tick(uint32_t dt)
+{
+	if (offlist_ms == 0u) {
+		return;
+	}
+	if (sp1_display_flash_count() != offlist_count) {
+		offlist_ms = 0u;                 /* something else took the row */
+		return;
+	}
+	offlist_ms += dt;
+	const uint32_t t = offlist_ms - 1u;
+	uint8_t lv[4];
+	offlist_levels(t, lv);
+	if (t >= SP1_DISP_ENGINE_HOLD_MS) {
+		offlist_ms = 0u;
+		sp1_display_flash(lv, 0u, SP1_DISP_ENGINE_FADE_MS);
+	} else {
+		sp1_display_flash(lv, 100u, SP1_DISP_ENGINE_FADE_MS);
+		offlist_count = sp1_display_flash_count();
+	}
+}
+
+/* "slot 3" in the log, or "off-list" (#50). Two buffers: one printk may use two. */
+static const char *slot_label(int s)
+{
+	static char b[2][20];
+	static int k;
+	k ^= 1;
+	if (sp1_pui_offlist(s)) {
+		return "off-list";
+	}
+	snprintk(b[k], sizeof(b[k]), "slot %d", s + 1);
+	return b[k];
 }
 
 /* ---- ROTC's animation past the glyph (Adara, #50): t = ms since PLAY went down ----
@@ -500,9 +567,7 @@ static void midi_tick(uint32_t dt, bool busy)
 	if (es != midi_eslot_was && sel == midi_sel_was) {
 		printk("MODEL %s (MIDI)\n", sp1_pui_engine_name());
 		if (!busy) {
-			uint8_t g[4];
-			sp1_pui_engine_leds(g);
-			sp1_display_engine(g);
+			engine_flash();
 		}
 	}
 	midi_eslot_was = es;
@@ -629,25 +694,22 @@ static void plaits_buttons(bool fnc, bool running, uint32_t dt)
 	if (!settings) {
 		/* T1: flash the engine we are on -- "what am I playing?" (Adara, M4b). */
 		if (!fnc && sp1_button_pressed(SP1_BTN_T1)) {
-			uint8_t elv[4];
-			sp1_pui_engine_leds(elv);
-			sp1_display_engine(elv);
-			printk("ENGINE slot %d: %s (plaits %d)  [shown]%s\n",
-			       sp1_pui_eslot() + 1, sp1_pui_engine_name(), sp1_pui_engine(),
+			engine_flash();
+			printk("ENGINE %s: %s (plaits %d)  [shown]%s\n",
+			       slot_label(sp1_pui_eslot()), sp1_pui_engine_name(), sp1_pui_engine(),
 			       sp1_pui_eslot() != sp1_pui_slot() ? "  (MODEL offset)" : "");
 		}
 		/* T2 previous engine, T3 next (UI-SPEC). */
 		if (step != 0) {
 			const int sl = sp1_pui_engine_step(step);
-			uint8_t elv[4];
-			sp1_pui_engine_leds(elv);    /* the engine PLAYING (MODEL offset included) */
-			sp1_display_engine(elv);
+			engine_flash();              /* the engine PLAYING (MODEL offset included) */
 			if (sp1_pui_eslot() != sl) {
-				printk("ENGINE slot %d selected, slot %d playing: %s (plaits %d)"
-				       "  (MODEL offset)\n", sl + 1, sp1_pui_eslot() + 1,
-				       sp1_pui_engine_name(), sp1_pui_engine());
+				printk("ENGINE %s selected, %s playing: %s (plaits %d)"
+				       "  (MODEL offset)\n", slot_label(sl),
+				       slot_label(sp1_pui_eslot()), sp1_pui_engine_name(),
+				       sp1_pui_engine());
 			} else {
-				printk("ENGINE slot %d: %s (plaits %d)\n", sl + 1,
+				printk("ENGINE %s: %s (plaits %d)\n", slot_label(sl),
 				       sp1_pui_engine_name(), sp1_pui_engine());
 			}
 		}
@@ -1099,7 +1161,8 @@ static void prst_select(int slot)
 {
 	g_prst_slot = slot;
 	prst_load(sp1_store_prst_slot(slot));
-	printk("PRST slot %d: %s\n", slot + 1, sp1_pui_engine_name());
+	printk("PRST slot %d: %s%s\n", slot + 1, sp1_pui_engine_name(),
+	       sp1_pui_offlist(sp1_pui_slot()) ? " (not on the engine list)" : "");
 }
 
 static void prst_gather(struct sp1_prst *p)
@@ -1431,7 +1494,6 @@ int main(void)
 		rip_show_page = false;
 		prst_showing = false;
 		prst_changed = false;
-		prst_in_hold = false;
 		sp1_synth_set_burst_div(1u << g_burst_div);
 		sp1_synth_set_output((enum sp1_synth_output)g_out_mode);
 #if defined(CONFIG_SP1_MIDI)
@@ -1808,6 +1870,8 @@ int main(void)
 				 *   4. After a slot change, no ROTC until "••" is released.
 				 *   5. Letting go once ROTC's animation has begun (past the glyph)
 				 *      fades back to the SHIFT screen; nothing is wiped.
+				 *   6. Letting go of "••" leaves the browser at once: the glyph ends,
+				 *      PLAY no longer changes slot, the page fades back in.
 				 * Every PRST part asks prst_available() (the volume is OK and this
 				 * ON session loaded a slot); without it this is ROTC alone, the glyph's
 				 * 1.6 s a slow fade to black instead (Adara; rotc_or_fade_levels).
@@ -1817,14 +1881,13 @@ int main(void)
 				 * shift use, so it can never start a power-off. */
 				const bool play_down = sp1_button_held(SP1_BTN_PLAY);
 				if (fnc && sp1_button_pressed(SP1_BTN_PLAY) && !shutdown_active) {
-					if (prst_showing && prst_in_hold && prst_available()) {
+					if (prst_showing && prst_available()) {
 						prst_select((g_prst_slot + 1) % SP1_PRST_SLOTS);
 						prst_changed = true;
 						prst_show_ms = 0u;            /* the new slot's glyph */
 						rip_armed = false;
 					} else {
 						prst_showing = prst_available();
-						prst_in_hold = prst_showing;
 						prst_show_ms = 0u;
 						rip_armed = !prst_changed;
 						rip_glyph = prst_showing;
@@ -1909,8 +1972,19 @@ int main(void)
 				}
 				if (!fnc) {
 					prst_changed = false;                  /* (4) */
-					prst_in_hold = false;   /* (2) is per hold: the glyph may still fade */
+					if (prst_showing) {
+						/* (6) Letting go of "••" leaves the browser (Adara): the
+						 * glyph ends, a PLAY tap no longer changes slot, and the
+						 * page you were on fades back in. */
+						prst_showing = false;
+						uint8_t lv[4];
+						prst_glyph_levels(g_prst_slot, prst_show_ms, lv);
+						sp1_display_flash(lv, 0u, SP1_PRST_FADEBACK_MS);
+					}
 				}
+
+				/* An off-list engine's flash, if one is running (engine_flash). */
+				offlist_glyph_tick(dt);
 
 				/* The slot glyph, while it shows (and ROTC has not taken the row). */
 				if (prst_showing) {
@@ -2033,9 +2107,7 @@ int main(void)
 					if (marbles) {
 						g_module = SP1_MODULE_PLAITS;
 						sp1_pui_resume(raw, fnc);
-						uint8_t elv[4];
-						sp1_pui_engine_leds(elv);
-						sp1_display_engine(elv);
+						engine_flash();
 						sp1_playrow_set_fg(SP1_FG_METER);
 						printk("MODULE plaits (%s)\n", sp1_pui_engine_name());
 					} else {

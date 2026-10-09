@@ -111,7 +111,7 @@ So the combination space is exactly: **`••` + one button**, on either ladder
 | **T2** | previous engine (flashes its glyph) | held 2 s: **UNPATCH TIMBRE** |
 | **T3** | next engine | held 2 s: **UNPATCH MORPH** |
 | **T4** | **swap module** → MARBLES | held 2 s: **UNPATCH HARMONICS** · a short press does nothing (output select moved to SETTINGS T4 in v0.4.6) |
-| **PLAY** | Marbles' clock **run / stop** | **PRST**: a press shows the current slot (one LED, T1–T4, ramping at 10 Hz for 1.6 s); a press while it shows = the **next slot** (4 → 1), loaded at once. Held 3 s from a press that did not change slot: **rip out the cables** (see below) |
+| **PLAY** | Marbles' clock **run / stop** | **PRST**: a press shows the current slot (one LED, T1–T4, ramping at 10 Hz for 1.6 s); a press while it shows = the **next slot** (4 → 1), loaded at once; letting go of `••` leaves the browser and the page returns. Held 3 s from a press that did not change slot: **rip out the cables** (see below) |
 | **RWD** | one **TRIG** | **coarser** burst division |
 | **FFWD** | held: **burst** — re-triggers on the 1/div grid, running or stopped | **finer** burst division |
 | **VOL− / VOL+** | output level, 3 dB steps | **the soft-clip drive** — see below |
@@ -126,6 +126,11 @@ So the combination space is exactly: **`••` + one button**, on either ladder
   ⚠️ So FFWD now **re-triggers** the note Marbles is holding rather than making the sequence
   advance faster: a roll, not an arpeggio. Driving the clock at a subdivision instead is
   a separate option, parked for a community vote (Adara).
+- **Engines off the list** (#50): every build contains all of Plaits' engines; `config/engines.csv`
+  only decides which ones T2/T3 reach. A PRST slot may name one that is not listed, and it plays.
+  It has no glyph of its own, so its engine flash is all four face LEDs ramping 70 % → 0 at 15.6 Hz
+  for 0.7 s. From it, **T3 → the first listed engine, T2 → the last**; MIDI's MODEL CC counts from
+  list position 1. A name no engine of the build has loads list position 1.
 - **Rip out the cables** = `••` + PLAY held 3 s: a **full patch wipe** of the module on show
   (`docs/DEFAULTS.md` is the spec). On PLAITS: engine → slot 1, the four BASE faders → that
   engine's neutral state (0.5 for a bipolar parameter, 0 for a unipolar one, F1 → centre = C4),

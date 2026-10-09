@@ -206,8 +206,19 @@ void sp1_pui_put(const struct sp1_pui_patch *p);
 void sp1_pui_rip_patch(int slot, struct sp1_pui_patch *p);
 /* The slot whose engine is called `name` (case-insensitive), among the FILLED slots of
  * config/engines.csv; -1 if there is none. */
+/* ---- engines OFF the list (#50) ----
+ * Every build contains all of Plaits' engines; config/engines.csv only decides which ones
+ * T2/T3 reach. A PRST slot may name one that is not listed, and it plays. Such a selection
+ * is SP1_PUI_OFFLIST + its Plaits index, wherever a "slot" appears in this API. It has no
+ * glyph (sp1_pui_slot_leds() gives dark; main.c draws the off-list animation), T3 from it
+ * goes to the first listed engine and T2 to the last, and MIDI's MODEL CC counts from list
+ * position 1. */
+#define SP1_PUI_OFFLIST 100
+bool sp1_pui_offlist(int slot);
+/* The selection for engine `name` (case ignored): its list position if it is listed, else
+ * SP1_PUI_OFFLIST + its Plaits index; -1 if this build has no such engine. */
 int  sp1_pui_slot_of(const char *name, int len);
-const char *sp1_pui_slot_name(int slot);
+const char *sp1_pui_slot_name(int slot);    /* "" for no engine */
 
 const char *sp1_pui_engine_name(void);
 /* The glyph of the engine PLAYING (sp1_pui_eslot: the selection moved by MIDI's MODEL CC) as

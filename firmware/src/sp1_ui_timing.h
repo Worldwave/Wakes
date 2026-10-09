@@ -266,6 +266,13 @@
  * shorter one was hard to read). A sweep restarts it at each change, as scrolling T2/T3 does. */
 #define SP1_DISP_ENGINE_HOLD_MS  700u   /* pattern shown solid (Adara: 0.7 s)      */
 #define SP1_DISP_ENGINE_FADE_MS  350u   /* then cross-fades into the page         */
+/* ---- an engine OFF the engines.csv list (#50, Adara) ----
+ * It has no glyph (glyphs belong to list positions), so its flash is an animation: all four
+ * face LEDs ramp down from 70 % to 0 every SP1_OFFLIST_RAMP_MS, for the same
+ * SP1_DISP_ENGINE_HOLD_MS, then the same fade. 70 % rather than full because of the flash
+ * rate (Adara); 64 ms = exactly 8 control ticks, so every ramp has the same steps. */
+#define SP1_OFFLIST_RAMP_MS       64u   /* one ramp, 70 % -> 0 (15.6 Hz)          */
+#define SP1_OFFLIST_LEVEL        179u   /* 70 % of 255                            */
 /* M3c: glyphs are drawn by hand (SLOT_GLYPHS) -- each LED off, half or full. */
 #define SP1_ENGINE_LED_FULL      255u
 /* The "◐" level: 33 % perceptual (Adara, M3e -- 50 % was too close to full to tell
