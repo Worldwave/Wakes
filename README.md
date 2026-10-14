@@ -58,13 +58,14 @@ Output: `build/zephyr/wakes-sp1.bin`. The Zephyr patch is required and is lost o
 | | |
 |---|---|
 | [`docs/UI-PAGES.md`](docs/UI-PAGES.md) | every control on every page, in detail |
-| [`config/engines.csv`](config/engines.csv) | which engine sits in each of the 24 slots (editable) |
+| [`config/engines.cnfg`](config/engines.cnfg) | the default engine stack: which engine sits in each of the 24 slots, and what every engine does |
 | [`docs/PLAITS-ENGINES.md`](docs/PLAITS-ENGINES.md) | every engine, its faders and its CPU cost |
 | [`docs/MARBLES-SETTINGS.md`](docs/MARBLES-SETTINGS.md) | Marbles models, ranges and scales |
 | [`docs/DEFAULTS.md`](docs/DEFAULTS.md) | every default, and what a reset restores |
 | [`docs/MIDI.md`](docs/MIDI.md) | MIDI over USB: what it does, and how to change it |
 | [`config/midi.ini`](config/midi.ini) | the MIDI script: channel, legato, CC numbers (editable) |
 | [`config/audio.ini`](config/audio.ini) | USB audio out: its level (parked or on VOL) and the speaker while a host records (editable) |
+| [`config/logs.cnfg`](config/logs.cnfg) | the log Wakes writes to its drive, `WAKES/LOGS/` (the default; Wakes reads `WAKES/CNFG/logs.cnfg` on its drive at every ON) |
 | [`docs/SAFETY.md`](docs/SAFETY.md) | rules for anyone changing the firmware |
 
 ## Licence

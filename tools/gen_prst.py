@@ -64,7 +64,7 @@ CHOICES = {
 
 # ---- the fields, in the order they are written -------------------------------------------
 # (section, key, kind, check, path in struct sp1_prst)
-#   kind  engine   = an engine NAME (config/engines.csv), resolved to its slot
+#   kind  engine   = an engine NAME (config/engines.cnfg), resolved to its slot
 #         pos      = a fader value, 0..1 (pot space, before detents)
 #         <choice> = one of CHOICES[kind]
 #   check extra validity beyond "is one of the tokens", applied by sp1_prst.c:

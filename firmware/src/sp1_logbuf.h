@@ -8,8 +8,9 @@
  * after the banner, then carries on live. Keep Wakes ON after the session, plug it into the PC,
  * start the logger: the session is in the file.
  *
- *   - CONFIG_SP1_LOGBUF_KB of RAM (96 KB: ~14 minutes at a session's ~120 bytes/s). When it is
- *     full the OLDEST lines go; the newest are always there.
+ *   - CONFIG_SP1_LOGBUF_KB of RAM (16 KB: ~2 minutes at a session's ~120 bytes/s; 96 KB until
+ *     the log went to the drive, #52). When it is full the OLDEST lines go; the newest are
+ *     always there.
  *   - Every stored line starts with the device's uptime, "[+hh:mm:ss.mmm]", because the
  *     logger's own timestamps on a played-back line are the time of the dump, not of the event.
  *   - It sits in .noinit, so a soft reset -- the watchdog, a fault, sp1_power_off with USB --
@@ -22,12 +23,18 @@
  *     keep feeding the watchdog. A full buffer takes a few seconds; the controls answer a little
  *     slowly meanwhile.
  *
+ *   - THE LOG FILE (#52): the storage thread takes whole lines from here every 5 s and writes
+ *     them to WAKES/LOGS/ on the drive (sp1_store.h). Its cursor lives in the ring
+ *     (sp1_logring.h), in .noinit with the rest, so lines a reset cut off before they reached
+ *     the drive are written at the next ON. STANDBY's lines are not for the file (Adara).
+ *
  * Nothing here is on the power path, and the audio thread never prints (rule since M2).
  */
 #ifndef SP1_LOGBUF_H
 #define SP1_LOGBUF_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /* Once, in main(), after the console is up and before anything else prints. Wraps printk's
@@ -43,5 +50,22 @@ void sp1_logbuf_replay_start(void);
 void sp1_logbuf_replay_stop(void);
 bool sp1_logbuf_replaying(void);
 void sp1_logbuf_replay_step(void);
+
+/* ---- the log file (#52) ----
+ * This boot carries on a log kept across a soft reset (the "=== RESET" marker): the same
+ * session, so the drive's log is appended to rather than rotated. */
+bool sp1_logbuf_continued(void);
+uint32_t sp1_logbuf_resetreas(void);
+
+/* Storage thread: the next line for the file (sp1_logring_take), at most SP1_LOGBUF_TAKE_MAX
+ * bytes, taken under the lock -- one line's copy with interrupts held off, a few us. */
+#define SP1_LOGBUF_TAKE_MAX 256u
+size_t sp1_logbuf_file_take(char *out, size_t max, uint32_t *lost);
+
+/* Main thread: STANDBY entry / ON entry (STANDBY is not logged to the drive), and "logging
+ * is off this ON" (nothing written so far is owed to the file). */
+void sp1_logbuf_file_pause(void);
+void sp1_logbuf_file_resume(void);
+void sp1_logbuf_file_skip(void);
 
 #endif /* SP1_LOGBUF_H */

@@ -168,7 +168,7 @@ half still works.
 | 25 | 57 | LPG decay |
 | 26 | 58 | LEVEL (PLAITS SETTINGS F4 — can connect it, like the fader) |
 | 102 | | OCTAVE range |
-| 105 | | MODEL: the engine, as an offset up through your filled slots in `config/engines.csv` |
+| 105 | | MODEL: the engine, as an offset up through your filled slots in `config/engines.cnfg` |
 | 27 | 59 | RATE |
 | 16 | 48 | t BIAS |
 | 85 | | JITTER |

@@ -1,0 +1,38 @@
+; Format: ini
+; =====================================================================================
+;  Wakes — logging
+; =====================================================================================
+;
+;  Wakes writes what it is doing to its drive, in WAKES/LOGS/: one file per session (from
+;  turning Wakes on until it is switched off), numbered -- 0001.LOGS, 0002.LOGS, ... after
+;  9999.LOGS comes 0000.LOGS. The last 5 sessions are kept; WAKES/LOGS/SESSION holds the
+;  latest session's number. If you ask us for help, send them all.
+;  Each file stops at 8 MB, about 18 hours of playing. STANDBY (plugged in and off) is not
+;  logged.
+;
+;  Wakes reads this file every time it turns ON, so a change takes effect at the next ON.
+;  Lines starting with ; are comments. Every setting can be left out to get its default.
+;  A setting Wakes cannot read keeps its default, and the log says which line it was.
+;
+;  Startup, power, battery and error lines are always written; the settings below choose
+;  what else goes in.
+
+[logs]
+; on  = Wakes writes the log to its drive while ON (default).
+; off = nothing is written to the drive.
+enabled      = on
+
+; CPU and audio load, every 5 seconds.
+performance  = on
+
+; What you do on the controls: pages, engines, routing, scales, ROTC.
+controls     = on
+
+; MIDI over USB, and the MIDI clock.
+midi         = on
+
+; USB audio out and the USB connection.
+usb          = on
+
+; The drive itself: loading and saving presets (PRST), the config files, the log.
+storage      = on

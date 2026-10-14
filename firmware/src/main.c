@@ -310,7 +310,7 @@ static void prst_glyph_levels(int slot, uint32_t t, uint8_t lv[4])
 
 /* ---- the engine flash, for an engine on the list or off it (#50) ----
  * On the list: its fixed glyph through sp1_display_engine(), as always. Off the list (a PRST
- * slot loaded an engine engines.csv does not list): no glyph exists, so all four face LEDs
+ * slot loaded an engine engines.cnfg does not list): no glyph exists, so all four face LEDs
  * ramp 70 % -> 0 every SP1_OFFLIST_RAMP_MS for SP1_DISP_ENGINE_HOLD_MS, then the same fade
  * (Adara). Redrawn every tick by offlist_glyph_tick(); anything else that flashes the row
  * stops it (sp1_display_flash_count). Use this wherever the ENGINE glyph is shown. */
@@ -1178,33 +1178,50 @@ static void prst_gather(struct sp1_prst *p)
  * Adara: "the shutdown animation completes -> the UI freezes -> save -> OFF or STANDBY",
  * with the UI locked and the LEDs off, limit 4 s. The UI is frozen because main is in here;
  * audio stops first (sp1_quiesce_peripherals() would stop it a moment later anyway), so the
- * storage thread has the CPU. Never called by the 30 s backstop (sp1_power.h). */
-static void prst_save_at_shutdown(void)
+ * storage thread has the CPU. Never called by the 30 s backstop (sp1_power.h).
+ * #52: then the log's last lines, in what is left of the same 4 s (Adara: the save first). */
+static void storage_at_shutdown(void)
 {
-	if (!g_prst_on) {
+	const bool log = sp1_store_log_live();
+	if (!g_prst_on && !log) {
 		return;
 	}
-	g_prst_on = false;
 	sp1_leds_all_off();
 	sp1_audio_stop();
-	struct sp1_prst p;
-	prst_gather(&p);
 	const uint32_t t0 = k_uptime_get_32();
-	if (!sp1_store_prst_save(g_prst_slot, &p)) {
-		printk("PRST save: not possible (storage not ready) -- nothing saved\n");
-		return;
+	if (!g_prst_on) {
+		sp1_store_log_end();
+	} else {
+		g_prst_on = false;
+		struct sp1_prst p;
+		prst_gather(&p);
+		if (!sp1_store_prst_save(g_prst_slot, &p)) {
+			printk("PRST save: not possible (storage not ready) -- nothing saved\n");
+			sp1_store_log_end();
+		} else {
+			while (sp1_store_save_result() == SP1_STORE_SAVE_BUSY &&
+			       k_uptime_get_32() - t0 < SP1_PRST_SAVE_MS) {
+				sp1_wdt_feed();
+				k_msleep(TICK_MS);
+			}
+			const enum sp1_store_save r = sp1_store_save_result();
+			printk("PRST save slot %d: %s after %u ms\n", g_prst_slot + 1,
+			       r == SP1_STORE_SAVE_OK ? "saved" : (r == SP1_STORE_SAVE_BUSY
+						     ? "NOT finished in time -- powering off anyway"
+						     : "FAILED"),
+			       (unsigned)(k_uptime_get_32() - t0));
+		}
 	}
-	while (sp1_store_save_result() == SP1_STORE_SAVE_BUSY &&
-	       k_uptime_get_32() - t0 < SP1_PRST_SAVE_MS) {
+	/* The save job closes the log after the save (sp1_store.h). */
+	while (sp1_store_log_live() && k_uptime_get_32() - t0 < SP1_PRST_SAVE_MS) {
 		sp1_wdt_feed();
 		k_msleep(TICK_MS);
 	}
-	const enum sp1_store_save r = sp1_store_save_result();
-	printk("PRST save slot %d: %s after %u ms\n", g_prst_slot + 1,
-	       r == SP1_STORE_SAVE_OK ? "saved" : (r == SP1_STORE_SAVE_BUSY
-					     ? "NOT finished in time -- powering off anyway"
-					     : "FAILED"),
-	       (unsigned)(k_uptime_get_32() - t0));
+	if (log) {
+		printk("LOG %s after %u ms\n", sp1_store_log_live()
+		       ? "NOT closed in time -- powering off anyway" : "closed",
+		       (unsigned)(k_uptime_get_32() - t0));
+	}
 }
 #elif defined(CONFIG_SP1_PLAITS)
 /* Without storage there is no PRST: "••" + PLAY is ROTC alone. */
@@ -1373,7 +1390,7 @@ int main(void)
 	sp1_mui_init();
 #endif
 #if defined(CONFIG_SP1_STORAGE) && defined(CONFIG_SP1_PLAITS)
-	sp1_power_set_save_hook(prst_save_at_shutdown);   /* PRST (#50) */
+	sp1_power_set_save_hook(storage_at_shutdown);     /* PRST (#50), the log (#52) */
 #endif
 
 	/* ---- top-level state machine ----
@@ -1384,6 +1401,9 @@ int main(void)
 
 	for (;;) {
 		if (standby) {
+			/* #52 (Adara): STANDBY is not logged to the drive. Its lines stay in the
+			 * RAM log for the console; the file's cursor jumps over them at ON. */
+			sp1_logbuf_file_pause();
 			sp1_standby_run();     /* returns only when powering ON */
 			standby = false;
 		}
@@ -1417,6 +1437,7 @@ int main(void)
 #if defined(CONFIG_SP1_STORAGE)
 		/* M6 (#43): the eMMC job runs in the storage thread, below main and audio;
 		 * this only queues it. Every way out of ON stops it (sp1_quiesce_peripherals). */
+		sp1_logbuf_file_resume();     /* #52: from here the lines are for the log file */
 		sp1_store_on_enter();
 #if defined(CONFIG_SP1_FRESH)
 		/* The fresh image's format holds ON entry, before audio (storage_gate). */
@@ -1431,6 +1452,8 @@ int main(void)
 			standby = true;           /* the 30 s backstop, plugged in */
 			continue;
 		}
+		/* #52: the ON job may have installed a new engine stack (engines.cnfg). */
+		sp1_pui_stack_settle();
 		if (g_prst_on) {
 			prst_apply(sp1_store_prst_slot(g_prst_slot));
 		}

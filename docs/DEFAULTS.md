@@ -33,11 +33,12 @@ than a description; it is now both.)
 | | parameter | range | boot | ROTC | notes |
 |---|---|---|---|---|---|
 | F1 | FREQUENCY | per OCTAVE range | **the fader's position** | fader set to 0.5, or C4, frequency unlocked (see SETTINGS F1 on ROTC) | Seeded from the physical fader on the first ON after boot only |
-| F2 | TIMBRE | 0…1 | the fader's position | slot 1's neutral position (contextual to the engine) | meaning is per engine |
-| F3 | MORPH | 0…1 | the fader's position | slot 1's neutral position (contextual to the engine) | meaning is per engine |
-| F4 | HARMONICS | 0…1 | the fader's position | slot 1's neutral position (contextual to the engine) | meaning is per engine |
+| F2 | TIMBRE | 0…1 | the fader's position | the neutral position of the first filled slot's engine | meaning is per engine |
+| F3 | MORPH | 0…1 | the fader's position | the neutral position of the first filled slot's engine | meaning is per engine |
+| F4 | HARMONICS | 0…1 | the fader's position | the neutral position of the first filled slot's engine | meaning is per engine |
 
-**ROTC is a full patch reset, not a modulation reset.** It returns the engine to slot 1 and the
+**ROTC is a full patch reset, not a modulation reset.** It returns the engine to the first
+filled slot of the engine stack (#52: of your `engines.cnfg`, slot 1 by default) and the
 four BASE faders to that engine's neutral state: **0.5 for a bipolar parameter, 0 for a unipolar
 one**, and F1 to the middle of its travel with the range open and the quantizer off.
 
@@ -48,7 +49,7 @@ detent means it is a real landing spot rather than a coincidence of fader positi
 **Which parameters are bipolar is already known per engine**, so nothing new has to be decided:
 each engine's detents (listed in `docs/PLAITS-ENGINES.md`) mark exactly the parameters whose
 centre is a neutral point, and they are compiled into `SP1_ENGINE_TABLE[].centre`. On virtual
-analog, slot 1 by default, that gives F2 → 0.5, F3 → 0, F4 → 0.5.
+analog, the first filled slot by default, that gives F2 → 0.5, F3 → 0, F4 → 0.5.
 
 ⚠️ **REVIEW 1 — the faders will not match after a ROTC, by design.** ROTC sets the stored values;
 the physical faders stay where your hands left them. Pickup then catches each one up on its next
@@ -57,7 +58,7 @@ after a ROTC the instrument sounds neutral while the faders still look wrong. Th
 is the only way to do it without motorised faders. Confirmed as intended (Adara).
 
 ⚠️ **REVIEW 2 — neutral is per engine, and ROTC is a moment in time.** Because ROTC also returns
-you to slot 1, "the engine's neutral state" is unambiguous at the moment it fires. But if you then
+you to the first filled slot, "the engine's neutral state" is unambiguous at the moment it fires. But if you then
 step to an engine with a different bipolar set, the values stay where ROTC put them and are no
 longer that engine's neutral. The alternative — re-neutralising on every engine change — would
 mean losing your patch just by browsing engines, which is clearly worse. Leaving it as a
@@ -87,7 +88,7 @@ Never seeded from the faders, at boot or ever. Gain 0 means nothing modulates un
 
 | parameter | range | boot | ON | ROTC | notes |
 |---|---|---|---|---|---|
-| engine | 24 slots, 21 filled by default | slot 1 | — | slot 1 | the first filled slot of `config/engines.csv` |
+| engine | 24 slots, 16 filled by default | the first filled slot | — | the first filled slot | of the stack in `WAKES/CNFG/engines.cnfg` on the drive, or the built-in `config/engines.cnfg` |
 | FREQUENCY quantization | off + 7 scales | off | — | off | forced off when something is routed to V/Oct |
 | output select | OUT / AUX / OUT+AUX / OUT×AUX | OUT | OUT | OUT | RAM only |
 | soft-clip drive | off, +3 / +8 / +15 / +24 dB | off | off | off | forced off on every entry to ON (this will change when ON is set to reload savestates in M5). Uneven steps since M4e; `••`+VOL− steps DOWN rather than toggling |

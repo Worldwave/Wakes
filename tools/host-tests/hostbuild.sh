@@ -23,9 +23,11 @@ OBJ=$SP/hostobj$SP1_PLAITS_BLOCK
 
 python3 "$HERE/mkovr.py" "$OVR" >/dev/null
 mkdir -p "$GEN" "$OBJ"
-python3 "$ROOT/tools/gen_engines.py" "$ROOT/config/engines.csv" "$GEN/sp1_engines_gen.h" >/dev/null
+python3 "$ROOT/tools/gen_engines.py" "$ROOT/config/engines.cnfg" "$GEN/sp1_engines_gen.h" >/dev/null
 # M6 (#50): the PRST field table -- also where a format change without a version bump fails.
 python3 "$ROOT/tools/gen_prst.py" "$GEN/sp1_prst_gen.h" >/dev/null
+# #52: the logging defaults and logs.cnfg's text, as the firmware build generates them.
+python3 "$ROOT/tools/gen_logs.py" "$ROOT/config/logs.cnfg" "$GEN/sp1_logs_gen.h" >/dev/null
 # The MIDI script (M5a) as the firmware build generates it -- with ONE change: its `pickup`
 # forced to `sum`, because miditest.cc checks the offset maths and the other suites were
 # written against offsets. miditest_pickup.cc runs the shipped script as it is otherwise, once
@@ -116,6 +118,9 @@ for t in "$@"; do
       gcc -std=c99 -O2 -Wall -fno-tree-loop-distribute-patterns -fno-unroll-loops \
           -include "$SRC/sp1_uac_tuning.h" $EXTRA_UAC_FLAGS -I"$UAC" \
           "$t" "$SP/uacring.c" -o "$out" ;;
+    *cnfgtest.c)
+      # #52: the config-file reader and the log file's cursor -- pure C, nothing else linked.
+      gcc $CFLAGS -Wall -Wextra $INC "$t" "$SRC/sp1_cnfg.c" "$SRC/sp1_logring.c" -o "$out" ;;
     *test_usb_rt_parse.c)
       # feldd's own host test of the packet validator Wakes uses (third_party/feldd).
       gcc -std=gnu11 -O2 "$t" "$FELDD/src/usb_rt_parse.c" -o "$out" ;;

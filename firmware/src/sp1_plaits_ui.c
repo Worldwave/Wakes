@@ -8,6 +8,7 @@
 #include "sp1_marbles.h"      /* the scale quantizer FREQUENCY borrows (M4b) */
 #include "sp1_midi.h"         /* MIDI's offsets and the quantizer bypass (M5a) */
 #include "sp1_ui_timing.h"
+#include "sp1_cnfg.h"         /* engine names compare by letters and digits (#52) */
 
 #include <math.h>
 #include <stddef.h>
@@ -52,11 +53,11 @@
 #define DOUBLE_TAP_MS     400u     /* second tap must START within this of the 1st   */
 #define BREATH_MS         1200u    /* SETTINGS page breathing period                 */
 
-/* ---- the engine list: GENERATED from config/engines.csv ----
- * Which engine is in which slot comes from the user's CSV; each slot's glyph, and each
+/* ---- the engine list: GENERATED from config/engines.cnfg ----
+ * Which engine is in which slot comes from config/engines.cnfg; each slot's glyph, and each
  * engine's Plaits index and centre detents, from the fixed tables in tools/gen_engines.py
  * (run by the build). The reasons for each detent are in docs/PLAITS-ENGINES.md. Edit
- * the CSV, not this file. */
+ * config/engines.cnfg, not this file. */
 #include "sp1_engines_gen.h"
 
 #define C_H 0x1u   /* HARMONICS (F4) */
@@ -76,11 +77,39 @@ static enum sp1_pui_layer page = SP1_PUI_BASE;
 static enum sp1_pui_layer active = SP1_PUI_BASE;
 static bool  base_seeded;
 /* The SELECTED engine: a position in the generated table -- or, past the table, an engine
- * that is NOT in config/engines.csv, loaded from a PRST slot (#50): SP1_PUI_OFFLIST + its
- * Plaits index. Every build contains all of Plaits' engines; the CSV only decides which
+ * that is NOT in config/engines.cnfg, loaded from a PRST slot (#50): SP1_PUI_OFFLIST + its
+ * Plaits index. Every build contains all of Plaits' engines; the stack only decides which
  * ones T2/T3 reach. Read the engine's facts through engine_of() / centre_of() / name_of(),
  * never SP1_ENGINE_TABLE[slot] directly. */
 static int   slot = SP1_ENGINE_DEFAULT_SLOT;
+
+/* ---- the STACK: which engine is in each slot (#52) ----
+ * The built-in stack until the ON job reads WAKES/CNFG/engines.cnfg from the drive, which
+ * replaces it at every ON (sp1_pui_set_stack). Plaits indices, SP1_ENGINE_EMPTY = an empty
+ * slot. SP1_ENGINE_TABLE keeps only what never changes: each slot's glyph.
+ * TWO copies: the storage thread writes the one not in use and then flips `live`, so main
+ * never reads a stack half-written -- even if it stopped waiting for the ON job (PRST's
+ * 10 s limit) while the job was still running. Main reads whichever is live at the start of
+ * each call (stk()). */
+static uint8_t stacks[2][SP1_ENGINE_SLOTS] = { SP1_ENGINE_DEFAULT_STACK,
+					       SP1_ENGINE_DEFAULT_STACK };
+static int live;
+
+static const uint8_t *stk(void)
+{
+	return stacks[__atomic_load_n(&live, __ATOMIC_ACQUIRE) & 1];
+}
+
+/* The first filled slot: where the device starts and where ROTC returns (Adara, #52). */
+static int first_slot(const uint8_t *t)
+{
+	for (int i = 0; i < SP1_ENGINE_SLOTS; i++) {
+		if (t[i] != SP1_ENGINE_EMPTY) {
+			return i;
+		}
+	}
+	return 0;              /* never: the readers guarantee one engine (sp1_cnfg.h) */
+}
 
 static bool     fnc_was;
 static bool     press_dirty;              /* activity seen during this press     */
@@ -118,12 +147,17 @@ static bool offlist(int s)
 /* A selection the UI can hold: a FILLED list position, or an engine off the list. */
 static bool slot_ok(int s)
 {
-	return (s >= 0 && s < SP1_ENGINE_SLOTS && SP1_ENGINE_TABLE[s].on) || offlist(s);
+	return (s >= 0 && s < SP1_ENGINE_SLOTS && stk()[s] != SP1_ENGINE_EMPTY) || offlist(s);
 }
 
 static int engine_of(int s)
 {
-	return offlist(s) ? s - SP1_PUI_OFFLIST : SP1_ENGINE_TABLE[s].plaits;
+	if (offlist(s)) {
+		return s - SP1_PUI_OFFLIST;
+	}
+	const uint8_t e = (s >= 0 && s < SP1_ENGINE_SLOTS) ? stk()[s] : SP1_ENGINE_EMPTY;
+	/* An empty slot has no engine: callers check slot_ok() first; this is a backstop. */
+	return e < SP1_PLAITS_ENGINE_COUNT ? e : stk()[first_slot(stk())];
 }
 
 static uint8_t centre_of(int s)
@@ -138,7 +172,7 @@ static const char *name_of(int s)
 
 /* ---- the engine that PLAYS (M5a) ----
  * `slot` is what T2/T3 selected; MIDI's MODEL CC offsets it, through the filled slots of
- * config/engines.csv in order, clamped at both ends (Plaits' own MODEL CV input is an offset
+ * config/engines.cnfg in order, clamped at both ends (Plaits' own MODEL CV input is an offset
  * from the button-selected model too). A CC at either end reaches every filled slot from
  * any selection. Everything that depends on the engine actually sounding -- its detents,
  * Plaits' engine index, INTELLIGENT's polarity, the log -- uses this; the engine flash and
@@ -149,10 +183,11 @@ static int eslot(void)
 	if (off == 0.0f) {
 		return slot;
 	}
+	const uint8_t *t = stk();
 	int filled[SP1_ENGINE_SLOTS];
 	int n = 0, here = 0;           /* off the list: MODEL counts from position 1 (#50) */
 	for (int i = 0; i < SP1_ENGINE_SLOTS; i++) {
-		if (SP1_ENGINE_TABLE[i].on) {
+		if (t[i] != SP1_ENGINE_EMPTY) {
 			if (i == slot) {
 				here = n;
 			}
@@ -612,7 +647,8 @@ void sp1_pui_rip(void)
 	/* ---- "rip out the cables" on PLAITS: a FULL PATCH WIPE (Adara, M4d) ----
 	 * ⚠️ Through M4b this was a modulation reset that deliberately kept BASE and the
 	 * engine. docs/DEFAULTS.md changed that: it now wipes the patch. Engine back to
-	 * slot 1, the four BASE faders to THAT engine's neutral state, everything on the
+	 * the FIRST FILLED SLOT of the stack (#52, Adara: of the user's engines.cnfg, not slot 1
+	 * of the built-in one), the four BASE faders to THAT engine's neutral state, everything on the
 	 * SHIFT and SETTINGS layers to its default, and the FREQUENCY quantizer off.
 	 *
 	 * Neutral means: 0.5 for a BIPOLAR parameter -- its centre is the point where the
@@ -631,14 +667,14 @@ void sp1_pui_rip(void)
 	 * set afterwards and the values stay where the rip put them. Re-neutralising on
 	 * every engine change would mean losing a patch just by browsing engines. */
 	struct sp1_pui_patch p;
-	sp1_pui_rip_patch(SP1_ENGINE_DEFAULT_SLOT, &p);
+	sp1_pui_rip_patch(-1, &p);         /* the first filled slot of the stack (#52) */
 	sp1_pui_put(&p);
 }
 
 void sp1_pui_rip_patch(int s, struct sp1_pui_patch *p)
 {
 	if (!slot_ok(s)) {
-		s = SP1_ENGINE_DEFAULT_SLOT;
+		s = first_slot(stk());
 	}
 	const uint8_t c = centre_of(s);
 	p->slot = s;
@@ -666,7 +702,7 @@ void sp1_pui_get(struct sp1_pui_patch *p)
 
 void sp1_pui_put(const struct sp1_pui_patch *p)
 {
-	slot = slot_ok(p->slot) ? p->slot : SP1_ENGINE_DEFAULT_SLOT;
+	slot = slot_ok(p->slot) ? p->slot : first_slot(stk());
 	for (int l = 0; l < SP1_PUI_LAYERS; l++) {
 		for (int i = 0; i < 4; i++) {
 			const float x = p->v[l][i];
@@ -678,26 +714,13 @@ void sp1_pui_put(const struct sp1_pui_patch *p)
 	pickup_all();
 }
 
-static int lower(int ch)
-{
-	return (ch >= 'A' && ch <= 'Z') ? ch - 'A' + 'a' : ch;
-}
-
-static bool same_name(const char *n, const char *name, int len)
-{
-	int k = 0;
-	while (k < len && n[k] != '\0' && lower((unsigned char)n[k]) ==
-					     lower((unsigned char)name[k])) {
-		k++;
-	}
-	return k == len && n[k] == '\0';
-}
-
 int sp1_pui_slot_of(const char *name, int len)
 {
 	int e = -1;
 	for (int i = 0; i < SP1_PLAITS_ENGINE_COUNT; i++) {
-		if (same_name(SP1_PLAITS_ENGINES[i].name, name, len)) {
+		/* Letters and digits, case ignored (sp1_cnfg.h, #52): an older spelling of a
+		 * name in a PRST file still finds its engine. */
+		if (sp1_engine_name_eq(SP1_PLAITS_ENGINES[i].name, name, len < 0 ? 0u : (size_t)len)) {
 			e = i;
 			break;
 		}
@@ -705,12 +728,39 @@ int sp1_pui_slot_of(const char *name, int len)
 	if (e < 0) {
 		return -1;                           /* not an engine of this build */
 	}
+	const uint8_t *t = stk();
 	for (int s = 0; s < SP1_ENGINE_SLOTS; s++) {
-		if (SP1_ENGINE_TABLE[s].on && SP1_ENGINE_TABLE[s].plaits == e) {
-			return s;                    /* on the list: its position */
+		if (t[s] == e) {
+			return s;                    /* in the stack: its position */
 		}
 	}
 	return SP1_PUI_OFFLIST + e;                  /* in the build, off the list (#50) */
+}
+
+void sp1_pui_set_stack(const uint8_t stack[SP1_ENGINE_SLOTS])
+{
+	const int next = (__atomic_load_n(&live, __ATOMIC_ACQUIRE) & 1) ^ 1;
+	for (int i = 0; i < SP1_ENGINE_SLOTS; i++) {
+		stacks[next][i] = stack[i] < SP1_PLAITS_ENGINE_COUNT ? stack[i] : SP1_ENGINE_EMPTY;
+	}
+	bool any = false;
+	for (int i = 0; i < SP1_ENGINE_SLOTS; i++) {
+		any = any || stacks[next][i] != SP1_ENGINE_EMPTY;
+	}
+	if (!any) {
+		const uint8_t def[SP1_ENGINE_SLOTS] = SP1_ENGINE_DEFAULT_STACK;
+		for (int i = 0; i < SP1_ENGINE_SLOTS; i++) {
+			stacks[next][i] = def[i];
+		}
+	}
+	__atomic_store_n(&live, next, __ATOMIC_RELEASE);
+}
+
+void sp1_pui_stack_settle(void)
+{
+	if (!slot_ok(slot)) {
+		slot = first_slot(stk());
+	}
 }
 
 const char *sp1_pui_slot_name(int s)
@@ -753,27 +803,29 @@ void sp1_pui_slot_leds(int s, uint8_t out[4])
 	}
 }
 
-/* ---- engine select (T2 / T3), in SLOT order from config/engines.csv ----
- * A slot with no engine in the CSV is empty: it keeps its place and glyph, and is
+/* ---- engine select (T2 / T3), in SLOT order from config/engines.cnfg ----
+ * A slot with no engine in engines.cnfg is empty: it keeps its place and glyph, and is
  * skipped. The build guarantees at least one slot is filled. Wraps at both ends. */
 int sp1_pui_engine_step(int dir)
 {
 	if (offlist(slot)) {
 		/* From an engine off the list (#50, Adara): T3 -> the first listed engine,
 		 * T2 -> the last. */
+		const uint8_t *t = stk();
 		int s2 = -1;
 		for (int i = 0; i < SP1_ENGINE_SLOTS; i++) {
-			if (SP1_ENGINE_TABLE[i].on && (s2 < 0 || dir < 0)) {
+			if (t[i] != SP1_ENGINE_EMPTY && (s2 < 0 || dir < 0)) {
 				s2 = i;
 			}
 		}
 		slot = s2;
 		return slot;
 	}
+	const uint8_t *t = stk();
 	int s2 = slot;
 	for (int n = 0; n < SP1_ENGINE_SLOTS; n++) {
 		s2 = (s2 + (dir < 0 ? SP1_ENGINE_SLOTS - 1 : 1)) % SP1_ENGINE_SLOTS;
-		if (SP1_ENGINE_TABLE[s2].on) {
+		if (t[s2] != SP1_ENGINE_EMPTY) {
 			break;
 		}
 	}

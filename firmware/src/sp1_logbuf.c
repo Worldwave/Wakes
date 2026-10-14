@@ -1,5 +1,6 @@
 /* wakes-sp1 — the stored log. See sp1_logbuf.h. */
 #include "sp1_logbuf.h"
+#include "sp1_logring.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/linker/section_tags.h>
@@ -7,7 +8,7 @@
 #include <zephyr/sys/printk-hooks.h>
 
 #define LB_SIZE   ((uint32_t)CONFIG_SP1_LOGBUF_KB * 1024u)
-#define LB_MAGIC  0x574B4C47u              /* "WKLG" */
+#define LB_MAGIC  0x324B4C47u              /* "GLK2": the ring + file cursor (#52) */
 #define STEP_MAX  512u                     /* bytes played back per control tick, then
 					    * on to the end of that line             */
 #define PACE      48u                      /* bytes per 1 ms: under CDC ACM's 64 B / frame */
@@ -15,14 +16,16 @@
 BUILD_ASSERT(CONFIG_SP1_LOGBUF_KB >= 4, "the stored log needs at least 4 KB");
 
 /* ---- the buffer: survives a soft reset if RAM does (sp1_logbuf.h) ---- */
+/* The file's cursor lives in the ring too, so lines a reset cut off before they reached the
+ * drive are still written at the next ON (#52). */
 static __noinit struct {
 	uint32_t magic;
-	uint32_t size;
-	uint32_t head;                     /* next byte written                      */
-	uint32_t len;                      /* bytes held, <= size                    */
+	struct sp1_logring ring;
 	uint32_t boots;                    /* boots this log has run across          */
 } hdr;
 static __noinit char data[LB_SIZE];
+static bool     continued;              /* this boot carries on a kept log        */
+static uint32_t boot_resetreas;
 
 static printk_hook_fn_t next;           /* the console's own printk output         */
 static struct k_spinlock lock;
@@ -35,11 +38,7 @@ static uint32_t rp_pos, rp_left;
 
 static void put(char c)
 {
-	data[hdr.head] = c;
-	hdr.head = (hdr.head + 1u == LB_SIZE) ? 0u : hdr.head + 1u;
-	if (hdr.len < LB_SIZE) {
-		hdr.len++;
-	}
+	sp1_logring_put(&hdr.ring, data, c);
 }
 
 static void put_str(const char *s)
@@ -95,17 +94,16 @@ static int hook(int c)
 
 void sp1_logbuf_init(uint32_t resetreas)
 {
-	const bool kept = hdr.magic == LB_MAGIC && hdr.size == LB_SIZE &&
-			  hdr.head < LB_SIZE && hdr.len <= LB_SIZE;
+	const bool kept = hdr.magic == LB_MAGIC && sp1_logring_valid(&hdr.ring, LB_SIZE);
 	if (!kept) {
 		hdr.magic = LB_MAGIC;
-		hdr.size = LB_SIZE;
-		hdr.head = 0u;
-		hdr.len = 0u;
+		sp1_logring_init(&hdr.ring, LB_SIZE);
 		hdr.boots = 0u;
 	}
 	hdr.boots++;
-	if (kept && hdr.len > 0u) {
+	boot_resetreas = resetreas;
+	continued = kept && hdr.ring.len > 0u;
+	if (continued) {
 		char m[96];
 		snprintk(m, sizeof(m),
 			 "\n=== RESET (resetreas 0x%08x): the log above is the boot before; "
@@ -133,8 +131,8 @@ static void out_str(const char *s)
 void sp1_logbuf_replay_start(void)
 {
 	k_spinlock_key_t key = k_spin_lock(&lock);
-	rp_left = hdr.len;
-	rp_pos = (hdr.head + LB_SIZE - hdr.len) % LB_SIZE;
+	rp_left = hdr.ring.len;
+	rp_pos = sp1_logring_oldest(&hdr.ring);
 	k_spin_unlock(&lock, key);
 	char m[112];
 	snprintk(m, sizeof(m), "\n=== STORED LOG: %u bytes, oldest first, [+uptime] per line; "
@@ -183,4 +181,49 @@ void sp1_logbuf_replay_step(void)
 		rp_on = false;
 		out_str("=== STORED LOG: end ===\n");
 	}
+}
+
+/* ---- the log file (#52) ---- */
+
+bool sp1_logbuf_continued(void)
+{
+	return continued;
+}
+
+uint32_t sp1_logbuf_resetreas(void)
+{
+	return boot_resetreas;
+}
+
+size_t sp1_logbuf_file_take(char *out, size_t max, uint32_t *lost)
+{
+	/* One line per lock: at most SP1_LOGBUF_TAKE_MAX bytes copied with interrupts held off. */
+	if (max > SP1_LOGBUF_TAKE_MAX) {
+		max = SP1_LOGBUF_TAKE_MAX;
+	}
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	const size_t n = sp1_logring_take(&hdr.ring, data, out, max, lost);
+	k_spin_unlock(&lock, key);
+	return n;
+}
+
+void sp1_logbuf_file_pause(void)
+{
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	sp1_logring_pause(&hdr.ring);
+	k_spin_unlock(&lock, key);
+}
+
+void sp1_logbuf_file_resume(void)
+{
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	sp1_logring_resume(&hdr.ring);
+	k_spin_unlock(&lock, key);
+}
+
+void sp1_logbuf_file_skip(void)
+{
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	sp1_logring_skip(&hdr.ring);
+	k_spin_unlock(&lock, key);
 }

@@ -47,6 +47,13 @@ battery overnight, and a powered amp with no clock can murmur audibly.
 **8. Clear every LED before `SYSTEM_OFF`.** It freezes GPIO levels; anything still
 lit stays lit into sleep.
 
+**9. Nothing the user can configure reaches the power path.** The config files on the
+drive (`WAKES/CNFG/*.cnfg`, issue #52) are read at every ON and a user can put anything in
+them. They never name power-off or its timings, the watchdog, the flash layout, or the USB
+descriptors, and none of those is ever read from the drive. A bad line keeps its built-in
+default; a file that crashes the device at ON can be deleted from a computer in STANDBY,
+because drive mode never reads `CNFG/`.
+
 Rules 1–5 and 7 are the "BIG FIVE" as established by the author of
 `chattock/sp1-tape-looper` on real hardware. We did not discover them; we are
 inheriting them, and they were expensive to find.

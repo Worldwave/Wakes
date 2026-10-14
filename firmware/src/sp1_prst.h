@@ -24,7 +24,7 @@
  *     ...
  *
  * Fader values are positions 0..1 with four decimals; choices are lowercase tokens; the
- * engine is its NAME from config/engines.csv (Adara: by name, so a slot survives an edited
+ * engine is its NAME from config/engines.cnfg (Adara: by name, so a slot survives an edited
  * engine list). Reading ignores case, blank lines and lines starting ';' or '#'. A key the
  * table does not know is ignored, so is a section. If a key appears twice, the last wins.
  *
@@ -36,7 +36,7 @@
  *     exponent, nothing after it);
  *   - a choice must be one of its tokens, and pass its check (an included scale; a
  *     destination on that output's ring);
- *   - the engine must name a filled slot of config/engines.csv; otherwise slot 1;
+ *   - the engine must name a filled slot of config/engines.cnfg; otherwise slot 1;
  *   - a missing key takes its default too.
  * The ROTC default comes from the rip code itself (sp1_pui_rip_patch, sp1_mui_rip_patch),
  * never from a second table -- and for a BASE fader it is the neutral value of the engine

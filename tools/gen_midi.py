@@ -3,7 +3,7 @@
 
     gen_midi.py <midi.ini> <out.h> [--chart <dir>]     build step (CMake runs this)
 
-Two inputs, deliberately kept apart (as gen_engines.py does for engines.csv):
+Two inputs, deliberately kept apart (as gen_engines.py does for engines.cnfg):
 
   config/midi.ini   the USER's choices: channel, note priority, legato, portamento, bend
                     range, the sustain pedal's CC, the CC smoothing time, which CC moves
