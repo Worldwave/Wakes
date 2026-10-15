@@ -24,7 +24,7 @@ void sp1_logring_init(struct sp1_logring *r, uint32_t size)
 bool sp1_logring_valid(struct sp1_logring *r, uint32_t size)
 {
 	if (r->size != size || size == 0u || r->head >= size || r->len > size ||
-	    r->paused > 1u || r->gap > 1u) {
+	    r->paused > 1u || r->gap > 1u || r->discard > 1u) {
 		return false;
 	}
 	/* A cursor ahead of the writer is nonsense: start the file at the oldest line held. */
@@ -60,6 +60,11 @@ void sp1_logring_pause(struct sp1_logring *r)
 	if (r->paused) {
 		return;
 	}
+	/* An ON with logging off: none of its lines are owed, the ones since the skip included. */
+	if (r->discard) {
+		r->frd = r->total;
+		r->gap = 0u;
+	}
 	/* A closed gap the cursor has not reached yet stretches to cover this one too: the
 	 * lines between them (an ON whose log never reached the drive) go with it. */
 	if (!r->gap) {
@@ -83,9 +88,15 @@ void sp1_logring_skip(struct sp1_logring *r)
 {
 	r->frd = r->total;
 	r->gap = 0u;
+	r->discard = 1u;
 	if (r->paused) {
 		r->gap_from = r->total;
 	}
+}
+
+void sp1_logring_keep(struct sp1_logring *r)
+{
+	r->discard = 0u;
 }
 
 size_t sp1_logring_take(struct sp1_logring *r, const char *data, char *out, size_t max,

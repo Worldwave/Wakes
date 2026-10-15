@@ -7,7 +7,7 @@
 ;  turning Wakes on until it is switched off), numbered -- 0001.LOGS, 0002.LOGS, ... after
 ;  9999.LOGS comes 0000.LOGS. The last 5 sessions are kept; WAKES/LOGS/SESSION holds the
 ;  latest session's number. If you ask us for help, send them all.
-;  Each file stops at 8 MB, about 18 hours of playing. STANDBY (plugged in and off) is not
+;  Each file stops at 8 MB, about 12 hours of playing. STANDBY (plugged in and off) is not
 ;  logged.
 ;
 ;  Wakes reads this file every time it turns ON, so a change takes effect at the next ON.

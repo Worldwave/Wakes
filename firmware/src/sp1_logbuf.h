@@ -67,5 +67,7 @@ size_t sp1_logbuf_file_take(char *out, size_t max, uint32_t *lost);
 void sp1_logbuf_file_pause(void);
 void sp1_logbuf_file_resume(void);
 void sp1_logbuf_file_skip(void);
+/* Storage thread: logging is on this ON (undoes _skip's "not owed until the ON ends"). */
+void sp1_logbuf_file_keep(void);
 
 #endif /* SP1_LOGBUF_H */

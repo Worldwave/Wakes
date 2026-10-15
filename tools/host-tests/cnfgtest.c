@@ -282,6 +282,27 @@ static void ring(void)
 	drain(32u);
 	CHECK(strcmp(got, "new\n") == 0, "skip: \"%s\"", got);
 
+	/* An ON with logging OFF, then STANDBY, then an ON with logging on (Adara's test,
+	 * 0007.LOGS): none of the logging-off ON's lines reach the file -- not those before the
+	 * ON job's decision, not those after it. */
+	reset_ring();
+	puts_r("boot\n");
+	sp1_logring_pause(&R);                    /* plugged-in boot: STANDBY */
+	puts_r("[STANDBY] a\n");
+	sp1_logring_resume(&R);                   /* ON #1 */
+	puts_r("CNFG logging off\n");
+	sp1_logring_skip(&R);                     /* ...the ON job decides: off */
+	puts_r("ON1 played\nPRST save\n");
+	sp1_logring_pause(&R);                    /* STANDBY */
+	puts_r("[STANDBY] b\n");
+	sp1_logring_resume(&R);                   /* ON #2 */
+	puts_r("CNFG logging on\n");
+	sp1_logring_keep(&R);                     /* ...the ON job decides: on */
+	puts_r("ON2 played\n");
+	drain(32u);
+	CHECK(strcmp(got, "CNFG logging on\nON2 played\n") == 0 && lost == 0u,
+	      "logging off then on: \"%s\" lost %u", got, lost);
+
 	/* After a reset: a cursor ahead of the writer is pulled back; a bad header fails. */
 	reset_ring();
 	puts_r("kept\n");

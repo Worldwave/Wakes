@@ -227,3 +227,10 @@ void sp1_logbuf_file_skip(void)
 	sp1_logring_skip(&hdr.ring);
 	k_spin_unlock(&lock, key);
 }
+
+void sp1_logbuf_file_keep(void)
+{
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	sp1_logring_keep(&hdr.ring);
+	k_spin_unlock(&lock, key);
+}

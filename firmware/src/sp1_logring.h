@@ -33,7 +33,8 @@ struct sp1_logring {
 	uint32_t gap_to;
 	uint8_t  paused;      /* in STANDBY: nothing from gap_from on, yet         */
 	uint8_t  gap;         /* a closed gap waits for the cursor                 */
-	uint8_t  pad[2];
+	uint8_t  discard;     /* logging is off this ON: its lines are not owed    */
+	uint8_t  pad;
 };
 
 /* An empty ring over `size` bytes; the cursor at the start. */
@@ -52,8 +53,12 @@ uint32_t sp1_logring_oldest(const struct sp1_logring *r);
 void sp1_logring_pause(struct sp1_logring *r);
 void sp1_logring_resume(struct sp1_logring *r);
 
-/* Logging is off this ON: the file is not owed anything written so far. */
+/* Logging is off this ON: the file is not owed anything written so far, NOR anything written
+ * until the ON ends -- the pause at STANDBY entry drops this ON's lines too, so they cannot
+ * reach the next ON's file (found in Adara's test, 0007.LOGS, 2026-10-15). Until _keep(). */
 void sp1_logring_skip(struct sp1_logring *r);
+/* Logging is on this ON: from here the lines are owed to the file again. */
+void sp1_logring_keep(struct sp1_logring *r);
 
 /* The next line for the file into out[0..max), max >= 2: its length (with its '\n'), or 0
  * if no whole line is waiting. A line longer than max comes in max-byte pieces. A partial

@@ -1490,8 +1490,9 @@ static void job_on_enter(void)
 	 * it (log_end at shutdown, log_teardown after sp1_store_abort). Off: as before. */
 	if (ok && !stop && atomic_get(&vol_state) == SP1_STORE_VOL_OK) {
 		if (!logs_cfg.enabled) {
-			sp1_logbuf_file_skip();
+			sp1_logbuf_file_skip();     /* ...and this whole ON (sp1_logring.h) */
 		} else {
+			sp1_logbuf_file_keep();
 			const int lrc = log_open();
 			if (lrc != 0 && !stop) {
 				LINE("LOG off: the log file in WAKES/LOGS/ cannot be opened (%d) -- no log on "
