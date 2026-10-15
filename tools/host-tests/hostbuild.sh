@@ -28,20 +28,21 @@ python3 "$ROOT/tools/gen_engines.py" "$ROOT/config/engines.cnfg" "$GEN/sp1_engin
 python3 "$ROOT/tools/gen_prst.py" "$GEN/sp1_prst_gen.h" >/dev/null
 # #52: the logging defaults and logs.cnfg's text, as the firmware build generates them.
 python3 "$ROOT/tools/gen_logs.py" "$ROOT/config/logs.cnfg" "$GEN/sp1_logs_gen.h" >/dev/null
+python3 "$ROOT/tools/gen_audio.py" "$ROOT/config/audio.cnfg" "$GEN/sp1_audio_gen.h" >/dev/null
 # The MIDI script (M5a) as the firmware build generates it -- with ONE change: its `pickup`
 # forced to `sum`, because miditest.cc checks the offset maths and the other suites were
 # written against offsets. miditest_pickup.cc runs the shipped script as it is otherwise, once
 # per other pickup (below); miditest_alt.cc uses a second script of its own.
 # $1 = pickup, $2 = the ini to write. Fails if the script has no `pickup` line to replace.
 pickup_ini() {
-  sed -E 's/^pickup[[:space:]]*=.*/pickup = '"$1"'/' "$ROOT/config/midi.ini" > "$2"
-  grep -Eq "^pickup = $1\$" "$2" || { echo "hostbuild: no pickup line in config/midi.ini" >&2; exit 1; }
+  sed -E 's/^pickup[[:space:]]*=.*/pickup = '"$1"'/' "$ROOT/config/midi.cnfg" > "$2"
+  grep -Eq "^pickup = $1\$" "$2" || { echo "hostbuild: no pickup line in config/midi.cnfg" >&2; exit 1; }
 }
 pickup_ini sum "$GEN/midi-sum.ini"
 # ...and its legato forced to `off`, Yarns' default, whatever the shipped script is set to for
 # a hardware test: miditest.cc checks legato off; miditest_alt.cc checks legato on.
 sed -i -E 's/^legato[[:space:]]*=.*/legato = off/' "$GEN/midi-sum.ini"
-grep -Eq '^legato = off$' "$GEN/midi-sum.ini" || { echo "hostbuild: no legato line in config/midi.ini" >&2; exit 1; }
+grep -Eq '^legato = off$' "$GEN/midi-sum.ini" || { echo "hostbuild: no legato line in config/midi.cnfg" >&2; exit 1; }
 python3 "$ROOT/tools/gen_midi.py" "$GEN/midi-sum.ini" "$GEN/sp1_midi_gen.h" >/dev/null
 
 INC="-I$OVR -I$SRC/plaits_ovr -I$SRC/plaits_shim -I$ER -I$SRC -I$GEN"

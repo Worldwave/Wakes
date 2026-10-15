@@ -34,12 +34,12 @@ add_custom_target(sp1_engines_gen DEPENDS ${SP1_ENGINES_H})
 add_dependencies(app sp1_engines_gen)
 target_include_directories(app PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated)
 
-# ---- the MIDI script (M5a): generated from config/midi.ini ----
+# ---- the MIDI script (M5a): generated from config/midi.cnfg ----
 # Like the engine list: tools/gen_midi.py fails the build, naming the line, on anything
 # invalid. Generated in EVERY configuration, because the UI files read its enum even where
 # MIDI is compiled out (sp1_midi.h then stubs the calls). With MIDI in, it also writes this
 # build's CC chart next to the firmware: wakes-sp1-midi.md and .csv.
-set(SP1_MIDI_INI ${CMAKE_CURRENT_SOURCE_DIR}/../config/midi.ini)
+set(SP1_MIDI_CNFG ${CMAKE_CURRENT_SOURCE_DIR}/../config/midi.cnfg)
 set(SP1_MIDI_GEN ${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_midi.py)
 set(SP1_MIDI_H   ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated/sp1_midi_gen.h)
 set(SP1_MIDI_OUT ${SP1_MIDI_H})
@@ -51,24 +51,24 @@ if(CONFIG_SP1_MIDI)
 endif()
 add_custom_command(
 	OUTPUT  ${SP1_MIDI_OUT}
-	COMMAND ${Python3_EXECUTABLE} ${SP1_MIDI_GEN} ${SP1_MIDI_INI} ${SP1_MIDI_H} ${SP1_MIDI_CHART}
-	DEPENDS ${SP1_MIDI_INI} ${SP1_MIDI_GEN}
-	COMMENT "Generating the MIDI tables from config/midi.ini"
+	COMMAND ${Python3_EXECUTABLE} ${SP1_MIDI_GEN} ${SP1_MIDI_CNFG} ${SP1_MIDI_H} ${SP1_MIDI_CHART}
+	DEPENDS ${SP1_MIDI_CNFG} ${SP1_MIDI_GEN}
+	COMMENT "Generating the MIDI tables from config/midi.cnfg"
 )
 add_custom_target(sp1_midi_gen DEPENDS ${SP1_MIDI_OUT})
 add_dependencies(app sp1_midi_gen)
 
-# ---- the audio settings: config/audio.ini -> sp1_audio_gen.h (M5c) ----
+# ---- the audio settings: config/audio.cnfg -> sp1_audio_gen.h (M5c) ----
 # How sound leaves the device: USB audio out's level mode and the speaker while a host takes
 # it. Same rule as the MIDI script: a bad value fails the build, naming the line.
-set(SP1_AUDIO_INI ${CMAKE_CURRENT_SOURCE_DIR}/../config/audio.ini)
+set(SP1_AUDIO_CNFG ${CMAKE_CURRENT_SOURCE_DIR}/../config/audio.cnfg)
 set(SP1_AUDIO_GEN ${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_audio.py)
 set(SP1_AUDIO_H   ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated/sp1_audio_gen.h)
 add_custom_command(
 	OUTPUT  ${SP1_AUDIO_H}
-	COMMAND ${Python3_EXECUTABLE} ${SP1_AUDIO_GEN} ${SP1_AUDIO_INI} ${SP1_AUDIO_H}
-	DEPENDS ${SP1_AUDIO_INI} ${SP1_AUDIO_GEN}
-	COMMENT "Generating the audio settings from config/audio.ini"
+	COMMAND ${Python3_EXECUTABLE} ${SP1_AUDIO_GEN} ${SP1_AUDIO_CNFG} ${SP1_AUDIO_H}
+	DEPENDS ${SP1_AUDIO_CNFG} ${SP1_AUDIO_GEN}
+	COMMENT "Generating the audio settings from config/audio.cnfg"
 )
 add_custom_target(sp1_audio_gen DEPENDS ${SP1_AUDIO_H})
 add_dependencies(app sp1_audio_gen)

@@ -1,4 +1,4 @@
-// wakes-sp1 M5a: host checks of MIDI in, against the shipped script (config/midi.ini) with
+// wakes-sp1 M5a: host checks of MIDI in, against the shipped script (config/midi.cnfg) with
 // its pickup set to SUM (hostbuild.sh): this suite checks the offset maths.
 // Drives the real sp1_midi core directly, then through sp1_synth / both UIs.
 // miditest_alt.cc covers the settings this script leaves at their defaults;
@@ -14,6 +14,7 @@ extern "C" {
 #include "sp1_plaits_ui.h"
 #include "sp1_marbles_ui.h"
 #include "sp1_engines_gen.h"
+#include "sp1_cnfg.h"
 }
 
 static int fails;
@@ -703,6 +704,49 @@ int main() {
     cc(12, 0); cc(44, 0); cc(89, 64);
     settle();
     CHECK(rt.gtlt == 0.0f, "GTLT CC 64 should be back on the detent, got %.4f", rt.gtlt);
+  }
+
+  // ---- the script from the drive, at ON entry (#52): sp1_midi_set_config ----
+  // The same core, a different script without a rebuild: channel 2, TIMBRE on CC 70 instead
+  // of CC 3, velocity unbound. Then the built-in script again.
+  printf("§21 the script changed at ON entry (midi.cnfg on the drive)\n");
+  {
+    const struct sp1_midi_cfg builtin = *sp1_midi_config();
+    struct sp1_midi_cfg c = builtin;
+    c.channel = 1;                               // MIDI channel 2
+    c.cc_dest[3] = -1;
+    c.dest_cc[SP1_MIDI_D_TIMBRE] = 70;
+    c.cc_dest[70] = SP1_MIDI_D_TIMBRE;
+    c.vel_dest = -1;
+    sp1_midi_set_config(&c);
+    sp1_midi_on_enter();
+    reset();
+    centre = 0x2;
+    on(60);                                      // channel 1: not ours any more
+    block();
+    CHECK(!any_trig(), "a note on channel 1 struck with the script on channel 2");
+    send(0x91, 60, 127);                         // channel 2
+    block();
+    CHECK(any_trig(), "a note on channel 2 did not strike");
+    send(0x81, 60, 0);
+    send(0xB1, 3, 127);                          // CC 3: nothing now
+    for (int i = 0; i < 100; ++i) block();
+    CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE]) < 1e-4f, "CC 3 still moves TIMBRE: %.4f",
+          moff[SP1_MIDI_D_TIMBRE]);
+    send(0xB1, 70, 127);                         // CC 70: TIMBRE, centred
+    for (int i = 0; i < 100; ++i) block();
+    CHECK(fabsf(moff[SP1_MIDI_D_TIMBRE] - 0.5f) < 1e-3f, "CC 70 -> TIMBRE +1/2: %.4f",
+          moff[SP1_MIDI_D_TIMBRE]);
+    send(0xB1, 70, 64);
+    for (int i = 0; i < 100; ++i) block();
+    sp1_midi_set_config(&builtin);
+    sp1_midi_on_enter();
+    reset();
+    on(60);
+    block();
+    CHECK(any_trig(), "the built-in script (channel 1) is not back");
+    off(60);
+    reset();
   }
 
   printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "all checks passed", fails,

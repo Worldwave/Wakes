@@ -70,7 +70,7 @@ CHOICES = {
 #   check extra validity beyond "is one of the tokens", applied by sp1_prst.c:
 #         scale    = a scale that is included (docs/MARBLES-SETTINGS.md); scale_off also -1
 #         t_dest / x_dest = on that side's destination ring
-# Fader keys use config/midi.ini's names, so the two files speak the same vocabulary.
+# Fader keys use config/midi.cnfg's names, so the two files speak the same vocabulary.
 T, TS, XB, Y = 'SP1_MUI_T_BASE', 'SP1_MUI_T_SHIFT', 'SP1_MUI_X_BASE', 'SP1_MUI_Y'
 B, SH, ST = 'SP1_PUI_BASE', 'SP1_PUI_SHIFT', 'SP1_PUI_SETTINGS'
 FIELDS = [

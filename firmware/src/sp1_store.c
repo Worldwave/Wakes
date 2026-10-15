@@ -6,14 +6,18 @@
  * file), "CNFG" (the config files), "LOG" (the log on the drive) or "EMMC"
  * (sp1_emmc_report.c).
  */
+/* Every image writes a config file that is missing from the drive, with its built-in text
+ * (Adara, #52): the text comes with the generated headers, and only when this is defined
+ * BEFORE the first include of any of them. ~33 KB of flash for the four files. */
+#define SP1_CNFG_TEMPLATES
 #include "sp1_store.h"
 #include "sp1_emmc.h"
 #include "sp1_console.h"
 #include "sp1_cnfg.h"
 #include "sp1_logbuf.h"
-#if defined(CONFIG_SP1_FRESH)
-#define SP1_CNFG_TEMPLATES          /* the fresh image writes the config files */
-#include "sp1_engines_gen.h"        /* ...engines.cnfg among them */
+#include "sp1_engines_gen.h"
+#if defined(CONFIG_SP1_PLAITS)
+#include "sp1_audio_gen.h"
 #endif
 #include "sp1_logs_gen.h"
 #if defined(CONFIG_SP1_STORAGE_TEST)
@@ -348,9 +352,20 @@ static int ensure_dir(const char *path)
 
 #define LOGS_CNFG     DIR_CNFG "/logs.cnfg"
 #define ENGINES_CNFG  DIR_CNFG "/engines.cnfg"
-#define CNFG_READ_MAX 16384u          /* a config file is a few KB; never read a huge one */
+#define AUDIO_CNFG    DIR_CNFG "/audio.cnfg"
+#define MIDI_CNFG     DIR_CNFG "/midi.cnfg"
+/* A config file is a few KB (engines.cnfg ~16, midi.cnfg ~14); never read a huge one. */
+#define CNFG_READ_MAX 65536u
 
 static struct sp1_logs_cfg logs_cfg;
+
+/* The files this ON's job found missing: written with their built-in text once PRST has
+ * loaded (cnfg_create_missing), so the user always has every file to edit. */
+#define MISSING_LOGS    0x1u
+#define MISSING_ENGINES 0x2u
+#define MISSING_AUDIO   0x4u
+#define MISSING_MIDI    0x8u
+static uint8_t cnfg_missing;
 
 static void cnfg_problem(void *ctx, int line, const char *what, const char *why)
 {
@@ -399,7 +414,8 @@ static void cnfg_load_logs(void)
 	bool rerr;
 	const int rc = cnfg_read(LOGS_CNFG, logs_feed, &rd, &got, &rerr);
 	if (rc == -ENOENT) {
-		LINE("CNFG logs.cnfg: not on the drive -- the built-in defaults\n");
+		cnfg_missing |= MISSING_LOGS;
+		LINE("CNFG logs.cnfg: not on the drive -- the built-in defaults (a copy goes there)\n");
 	} else if (rc != 0) {
 		LINE("CNFG logs.cnfg: cannot be opened (%d) -- the built-in defaults\n", rc);
 	} else {
@@ -444,7 +460,9 @@ static void cnfg_load_engines(void)
 		sp1_engines_defaults(stack);
 		filled = stack_count(stack);
 		if (rc == -ENOENT) {
-			LINE("CNFG engines.cnfg: not on the drive -- the built-in stack\n");
+			cnfg_missing |= MISSING_ENGINES;
+			LINE("CNFG engines.cnfg: not on the drive -- the built-in stack (a copy goes "
+			     "there)\n");
 		} else {
 			LINE("CNFG engines.cnfg: cannot be opened (%d) -- the built-in stack\n", rc);
 		}
@@ -472,6 +490,73 @@ static void cnfg_load_engines(void)
 }
 #endif
 
+#if defined(CONFIG_SP1_PLAITS)
+/* audio.cnfg and midi.cnfg land here; main takes them at ON entry, before audio starts
+ * (sp1_store_cnfg). `cnfg_ready` says the ON job has finished writing them this ON. */
+static struct sp1_audio_cfg st_audio;
+static struct sp1_midi_cfg  st_midi;
+static atomic_t cnfg_ready;
+
+static void audio_feed(void *r, const char *t, size_t n)
+{
+	sp1_audio_reader_feed(r, t, n);
+}
+
+static void midi_feed(void *r, const char *t, size_t n)
+{
+	sp1_midi_reader_feed(r, t, n);
+}
+
+/* audio.cnfg: line by line over the built-in values. */
+static void cnfg_load_audio(void)
+{
+	static struct sp1_audio_reader rd;
+	sp1_audio_reader_begin(&rd, &st_audio, cnfg_problem, (void *)"audio.cnfg");
+	size_t got;
+	bool rerr;
+	const int rc = cnfg_read(AUDIO_CNFG, audio_feed, &rd, &got, &rerr);
+	if (rc != 0) {
+		sp1_audio_cfg_defaults(&st_audio);
+		if (rc == -ENOENT) {
+			cnfg_missing |= MISSING_AUDIO;
+		}
+		LINE("CNFG audio.cnfg: %s -- the built-in settings\n",
+		     rc == -ENOENT ? "not on the drive (a copy goes there)" : "cannot be opened");
+		return;
+	}
+	const int bad = sp1_audio_reader_end(&rd);
+	LINE("CNFG audio.cnfg: %u B read%s, %d problem%s%s\n", (unsigned)got,
+	     rerr ? " (then a read error)" : (got >= CNFG_READ_MAX ? " (the rest ignored)" : ""),
+	     bad, bad == 1 ? "" : "s", bad ? " -- those lines keep their defaults" : "");
+}
+
+/* midi.cnfg: line by line over the built-in script, then the CC rule (sp1_cnfg.h). */
+static void cnfg_load_midi(void)
+{
+	static struct sp1_midi_reader rd;      /* ~0.6 KB: off the thread's stack */
+	sp1_midi_reader_begin(&rd, &st_midi, cnfg_problem, (void *)"midi.cnfg");
+	size_t got;
+	bool rerr;
+	const int rc = cnfg_read(MIDI_CNFG, midi_feed, &rd, &got, &rerr);
+	if (rc != 0) {
+		sp1_midi_cfg_defaults(&st_midi);
+		if (rc == -ENOENT) {
+			cnfg_missing |= MISSING_MIDI;
+		}
+		LINE("CNFG midi.cnfg: %s -- the built-in script\n",
+		     rc == -ENOENT ? "not on the drive (a copy goes there)" : "cannot be opened");
+		return;
+	}
+	int notes = 0;
+	const int bad = sp1_midi_reader_end(&rd, &notes);
+	LINE("CNFG midi.cnfg: %u B read%s, %d problem%s%s, %d CC%s taken from a default\n",
+	     (unsigned)got,
+	     rerr ? " (then a read error)" : (got >= CNFG_READ_MAX ? " (the rest ignored)" : ""),
+	     bad, bad == 1 ? "" : "s", bad ? " -- those lines keep their defaults" : "",
+	     notes, notes == 1 ? "" : "s");
+}
+#endif
+
 /* No volume: the built-in everything, so nothing from an earlier ON's files lingers. */
 static void cnfg_defaults(void)
 {
@@ -480,6 +565,9 @@ static void cnfg_defaults(void)
 	uint8_t stack[SP1_CNFG_SLOTS];
 	sp1_engines_defaults(stack);
 	sp1_pui_set_stack(stack);
+	sp1_audio_cfg_defaults(&st_audio);
+	sp1_midi_cfg_defaults(&st_midi);
+	atomic_set(&cnfg_ready, 1);
 #endif
 }
 
@@ -487,41 +575,69 @@ static void cnfg_defaults(void)
  * Never fails: a missing or unreadable file keeps the defaults. */
 static void cnfg_load(void)
 {
+	cnfg_missing = 0u;
 	cnfg_load_logs();
 #if defined(CONFIG_SP1_PLAITS)
 	if (!stop) {
 		cnfg_load_engines();
 	}
+	if (!stop) {
+		cnfg_load_audio();
+	}
+	if (!stop) {
+		cnfg_load_midi();
+	}
+	atomic_set(&cnfg_ready, 1);
 #endif
 }
 
-#if defined(CONFIG_SP1_FRESH)
-/* wakes-sp1-fresh, after its format (Adara, #52): the config files, commented, in
- * WAKES/CNFG/. config/<name>.cnfg in the repository, byte for byte. */
+/* A config file that was missing, written with its built-in text (Adara, #52): "this'll
+ * prevent people from having to refer to the repo to copy in missing cnfg files, or resorting
+ * to flashing a fresh bin". Only a file that is NOT THERE -- one that exists is the user's and
+ * is never touched, even when it cannot be read. After PRST has loaded, so ON is not held up.
+ * This is also how wakes-sp1-fresh fills its new WAKES/CNFG/, and how "delete a file" resets
+ * it to the defaults at the next ON. */
 static int cnfg_write_one(const char *path, const char *name, const char *text, size_t n)
 {
 	const int rc = write_file(path, text, n);
-	LINE("STORE fresh: WAKES/CNFG/%s (%u B): %s (%d)\n", name, (unsigned)n,
-	     rc == 0 ? "written" : "FAILED", rc);
+	LINE("CNFG %s: written to the drive with the built-in text (%u B): %s (%d)\n", name,
+	     (unsigned)n, rc == 0 ? "done" : "FAILED", rc);
 	return rc;
 }
 
-static int cnfg_write_templates(void)
+static void cnfg_create_missing(void)
 {
-	int rc = ensure_dir(DIR_CNFG);
-	if (rc == 0 && !stop) {
-		rc = cnfg_write_one(LOGS_CNFG, "logs.cnfg", SP1_LOGS_TEMPLATE,
-				    sizeof(SP1_LOGS_TEMPLATE) - 1u);
+	if (cnfg_missing == 0u || stop) {
+		return;
+	}
+	int rc = ensure_dir(DIR_WAKES);
+	if (rc == 0) {
+		rc = ensure_dir(DIR_CNFG);
+	}
+	if (rc != 0) {
+		LINE("CNFG the missing files cannot be written: no WAKES/CNFG folder (%d)\n", rc);
+		return;
+	}
+	if ((cnfg_missing & MISSING_LOGS) && !stop) {
+		(void)cnfg_write_one(LOGS_CNFG, "logs.cnfg", SP1_LOGS_TEMPLATE,
+				     sizeof(SP1_LOGS_TEMPLATE) - 1u);
 	}
 #if defined(CONFIG_SP1_PLAITS)
-	if (rc == 0 && !stop) {
-		rc = cnfg_write_one(ENGINES_CNFG, "engines.cnfg", SP1_ENGINES_TEMPLATE,
-				    sizeof(SP1_ENGINES_TEMPLATE) - 1u);
+	if ((cnfg_missing & MISSING_ENGINES) && !stop) {
+		(void)cnfg_write_one(ENGINES_CNFG, "engines.cnfg", SP1_ENGINES_TEMPLATE,
+				     sizeof(SP1_ENGINES_TEMPLATE) - 1u);
+	}
+	if ((cnfg_missing & MISSING_AUDIO) && !stop) {
+		(void)cnfg_write_one(AUDIO_CNFG, "audio.cnfg", SP1_AUDIO_TEMPLATE,
+				     sizeof(SP1_AUDIO_TEMPLATE) - 1u);
+	}
+	if ((cnfg_missing & MISSING_MIDI) && !stop) {
+		(void)cnfg_write_one(MIDI_CNFG, "midi.cnfg", SP1_MIDI_TEMPLATE,
+				     sizeof(SP1_MIDI_TEMPLATE) - 1u);
 	}
 #endif
-	return stop ? -ECANCELED : rc;
+	cnfg_missing = 0u;
 }
-#endif
 
 /* ---------------------------------------------------------------- the log (#52) */
 
@@ -876,9 +992,7 @@ static int format_card(void)
 	 * ("block writes against ... expected"); it only scales the progress bar. */
 	fmt_expected += 5u * 64u + 5u * 4u;
 #endif
-	/* + WAKES/CNFG (#52): its directory cluster, logs.cnfg and engines.cnfg (~14 KB, 28
-	 * blocks), the same estimate. */
-	fmt_expected += 64u + 4u + 32u;
+	/* (WAKES/CNFG and its files are written by the ON job that follows, #52: not counted.) */
 	fmt_written = 0u;
 	atomic_set(&progress, 0);
 	counting = true;
@@ -991,10 +1105,6 @@ static void fresh(void)
 			rc = prst_write_defaults();
 		}
 #endif
-		if (rc == 0) {
-			/* #52 (Adara): the config files, for users to edit on the drive. */
-			rc = cnfg_write_templates();
-		}
 		if (rc == 0) {
 			/* The stamp goes LAST: if anything before it failed, the next ON
 			 * formats again. */
@@ -1478,6 +1588,10 @@ static void job_on_enter(void)
 			atomic_set(&prst_state, SP1_STORE_PRST_OFF);
 		}
 #endif
+		/* #52: write any config file that was missing, now that main has what it needs. */
+		if (rc == 0 && !stop) {
+			cnfg_create_missing();
+		}
 #if defined(CONFIG_SP1_STORAGE_TEST)
 		if (rc == 0 && !stop) {
 			file_test();
@@ -1646,6 +1760,9 @@ void sp1_store_on_enter(void)
 	atomic_set(&progress, 0);
 	atomic_set(&vol_state, SP1_STORE_VOL_UNKNOWN);   /* PRST waits for the ON job's look */
 #if defined(CONFIG_SP1_PLAITS)
+	atomic_set(&cnfg_ready, 0);                      /* this ON's files not read yet */
+#endif
+#if defined(CONFIG_SP1_PLAITS)
 	atomic_set(&prst_state, SP1_STORE_PRST_WAIT);
 	atomic_set(&save_state, SP1_STORE_SAVE_IDLE);
 #endif
@@ -1740,6 +1857,15 @@ bool sp1_store_prst_save(int slot, const struct sp1_prst *p)
 enum sp1_store_save sp1_store_save_result(void)
 {
 	return (enum sp1_store_save)atomic_get(&save_state);
+}
+#endif
+
+#if defined(CONFIG_SP1_PLAITS)
+bool sp1_store_cnfg(const struct sp1_audio_cfg **audio, const struct sp1_midi_cfg **midi)
+{
+	*audio = &st_audio;
+	*midi = &st_midi;
+	return atomic_get(&cnfg_ready) != 0;
 }
 #endif
 

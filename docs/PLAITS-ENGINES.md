@@ -41,7 +41,8 @@ in the stack still plays it (its flash is all four LEDs fading down instead of a
   any problem — a name that is not an engine, an engine twice, a slot outside 1–24 or set twice,
   another section, no engine at all — Wakes plays the **built-in stack** and the log names every
   problem line (`CNFG engines.cnfg line N: …`). ROTC and the start go to the first filled slot of
-  whichever stack is in use. `wakes-sp1-fresh` writes the file there.
+  whichever stack is in use. If the file is not there, Wakes writes it there with the
+  built-in stack and the engine descriptions (so deleting it resets it at the next ON).
 - **In the repository, `config/engines.cnfg`** — the built-in stack every image carries, and the
   file fresh writes. The build checks it and stops on any problem, naming the line, so a broken
   default can never ship.

@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
-"""wakes-sp1 -- generate the firmware's MIDI tables from the MIDI script, config/midi.ini.
+"""wakes-sp1 -- generate the firmware's MIDI tables from the MIDI script, config/midi.cnfg.
 
-    gen_midi.py <midi.ini> <out.h> [--chart <dir>]     build step (CMake runs this)
+    gen_midi.py <midi.cnfg> <out.h> [--chart <dir>]    build step (CMake runs this)
 
 Two inputs, deliberately kept apart (as gen_engines.py does for engines.cnfg):
 
-  config/midi.ini   the USER's choices: channel, note priority, legato, portamento, bend
-                    range, the sustain pedal's CC, the CC smoothing time, which CC moves
-                    which parameter, and optional velocity / aftertouch bindings.
+  config/midi.cnfg  the BUILT-IN DEFAULTS (#52): channel, note priority, legato,
+                    portamento, bend range, the sustain pedal's CC, the CC smoothing time,
+                    which CC moves which parameter, and velocity / aftertouch bindings. Users
+                    edit the copy on the drive, WAKES/CNFG/midi.cnfg, which the firmware reads
+                    at every ON with its own reader (firmware/src/sp1_cnfg.c, the same rules
+                    but it never fails: a bad line keeps its default). The firmware writes
+                    this file there when it is missing (SP1_MIDI_TEMPLATE).
   this file         FACTS the user cannot choose: which parameters exist, which thread
                     applies each one, and which CC numbers MIDI itself reserves (DESTS,
                     RESERVED).
 
-The build fails, naming the line, on anything invalid -- an unknown name, a CC used twice,
-a reserved CC, a value out of range. A script that half-works is worse than one that
-refuses to build.
+The build fails, naming the line, on anything invalid in the DEFAULT -- an unknown name, a
+CC used twice, a reserved CC, a value out of range: a broken default must never ship.
 
 --chart also writes the CC chart for this script, next to the firmware:
   wakes-sp1-midi.md    for people
@@ -115,12 +118,46 @@ LEGATO = {'off': 0, 'auto': 1, 'on': 2}              # Yarns' legato_mode
 PICKUP = {'sum': 0, 'shared': 1, 'takeover': 2}
 SOURCES = ('velocity', 'aftertouch')
 
+def c_template(name, text):
+    """The file as a C string for the firmware to write to WAKES/CNFG/ when it is missing (#52).
+    Non-ASCII as octal escapes (a hex escape would swallow the hex digits after it)."""
+    out = ['#if defined(SP1_CNFG_TEMPLATES)', 'static const char %s[] =' % name]
+    for ln in text.splitlines(keepends=True):
+        lit = ''
+        for b in ln.encode('utf-8'):
+            ch = chr(b)
+            if ch == '\\':
+                lit += '\\\\'
+            elif ch == '"':
+                lit += '\\"'
+            elif ch == '\n':
+                lit += '\\n'
+            elif ch == '\t':
+                lit += '\\t'
+            elif 0x20 <= b < 0x7f:
+                lit += ch
+            else:
+                lit += '\\%03o' % b
+        out.append('\t"%s"' % lit)
+    out += ['\t;' if text else '\t"";', '#endif']
+    return out
+
+
+def check_lines(path, text, fail_fn):
+    """#52: the first line names the format, and no line is longer than the device reads."""
+    if not text.lstrip().startswith(';'):
+        fail_fn(path, 1, 'the file must start with a comment naming its format ("; Format: ini")')
+    for i, ln in enumerate(text.splitlines(), 1):
+        if len(ln.encode('utf-8')) > 160:
+            fail_fn(path, i, 'line is over 160 bytes: the device would ignore it')
+
+
 
 def fail(path, line, msg):
     where = '%s:%d' % (path, line) if line else path
     sys.stderr.write('\n%s: error: %s\n\n'
                      'The MIDI script is checked at build time so a mistake cannot reach\n'
-                     'the device. See the comments in config/midi.ini.\n' % (where, msg))
+                     'the device. See the comments in config/midi.cnfg.\n' % (where, msg))
     sys.exit(1)
 
 
@@ -140,6 +177,7 @@ def line_of(text, section, key):
 def parse(path):
     with open(path, encoding='utf-8-sig') as f:
         text = f.read()
+    check_lines(path, text, fail)
     # interpolation=None: a depth is written "50%", and configparser's default
     # interpolation would read the % as the start of a %(name)s reference and crash.
     cp = configparser.ConfigParser(inline_comment_prefixes=(';', '#'),
@@ -248,7 +286,7 @@ def parse(path):
             continue
         for k, raw in cp[sec].items():
             if (sec, k) not in names:
-                err(sec, k, 'no parameter "%s" in [%s] (see the list in config/midi.ini)'
+                err(sec, k, 'no parameter "%s" in [%s] (see the list in config/midi.cnfg)'
                     % (k, sec))
             n = cc_value(sec, k, raw, True)
             if n < 0:
@@ -268,6 +306,8 @@ def parse(path):
     for k, raw in b.items():
         if k not in SOURCES:
             err('bind', k, 'unknown source "%s" (expected velocity or aftertouch)' % k)
+        if raw.strip().lower() == 'none':
+            continue                                    # #52: `velocity = none`
         mm = re.fullmatch(r'([a-z_]+)(?:\s+(-?\d+)\s*%)?', raw.strip().lower())
         if not mm:
             err('bind', k, '"%s" is not "<parameter> [depth%%]"' % raw.strip())
@@ -289,7 +329,7 @@ def generate(ini, out, chart_dir):
     for i, n in enumerate(ccs):
         if n >= 0:
             cc_dest[n] = i
-    L = ['/* GENERATED by tools/gen_midi.py from config/midi.ini -- do not edit. */',
+    L = ['/* GENERATED by tools/gen_midi.py from config/midi.cnfg -- do not edit. */',
          '#ifndef SP1_MIDI_GEN_H', '#define SP1_MIDI_GEN_H', '', '#include <stdint.h>', '',
          '#define SP1_MIDI_OMNI        16',
          '#define SP1_MIDI_CHANNEL     %d   /* 0-15, or SP1_MIDI_OMNI */' % cfg['channel'],
@@ -338,7 +378,21 @@ def generate(ini, out, chart_dir):
           'static const int8_t SP1_MIDI_CC_DEST[128] = {']
     for r in range(0, 128, 16):
         L.append('\t' + ' '.join('%d,' % x for x in cc_dest[r:r + 16]))
-    L += ['};', '#endif /* SP1_MIDI_GEN_TABLES */', '', '#endif /* SP1_MIDI_GEN_H */', '']
+    L += ['};', '#endif /* SP1_MIDI_GEN_TABLES */', '']
+    # #52: the whole default as ONE initializer of struct sp1_midi_cfg (sp1_cnfg.h), in its field
+    # order: the firmware's live settings start from it, and the drive's reader resets to it.
+    vel = binds.get('velocity', (-1, 0.0))
+    aft = binds.get('aftertouch', (-1, 0.0))
+    L += ['/* struct sp1_midi_cfg (sp1_cnfg.h), field by field. */',
+          '#define SP1_MIDI_CFG_DEFAULTS { %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %sf, %sf, \\'
+          % (cfg['channel'], cfg['priority'], cfg['legato'], cfg['portamento'], cfg['bend_range'],
+             cfg['sustain'], cfg['smooth_ms'], cfg['pickup'], cfg['clock'], cfg['clock_lead'],
+             vel[0], aft[0], repr(float(vel[1])), repr(float(aft[1]))),
+          '\t{ %s }, \\' % ', '.join(str(n) for n in ccs),
+          '\t{ %s } }' % ', '.join(str(x) for x in cc_dest), '']
+    with open(ini, encoding='utf-8-sig') as f:
+        L += c_template('SP1_MIDI_TEMPLATE', f.read().replace('\r\n', '\n'))
+    L += ['', '#endif /* SP1_MIDI_GEN_H */', '']
     write_if_changed(out, '\n'.join(L))
     if chart_dir:
         write_charts(chart_dir, cfg, ccs, binds)
@@ -375,7 +429,8 @@ def write_charts(d, cfg, ccs, binds):
             '  with the value the fader left. Unplug and the fader catches up in turn.'],
     }[cfg['pickup']]
     md = ['# Wakes — MIDI CC chart', '',
-          'Generated from `config/midi.ini` by the build that produced this firmware.', '',
+          'The built-in MIDI script (`config/midi.cnfg`) of the build that produced this '
+          'firmware. Your `WAKES/CNFG/midi.cnfg` on the drive may change it.', '',
           '- Channel: **%s**' % ch,
           '- Notes play Plaits; pitch bend ±%d semitones until the host sends RPN 0'
           % cfg['bend_range'],

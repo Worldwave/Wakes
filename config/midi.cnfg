@@ -1,14 +1,16 @@
+; Format: ini
 ; =====================================================================================
 ;  Wakes — the MIDI script
 ; =====================================================================================
 ;
-;  How Wakes listens to MIDI over USB. Edit it in your fork, build (or let CI build) and
-;  flash: the build reads this file and FAILS with the line number if something in it is
-;  wrong, so a typo can never become a firmware that silently ignores your setting.
-;  Every build also writes a CC chart from this file (Markdown, and a CSV in the
-;  midi.guide format) next to the firmware, so your chart always matches your script.
+;  How Wakes listens to MIDI over USB. Wakes reads this file from its drive
+;  (WAKES/CNFG/midi.cnfg) every time it turns ON, so a change takes effect at the next ON.
 ;
-;  Lines starting with ; are comments. Every setting can be left out to get its default.
+;  Lines starting with ; or # are comments. Every setting can be left out to get its
+;  default. A line Wakes cannot read keeps its default, and the log (WAKES/LOGS/) names it.
+;  If two of your lines give the same CC, the first one keeps it and the later one gets
+;  none. A CC you give a parameter is taken from whichever parameter had it by default.
+;  The CC chart that comes with each Wakes release lists the default CCs.
 ;
 ;  What MIDI does on Wakes, in short:
 ;    NOTES play Plaits, one at a time (the newest, by default). A note-on strikes TRIG and
@@ -25,7 +27,7 @@
 ;    UNPLUG: notes are released, the bend and every offset go back to neutral, and a
 ;    Marbles the host was clocking stops and has its own clock again.
 ;
-;  docs/MIDI.md has the whole story.
+;  The Wakes manual has the whole story.
 ;
 ;  Credit: the way Wakes plays notes -- which held note sounds, legato, portamento, the
 ;  sustain pedal -- is ported from Mutable Instruments Yarns (Emilie Gillet, MIT): its
@@ -190,7 +192,7 @@ lpg_decay            = cc 25
 level                = cc 26          ; can connect LEVEL, as pushing the fader up does
 octave_range         = cc 102         ; stepped: whole range modes
 ; Not on a fader at all: which engine plays, as an offset from the one T2/T3 selected,
-; up through the filled slots of config/engines.cnfg (0 = the selected engine, 127 = the
+; up through the filled slots of engines.cnfg (0 = the selected engine, 127 = the
 ; last slot). A change plays the engine flash, as T2/T3 do, and MIDI changes the engine at
 ; most every 50 ms -- each change costs the audio a moment, as a T2/T3 press does.
 model                = cc 105
@@ -223,7 +225,7 @@ y_divider            = cc 104         ; stepped
 ;    velocity   = <parameter> [depth%]    how hard each note was played
 ;    aftertouch = <parameter> [depth%]    channel pressure
 ;
-;  <parameter> is any name from the two lists above, and the depth is -100% .. 100%
+;  <parameter> is any name from the two lists above (or none), and the depth is -100% .. 100%
 ;  (default 100%). The source pushes that parameter up from where it is, by up to its
 ;  whole travel at 100% -- an offset, whatever `pickup` says.
 ;
@@ -232,7 +234,7 @@ y_divider            = cc 104         ; stepped
 ;  LEVEL. At 100% the hardest note opens it fully and the softest barely at all; at 50%
 ;  the softest still opens it half way. It shapes MIDI notes only: once a note's release
 ;  has ended, LEVEL is the fader's again, as it is for RWD, FFWD and Marbles' TRIG.
-;  To play every note at full LEVEL, comment out the velocity line.
+;  To play every note at full LEVEL, write `velocity = none`.
 ;
 ;  You can also do this on the host instead: most DAWs can turn velocity or pressure
 ;  into a CC, and aim it at the CC of the parameter you want.

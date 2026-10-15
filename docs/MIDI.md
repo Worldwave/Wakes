@@ -5,8 +5,9 @@ class-compliant **USB-MIDI** port called `Wakes` — no driver. It listens; it d
 (Through v0.6.x the port was called `wakes-sp1`: re-select it once in your DAW or host.)
 
 Nothing about it needs setting up on the device, and there are **no new pages**: notes play
-Plaits straight away, and everything deeper is set in the MIDI script,
-[`config/midi.ini`](../config/midi.ini), before the firmware is built.
+Plaits straight away, and everything deeper is set in the MIDI script, `midi.cnfg`, on
+Wakes' own drive (`WAKES/CNFG/midi.cnfg`): edit it from a computer, and Wakes reads it at the
+next ON.
 
 ## What MIDI does
 
@@ -195,10 +196,20 @@ Left free on purpose, for your own script: CC 1 (mod wheel), 2 (breath), 4 (foot
 
 ## Changing it: the MIDI script
 
-[`config/midi.ini`](../config/midi.ini) is commented line by line. In a fork, edit it — GitHub's
-web editor is enough — and the CI build of your fork produces a `.bin` with your settings.
-The build **refuses** a script with a mistake in it and names the line, so a typo cannot become a
-firmware that quietly ignores you.
+`midi.cnfg` is commented line by line. It lives on Wakes' drive: plug Wakes into a computer
+while it is off (STANDBY), open `WAKES/CNFG/midi.cnfg` in a text editor, save, and turn Wakes
+ON — it reads the file at every ON. If the file is not there, Wakes writes it there with the
+built-in settings, commented (so deleting it resets it at the next ON); the built-in default is [`config/midi.cnfg`](../config/midi.cnfg) in this repository, which is also
+where to get a clean copy.
+
+- Every line can be left out: it keeps its default.
+- A line Wakes cannot read keeps its default too, and the log (`WAKES/LOGS/`) names the line
+  and what is wrong with it.
+- **A CC you give a parameter is taken from whichever parameter had it by default**, which then
+  has none (the log notes it). **Two of your own lines on the same CC: the first keeps it**, the
+  later one gets none (the log says so). CC 33–63 (the fine halves) and MIDI's reserved CCs
+  cannot be given.
+- The CC chart that comes with each release lists the built-in CCs; your file may change them.
 
 What it sets:
 
@@ -224,7 +235,8 @@ What it sets:
   (`velocity = timbre 40%`). Aimed at `level`, they set how far each note opens LEVEL —
   which Plaits also reads as accent, so soft notes are quieter and darker. **The shipped
   script has `velocity = level`** (100 %: the softest note barely opens it; at 50 % the
-  softest still opens it half way). Comment that line out to play every note at full LEVEL.
+  softest still opens it half way). Write `velocity = none` to play every note at full LEVEL
+  (leaving the line out keeps the built-in `level`).
   You can also do this on the host instead: most DAWs can turn velocity or pressure into a CC
   and aim it at one of the CCs above.
 

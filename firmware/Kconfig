@@ -210,7 +210,8 @@ config SP1_MIDI
 	help
 	  A USB-MIDI 1.0 port (feldd's class, third_party/feldd) next to the console.
 	  Notes play Plaits, CCs offset parameters on both modules, all configured by
-	  config/midi.ini at build time. Costs nothing until a host sends something.
+	  the MIDI script (config/midi.cnfg built in, WAKES/CNFG/midi.cnfg on the drive at
+	  every ON). Costs nothing until a host sends something.
 	  n: no MIDI function on the USB device at all.
 
 config SP1_USB_AUDIO

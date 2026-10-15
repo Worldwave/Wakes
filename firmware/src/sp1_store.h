@@ -172,6 +172,15 @@ enum sp1_store_save sp1_store_save_result(void);
 
 /* The log file is open: the card is on for it. Cleared once it is closed and the card is off. */
 bool sp1_store_log_live(void);
+
+#if defined(CONFIG_SP1_PLAITS)
+/* Main, at ON entry after the PRST gate: audio.cnfg and midi.cnfg as this ON's job read
+ * them (the built-in values when a file is missing or there is no volume). False if the job
+ * has not got that far this ON (PRST's 10 s limit ran out): keep the settings in use. */
+struct sp1_audio_cfg;
+struct sp1_midi_cfg;
+bool sp1_store_cnfg(const struct sp1_audio_cfg **audio, const struct sp1_midi_cfg **midi);
+#endif
 /* Main, at shutdown when no PRST save is queued: the log's last lines, then the card off. */
 void sp1_store_log_end(void);
 

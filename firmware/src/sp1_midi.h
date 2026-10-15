@@ -2,8 +2,9 @@
  * wakes-sp1 — MIDI in (M5a): notes into Plaits, CCs onto both modules.
  *
  * The plan, and every decision behind it, is private/docs/M5-PLAN.md. The user-facing side is
- * config/midi.ini (the MIDI script, read at build time by tools/gen_midi.py into
- * sp1_midi_gen.h) and docs/MIDI.md.
+ * the MIDI script -- config/midi.cnfg built in (tools/gen_midi.py -> sp1_midi_gen.h), and
+ * WAKES/CNFG/midi.cnfg on the drive at every ON (#52, sp1_midi_set_config) -- and
+ * docs/MIDI.md.
  *
  * Framework-agnostic, like sp1_synth.cc: no Zephyr header, so the host suite runs it as is.
  * The USB side (feldd's class, our sp1_usbd.c) only ever calls the two producer functions.
@@ -35,7 +36,7 @@
  * of a Plaits block.
  *
  * ---- pickup: how a CC and its fader share a parameter (Adara, M5a round 4) ----
- * The MIDI script's `pickup` setting, fixed at build time (SP1_MIDI_PICKUP). All three use
+ * The MIDI script's `pickup` setting (struct sp1_midi_cfg, sp1_cnfg.h). All three use
  * Plaits' catch-up (plaits/pot_controller.h), as the faders do:
  *   sum       the CC is an OFFSET on top of the fader, read by polarity (below). The UIs and
  *             the synth add sp1_midi_offset() / the audio block's offsets.
@@ -169,6 +170,12 @@ void sp1_midi_set_output_usb(bool usb);
 /* ---- main thread ---- */
 /* On every entry to ON: forget anything that queued while OFF and start from neutral. */
 void sp1_midi_on_enter(void);
+
+/* #52: the MIDI script from the drive. Main, at ON entry, BEFORE sp1_midi_on_enter() and
+ * audio start. sp1_midi_config() is the live script (the built-in one until then). */
+struct sp1_midi_cfg;
+void sp1_midi_set_config(const struct sp1_midi_cfg *c);
+const struct sp1_midi_cfg *sp1_midi_config(void);
 /* Once per control tick, before the UI computes its parameters: advances the control-loop
  * smoothing of the Marbles offsets. */
 void sp1_midi_main_tick(uint32_t elapsed_ms);

@@ -7,7 +7,8 @@
  * ---- the rules (Adara, #52) ----
  *   - config/<name>.cnfg in the repository is the built-in DEFAULT, compiled into every
  *     image (tools/gen_<name>.py, which fails the build on a bad default). End users never
- *     touch it: they edit the copy on the drive, which wakes-sp1-fresh writes.
+ *     touch it: they edit the copy on the drive, which every image writes there when it is
+ *     missing (Adara: no trip to the repo, no fresh flash, to get a file back).
  *   - Read at EVERY ON, before PRST and before audio. A line overrides its default; a line
  *     left out keeps it; a line that cannot be read keeps it too, and the log names it.
  *   - The same key twice: the FIRST is used, the later one is reported.
@@ -162,5 +163,93 @@ void sp1_engines_feed(struct sp1_engines_reader *r, const char *text, size_t n);
 /* The number of problems. `out` is the file's stack when there were none, otherwise the
  * built-in stack. `*filled` = engines in `out`. */
 int  sp1_engines_end(struct sp1_engines_reader *r, uint8_t out[SP1_CNFG_SLOTS], int *filled);
+
+/* ---------------------------------------------------------------- audio.cnfg */
+
+/* How sound leaves the device: USB audio out's level and the speaker while a host takes it.
+ * The built-in values are config/audio.cnfg's (SP1_AUDIO_CFG_DEFAULTS, sp1_audio_gen.h, in
+ * this field order); sp1_audio.c holds the live copy (sp1_audio_set_config). */
+struct sp1_audio_cfg {
+	uint8_t parked;          /* [usb] level: 1 parked, 0 vol                         */
+	int8_t  parked_db;       /* [usb] parked_level, 0 .. -30 in 3 dB steps          */
+	uint8_t parked_step;     /* ...as VOL's step, -parked_db / 3                    */
+	uint8_t speaker;         /* [usb] speaker: 1 on while a host takes USB audio out */
+};
+void sp1_audio_cfg_defaults(struct sp1_audio_cfg *c);
+
+/* Line by line over the built-in values, like logs.cnfg. */
+struct sp1_audio_reader {
+	struct sp1_cnfg_parser p;
+	struct sp1_audio_cfg *cfg;
+	sp1_cnfg_problem_fn problem;
+	void *ctx;
+	uint8_t seen;
+	char  bad_section[SP1_CNFG_NAME_MAX];
+	char  what[SP1_CNFG_LINE_MAX + 4];
+	int   problems;
+};
+void sp1_audio_reader_begin(struct sp1_audio_reader *r, struct sp1_audio_cfg *c,
+			    sp1_cnfg_problem_fn problem, void *ctx);
+void sp1_audio_reader_feed(struct sp1_audio_reader *r, const char *text, size_t n);
+int  sp1_audio_reader_end(struct sp1_audio_reader *r);
+
+/* ---------------------------------------------------------------- midi.cnfg */
+
+#include "sp1_midi_gen.h"        /* SP1_MIDI_DESTS and the destination enum */
+
+/* The MIDI script. The built-in values are config/midi.cnfg's (SP1_MIDI_CFG_DEFAULTS,
+ * sp1_midi_gen.h, in this field order); sp1_midi.cc holds the live copy
+ * (sp1_midi_set_config), which every thread reads and only main writes, at ON entry with the
+ * audio thread stopped. */
+struct sp1_midi_cfg {
+	int8_t   channel;        /* 0-15, or SP1_MIDI_OMNI                              */
+	uint8_t  priority;       /* stmlib NoteStackFlags: 0 last, 1 low, 2 high        */
+	uint8_t  legato;         /* Yarns legato_mode: 0 off, 1 auto, 2 on              */
+	uint8_t  portamento;     /* Yarns: 0 none, 1-50 time, 51-101 rate               */
+	uint8_t  bend_range;     /* semitones, until RPN 0 says otherwise               */
+	int8_t   sustain_cc;     /* -1 = no sustain pedal                               */
+	uint8_t  smooth_ms;      /* 0-200                                               */
+	uint8_t  pickup;         /* SP1_MIDI_PICKUP_SUM / _SHARED / _TAKEOVER           */
+	uint8_t  clock;          /* 1 = Marbles follows MIDI clock + transport          */
+	int16_t  clock_lead_ms;  /* 0-200; -1 auto, -2 notes                            */
+	int8_t   vel_dest;       /* [bind] velocity: a destination, or -1               */
+	int8_t   at_dest;        /* [bind] aftertouch                                   */
+	float    vel_depth;      /* -1 .. 1                                             */
+	float    at_depth;
+	int8_t   dest_cc[SP1_MIDI_DESTS];   /* destination -> its CC (coarse half), or -1 */
+	int8_t   cc_dest[128];              /* CC -> destination, or -1                 */
+};
+void sp1_midi_cfg_defaults(struct sp1_midi_cfg *c);
+
+/* Line by line over the built-in values, like logs.cnfg -- plus the CC rule (Adara, #52):
+ *   - a CC you give a parameter (or the sustain pedal) is TAKEN from whichever parameter had
+ *     it by default, which gets none (a note in the log, not a problem);
+ *   - two of your lines on the same CC: the FIRST keeps it, the later gets none (a problem);
+ *   - CC 33-63 are the fine halves of 1-31 and cannot be given; reserved CCs neither.
+ * `velocity = none` / `aftertouch = none` remove a binding. */
+#define SP1_MIDI_WHO_SUSTAIN SP1_MIDI_DESTS
+struct sp1_midi_reader {
+	struct sp1_cnfg_parser p;
+	struct sp1_midi_cfg *cfg;
+	sp1_cnfg_problem_fn problem;
+	void *ctx;
+	uint16_t seen_midi;                      /* [midi] keys set (the first wins)       */
+	uint32_t seen_dest;                      /* destinations set                       */
+	uint8_t  seen_bind;
+	int8_t   user_cc[SP1_MIDI_DESTS + 1];    /* -2 not given, -1 none, else the CC;    */
+	int16_t  user_line[SP1_MIDI_DESTS + 1];  /*   index SP1_MIDI_WHO_SUSTAIN = sustain */
+	uint8_t  order[SP1_MIDI_DESTS + 1];      /* the CC lines in file order             */
+	uint8_t  n_order;
+	char  bad_section[SP1_CNFG_NAME_MAX];
+	char  what[SP1_CNFG_LINE_MAX + 4];
+	char  why[160];
+	int   problems;
+	int   notes;                             /* defaults that gave up their CC         */
+};
+void sp1_midi_reader_begin(struct sp1_midi_reader *r, struct sp1_midi_cfg *c,
+			   sp1_cnfg_problem_fn problem, void *ctx);
+void sp1_midi_reader_feed(struct sp1_midi_reader *r, const char *text, size_t n);
+/* Problems; `*notes` = defaults that gave up their CC to one of your lines. */
+int  sp1_midi_reader_end(struct sp1_midi_reader *r, int *notes);
 
 #endif /* SP1_CNFG_H */

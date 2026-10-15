@@ -240,7 +240,7 @@ def generate(path, out_path):
     for e in by_idx:
         out.append("\t{ 0x%x, %s },   /* plaits %2d */" % (e["centre"], c_str(e["name"]), e["plaits"]))
     out += ["};", ""]
-    # #52: the file itself, for wakes-sp1-fresh to write to WAKES/CNFG/engines.cnfg.
+    # #52: the file itself, for the firmware to write to WAKES/CNFG/ when it is missing.
     with open(path, encoding="utf-8-sig") as f:
         template = f.read().replace("\r\n", "\n")
     out += ["#if defined(SP1_CNFG_TEMPLATES)",

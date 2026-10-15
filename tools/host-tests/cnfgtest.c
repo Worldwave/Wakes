@@ -10,6 +10,7 @@
 #include "sp1_logring.h"
 #include "sp1_logs_gen.h"
 #include "sp1_engines_gen.h"
+#include "sp1_audio_gen.h"
 
 static int fails;
 #define CHECK(cond, ...) do { if (!(cond)) { printf("  FAIL: "); \
@@ -61,7 +62,7 @@ static void reader(void)
 	CHECK(d.enabled && d.cats == SP1_LOG_ALL, "the shipped defaults are on/all (got %d/0x%02x)",
 	      d.enabled, d.cats);
 
-	/* The template the fresh image writes reads back as exactly the built-in defaults, with
+	/* The template the firmware writes when the file is missing reads back as exactly the built-in defaults, with
 	 * no problem -- whatever chunk size the drive hands over. */
 	const size_t chunks[] = { 0u, 1u, 7u, 128u };
 	for (size_t k = 0u; k < sizeof(chunks) / sizeof(chunks[0]); k++) {
@@ -385,7 +386,7 @@ static void engines(void)
 	CHECK(idx("6-op FM") < 0 && idx("") < 0 && idx("moog") < 0 && idx("-") < 0,
 	      "partial / empty / unknown names are no engine");
 
-	/* The template fresh writes: no problem, exactly the built-in stack, 16 engines. */
+	/* The template written when the file is missing: no problem, exactly the built-in stack, 16 engines. */
 	const size_t chunks[] = { 0u, 1u, 128u };
 	for (size_t k = 0u; k < sizeof(chunks) / sizeof(chunks[0]); k++) {
 		CHECK(read_engines(SP1_ENGINES_TEMPLATE, chunks[k]) == 0 && is_default() &&
@@ -430,12 +431,233 @@ static void engines(void)
 	}
 }
 
+/* ---------------------------------------------------------------- audio.cnfg */
+
+static struct sp1_audio_cfg acfg;
+
+static int read_audio(const char *text, size_t chunk)
+{
+	struct sp1_audio_reader r;
+	problems_seen = 0;
+	last_line = 0;
+	sp1_audio_reader_begin(&r, &acfg, problem, NULL);
+	const size_t n = strlen(text);
+	if (chunk == 0u) {
+		chunk = n ? n : 1u;
+	}
+	for (size_t i = 0u; i < n; i += chunk) {
+		sp1_audio_reader_feed(&r, text + i, (i + chunk <= n) ? chunk : n - i);
+	}
+	const int bad = sp1_audio_reader_end(&r);
+	CHECK(bad == problems_seen, "audio: counted %d, reported %d", bad, problems_seen);
+	return bad;
+}
+
+static void audio(void)
+{
+	printf("[5] audio.cnfg\n");
+	struct sp1_audio_cfg d;
+	sp1_audio_cfg_defaults(&d);
+	CHECK(d.parked == SP1_AUDIO_USB_LEVEL_PARKED && d.parked_db == SP1_AUDIO_USB_PARKED_DB &&
+	      d.parked_step == SP1_AUDIO_USB_PARKED_STEP && d.speaker == SP1_AUDIO_USB_SPEAKER,
+	      "audio defaults differ from the generated ones");
+	const size_t chunks[] = { 0u, 1u, 128u };
+	for (size_t k = 0u; k < sizeof(chunks) / sizeof(chunks[0]); k++) {
+		CHECK(read_audio(SP1_AUDIO_TEMPLATE, chunks[k]) == 0 &&
+		      memcmp(&acfg, &d, sizeof(d)) == 0,
+		      "template, chunk %u: %d problems (line %d: %s)", (unsigned)chunks[k],
+		      problems_seen, last_line, last_what);
+	}
+	CHECK(read_audio("[usb]\nlevel = VOL\nparked_level = -9 dB\nspeaker = on\n", 0u) == 0 &&
+	      acfg.parked == 0u && acfg.parked_db == -9 && acfg.parked_step == 3u &&
+	      acfg.speaker == 1u, "overrides: %d problems, %d/%d/%u/%u", problems_seen,
+	      acfg.parked, acfg.parked_db, acfg.parked_step, acfg.speaker);
+	CHECK(read_audio("[usb]\nparked_level = 0\n", 0u) == 0 && acfg.parked_step == 0u,
+	      "0 dB is a step");
+	CHECK(read_audio("[usb]\nparked_level = -30db\n", 0u) == 0 && acfg.parked_step == 10u,
+	      "-30 dB is a step");
+	/* Not steps: each keeps the default, one problem each. */
+	static const char *const BADLVL[] = { "-7", "-33", "6", "+3", "-6 dBFS", "loud", "" };
+	for (size_t i = 0u; i < sizeof(BADLVL) / sizeof(BADLVL[0]); i++) {
+		char t[64];
+		snprintf(t, sizeof(t), "[usb]\nparked_level = %s\n", BADLVL[i]);
+		CHECK(read_audio(t, 0u) == 1 && acfg.parked_db == d.parked_db,
+		      "parked_level = %s: %d problems, %d dB", BADLVL[i], problems_seen,
+		      acfg.parked_db);
+	}
+	CHECK(read_audio("[usb]\nspeaker = maybe\nspeaker = on\nvolume = 3\n[out]\nx = 1\n", 0u)
+	      == 4 && acfg.speaker == d.speaker,
+	      "bad value / twice / unknown key / section: %d problems", problems_seen);
+}
+
+/* ---------------------------------------------------------------- midi.cnfg */
+
+static struct sp1_midi_cfg mcfg;
+static int mnotes;
+
+static int read_midi(const char *text, size_t chunk)
+{
+	struct sp1_midi_reader r;
+	problems_seen = 0;
+	last_line = 0;
+	last_what[0] = '\0';
+	sp1_midi_reader_begin(&r, &mcfg, problem, NULL);
+	const size_t n = strlen(text);
+	if (chunk == 0u) {
+		chunk = n ? n : 1u;
+	}
+	for (size_t i = 0u; i < n; i += chunk) {
+		sp1_midi_reader_feed(&r, text + i, (i + chunk <= n) ? chunk : n - i);
+	}
+	const int bad = sp1_midi_reader_end(&r, &mnotes);
+	CHECK(bad + mnotes == problems_seen, "midi: counted %d + %d notes, reported %d", bad,
+	      mnotes, problems_seen);
+	return bad;
+}
+
+/* Field by field (the struct has padding), and the two CC tables agree with each other. */
+static bool midi_same(const struct sp1_midi_cfg *a, const struct sp1_midi_cfg *b)
+{
+	return a->channel == b->channel && a->priority == b->priority && a->legato == b->legato &&
+	       a->portamento == b->portamento && a->bend_range == b->bend_range &&
+	       a->sustain_cc == b->sustain_cc && a->smooth_ms == b->smooth_ms &&
+	       a->pickup == b->pickup && a->clock == b->clock &&
+	       a->clock_lead_ms == b->clock_lead_ms && a->vel_dest == b->vel_dest &&
+	       a->at_dest == b->at_dest && a->vel_depth == b->vel_depth &&
+	       a->at_depth == b->at_depth &&
+	       memcmp(a->dest_cc, b->dest_cc, sizeof(a->dest_cc)) == 0 &&
+	       memcmp(a->cc_dest, b->cc_dest, sizeof(a->cc_dest)) == 0;
+}
+
+static bool tables_agree(const struct sp1_midi_cfg *c)
+{
+	for (int cc = 0; cc < 128; cc++) {
+		const int d = c->cc_dest[cc];
+		if (d >= 0 && c->dest_cc[d] != cc) {
+			return false;
+		}
+	}
+	for (int d = 0; d < SP1_MIDI_DESTS; d++) {
+		if (c->dest_cc[d] >= 0 && c->cc_dest[(int)c->dest_cc[d]] != d) {
+			return false;
+		}
+		if (c->dest_cc[d] >= 0 && c->dest_cc[d] == c->sustain_cc) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static void midi(void)
+{
+	printf("[6] midi.cnfg\n");
+	struct sp1_midi_cfg d;
+	sp1_midi_cfg_defaults(&d);
+	CHECK(d.channel == SP1_MIDI_CHANNEL && d.pickup == SP1_MIDI_PICKUP &&
+	      d.sustain_cc == SP1_MIDI_SUSTAIN_CC && d.dest_cc[SP1_MIDI_D_TIMBRE] == 3 &&
+	      d.vel_dest == SP1_MIDI_VELOCITY_DEST && tables_agree(&d),
+	      "midi defaults differ from the generated ones");
+
+	/* The template written when the file is missing reads back as exactly the built-in script. */
+	const size_t chunks[] = { 0u, 1u, 128u };
+	for (size_t k = 0u; k < sizeof(chunks) / sizeof(chunks[0]); k++) {
+		CHECK(read_midi(SP1_MIDI_TEMPLATE, chunks[k]) == 0 && mnotes == 0 &&
+		      midi_same(&mcfg, &d), "template, chunk %u: %d problems (line %d: %s)",
+		      (unsigned)chunks[k], problems_seen, last_line, last_what);
+	}
+
+	/* [midi] values, every form. */
+	CHECK(read_midi("[midi]\nchannel = 3\nnote_priority = LOW\nlegato = auto\n"
+			"portamento = t10\nbend_range = 12\ncc_smoothing = 0\npickup = takeover\n"
+			"clock = off\nclock_lead = 25\n", 0u) == 0 &&
+	      mcfg.channel == 2 && mcfg.priority == 1u && mcfg.legato == 1u &&
+	      mcfg.portamento == 10u && mcfg.bend_range == 12u && mcfg.smooth_ms == 0u &&
+	      mcfg.pickup == SP1_MIDI_PICKUP_TAKEOVER && mcfg.clock == 0u &&
+	      mcfg.clock_lead_ms == 25, "[midi] overrides: %d problems (line %d: %s)",
+	      problems_seen, last_line, last_what);
+	CHECK(read_midi("[midi]\nchannel = omni\nportamento = r0\nclock_lead = notes\n", 0u) == 0 &&
+	      mcfg.channel == SP1_MIDI_OMNI && mcfg.portamento == 51u && mcfg.clock_lead_ms == -2,
+	      "omni / r0 / notes");
+	static const char *const BADMIDI[] = {
+		"channel = 0", "channel = 17", "note_priority = first", "legato = maybe",
+		"portamento = t0", "portamento = t51", "portamento = r51", "bend_range = 25",
+		"cc_smoothing = 201", "pickup = both", "clock = yes", "clock_lead = 201",
+	};
+	for (size_t i = 0u; i < sizeof(BADMIDI) / sizeof(BADMIDI[0]); i++) {
+		char t[64];
+		snprintf(t, sizeof(t), "[midi]\n%s\n", BADMIDI[i]);
+		CHECK(read_midi(t, 0u) == 1 && midi_same(&mcfg, &d), "\"%s\": %d problems, %s",
+		      BADMIDI[i], problems_seen, midi_same(&mcfg, &d) ? "default kept" : "CHANGED");
+	}
+
+	/* THE CC RULE (Adara, #52). 1: your line TAKES a default's CC -- MORPH's CC 9 to TIMBRE:
+	 * MORPH has none, a note (not a problem); TIMBRE's own CC 3 is free. */
+	CHECK(read_midi("[plaits]\ntimbre = cc 9\n", 0u) == 0 && mnotes == 1 &&
+	      mcfg.dest_cc[SP1_MIDI_D_TIMBRE] == 9 && mcfg.dest_cc[SP1_MIDI_D_MORPH] == -1 &&
+	      mcfg.cc_dest[9] == SP1_MIDI_D_TIMBRE && mcfg.cc_dest[3] == -1 && tables_agree(&mcfg),
+	      "user takes a default's CC: %d problems, %d notes, timbre %d morph %d",
+	      problems_seen - mnotes, mnotes, mcfg.dest_cc[SP1_MIDI_D_TIMBRE],
+	      mcfg.dest_cc[SP1_MIDI_D_MORPH]);
+	/* 2: two of YOUR lines on one CC: the first keeps it, the later gets none (a problem). */
+	CHECK(read_midi("[plaits]\ntimbre = cc 70\nmorph = cc 70\n", 0u) == 1 && last_line == 3 &&
+	      mcfg.dest_cc[SP1_MIDI_D_TIMBRE] == 70 && mcfg.dest_cc[SP1_MIDI_D_MORPH] == -1 &&
+	      tables_agree(&mcfg), "two user lines, one CC: %d problems, line %d, morph %d",
+	      problems_seen, last_line, mcfg.dest_cc[SP1_MIDI_D_MORPH]);
+	/* ...across sections and against the sustain pedal, which is a line like any other. */
+	CHECK(read_midi("[midi]\nsustain = cc 70\n[marbles]\nrate = cc 70\n", 0u) == 1 &&
+	      mcfg.sustain_cc == 70 && mcfg.dest_cc[SP1_MIDI_D_RATE] == -1 && tables_agree(&mcfg),
+	      "sustain first, rate later: sustain %d rate %d", mcfg.sustain_cc,
+	      mcfg.dest_cc[SP1_MIDI_D_RATE]);
+	/* 3: a user line taking the DEFAULT sustain CC 64 turns the pedal off (a note). */
+	CHECK(read_midi("[plaits]\nlevel = cc 64\n", 0u) == 0 && mnotes == 1 &&
+	      mcfg.sustain_cc == -1 && mcfg.dest_cc[SP1_MIDI_D_LEVEL] == 64 && tables_agree(&mcfg),
+	      "user takes the pedal's CC: sustain %d", mcfg.sustain_cc);
+	/* 4: `none` frees a CC, which a default then keeps nothing of. */
+	CHECK(read_midi("[plaits]\ntimbre = none\nmorph = cc 3\n", 0u) == 0 && mnotes == 0 &&
+	      mcfg.dest_cc[SP1_MIDI_D_TIMBRE] == -1 && mcfg.dest_cc[SP1_MIDI_D_MORPH] == 3 &&
+	      tables_agree(&mcfg), "none then reuse: %d notes", mnotes);
+	/* Reserved CCs, fine halves, nonsense: the default is kept. */
+	static const char *const BADCC[] = { "cc 6", "cc 0", "cc 101", "cc 120", "cc 40", "cc 128",
+					     "ccc", "7", "cc -1" };
+	for (size_t i = 0u; i < sizeof(BADCC) / sizeof(BADCC[0]); i++) {
+		char t[64];
+		snprintf(t, sizeof(t), "[plaits]\ntimbre = %s\n", BADCC[i]);
+		CHECK(read_midi(t, 0u) == 1 && mcfg.dest_cc[SP1_MIDI_D_TIMBRE] == 3,
+		      "timbre = %s: %d problems, cc %d", BADCC[i], problems_seen,
+		      mcfg.dest_cc[SP1_MIDI_D_TIMBRE]);
+	}
+	/* A parameter in the wrong section, an unknown one, the same key twice. */
+	CHECK(read_midi("[marbles]\ntimbre = cc 70\n", 0u) == 1 && midi_same(&mcfg, &d),
+	      "timbre under [marbles]");
+	CHECK(read_midi("[plaits]\ncutoff = cc 70\n", 0u) == 1, "unknown parameter");
+	CHECK(read_midi("[plaits]\ntimbre = cc 70\ntimbre = cc 71\n", 0u) == 1 &&
+	      mcfg.dest_cc[SP1_MIDI_D_TIMBRE] == 70, "the same key twice: the first wins");
+
+	/* [bind]. */
+	CHECK(read_midi("[bind]\nvelocity = none\naftertouch = MORPH -50%\n", 0u) == 0 &&
+	      mcfg.vel_dest == -1 && mcfg.at_dest == SP1_MIDI_D_MORPH && mcfg.at_depth == -0.5f,
+	      "bind: velocity %d aftertouch %d %.2f", mcfg.vel_dest, mcfg.at_dest,
+	      (double)mcfg.at_depth);
+	CHECK(read_midi("[bind]\naftertouch = rate 100%\n", 0u) == 0 &&
+	      mcfg.at_dest == SP1_MIDI_D_RATE && mcfg.at_depth == 1.0f, "bind to a Marbles parameter");
+	static const char *const BADBIND[] = { "velocity = cutoff", "velocity = timbre 150%",
+					      "velocity = timbre 50", "breath = timbre" };
+	for (size_t i = 0u; i < sizeof(BADBIND) / sizeof(BADBIND[0]); i++) {
+		char t[64];
+		snprintf(t, sizeof(t), "[bind]\n%s\n", BADBIND[i]);
+		CHECK(read_midi(t, 0u) == 1 && mcfg.vel_dest == d.vel_dest, "\"%s\": %d problems",
+		      BADBIND[i], problems_seen);
+	}
+}
+
 int main(void)
 {
 	reader();
 	categories();
 	ring();
 	engines();
+	audio();
+	midi();
 	printf(fails ? "cnfgtest: %d FAILED\n" : "cnfgtest: all passed\n", fails);
 	return fails ? 1 : 0;
 }

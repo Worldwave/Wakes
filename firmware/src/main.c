@@ -95,14 +95,15 @@
 #include "sp1_prst.h"            /* M6 (#50): the ROTC defaults main.c owns */
 #include "sp1_release_guard.h"
 #include "sp1_midi.h"
+#include "sp1_cnfg.h"           /* the config types: midi.cnfg, audio.cnfg (#52) */
 #endif
 #if defined(CONFIG_SP1_USB_AUDIO)
 #include "sp1_uac.h"
-#include "sp1_audio_gen.h"      /* config/audio.ini */
+#include "sp1_cnfg.h"           /* struct sp1_audio_cfg: audio.cnfg, live (#52) */
 #endif
 
-/* ---- USB audio out's level (M5c; config/audio.ini [usb] level) ----
- * `parked`: while a host takes USB audio out (sp1_uac_live), VOL is set to audio.ini's
+/* ---- USB audio out's level (M5c; audio.cnfg [usb] level) ----
+ * `parked`: while a host takes USB audio out (sp1_uac_live), VOL is set to audio.cnfg's
  * parked_level and its buttons do nothing; when the host stops, VOL goes back to where the
  * user left it. Wakes has ONE output level for every output, so this parks the headphones
  * (and the speaker, if it is on) too -- deliberately: a separate USB level would be a second
@@ -116,25 +117,29 @@ static int vol_saved;
 
 static int usb_parked_db(void)
 {
-	return SP1_AUDIO_USB_PARKED_DB;
+	return sp1_audio_config()->parked_db;
 }
 
 static void usb_level_park(bool usb_live)
 {
-	if (!SP1_AUDIO_USB_LEVEL_PARKED) {
-		return;
-	}
-	if (usb_live && !vol_parked) {
-		vol_saved = sp1_audio_level_get();
-		sp1_audio_level_step(SP1_AUDIO_USB_PARKED_STEP - vol_saved);
-		vol_parked = true;
-		printk("LEVEL parked at %d dBFS: a host takes USB audio out, VOL locked"
-		       " (config/audio.ini)\n", (int)SP1_AUDIO_USB_PARKED_DB);
-	} else if (!usb_live && vol_parked) {
+	const struct sp1_audio_cfg *ac = sp1_audio_config();
+	/* Already parked when the settings changed (a new ON with `level = vol`): unpark. */
+	if ((!ac->parked || !usb_live) && vol_parked) {
 		sp1_audio_level_step(vol_saved - sp1_audio_level_get());
 		vol_parked = false;
 		printk("LEVEL back to step %d: no host takes USB audio out, VOL unlocked\n",
 		       vol_saved);
+		return;
+	}
+	if (!ac->parked) {
+		return;
+	}
+	if (usb_live && !vol_parked) {
+		vol_saved = sp1_audio_level_get();
+		sp1_audio_level_step((int)ac->parked_step - vol_saved);
+		vol_parked = true;
+		printk("LEVEL parked at %d dBFS: a host takes USB audio out, VOL locked"
+		       " (audio.cnfg)\n", (int)ac->parked_db);
 	}
 }
 #else
@@ -487,7 +492,7 @@ static void midi_tick(uint32_t dt, bool busy)
 	const bool up = sp1_midi_port_up();
 	if (up != midi_port_was) {
 		midi_port_was = up;
-		/* The script's pickup (config/midi.ini), so a log says which one was flashed. */
+		/* The script's pickup (midi.cnfg, #52), so a log says which one is in use. */
 		static const char *const pickup[] = {
 			[SP1_MIDI_PICKUP_SUM]      = "sum: CCs offset the faders",
 			[SP1_MIDI_PICKUP_SHARED]   = "shared: CCs and faders share each value",
@@ -495,7 +500,7 @@ static void midi_tick(uint32_t dt, bool busy)
 		};
 		if (up) {
 			printk("MIDI port enabled by the host (pickup %s)\n",
-			       pickup[SP1_MIDI_PICKUP]);
+			       pickup[sp1_midi_config()->pickup % 3u]);
 			/* A host can start Marbles before PLAY ever has (M5b), so seed its
 			 * random stream now if PLAY has not: the moment a host enumerates
 			 * varies as much as the moment of a first PLAY. */
@@ -1454,6 +1459,25 @@ int main(void)
 		}
 		/* #52: the ON job may have installed a new engine stack (engines.cnfg). */
 		sp1_pui_stack_settle();
+		/* ...and read audio.cnfg and midi.cnfg: applied here, before the MIDI reset and
+		 * audio start below, so nothing runs on a half-applied script. */
+		{
+			const struct sp1_audio_cfg *ac;
+			const struct sp1_midi_cfg *mc;
+			if (sp1_store_cnfg(&ac, &mc)) {
+#if defined(CONFIG_SP1_USB_AUDIO)
+				sp1_audio_set_config(ac);
+#endif
+#if defined(CONFIG_SP1_MIDI)
+				sp1_midi_set_config(mc);
+#endif
+			} else {
+				printk("CNFG not read this ON: audio and MIDI settings stay as they "
+				       "were\n");
+			}
+			ARG_UNUSED(ac);
+			ARG_UNUSED(mc);
+		}
 		if (g_prst_on) {
 			prst_apply(sp1_store_prst_slot(g_prst_slot));
 		}
@@ -2283,10 +2307,10 @@ int main(void)
 			 * drive above instead, so this whole block stands down. */
 			if (!fnc && vol_parked && (sp1_button_pressed(SP1_BTN_VOL_DOWN) ||
 						   sp1_button_pressed(SP1_BTN_VOL_UP))) {
-				/* config/audio.ini level = parked: a host is recording, so VOL stays
-				 * where audio.ini put it until the host stops (usb_level_park). */
+				/* audio.cnfg level = parked: a host is recording, so VOL stays
+				 * where audio.cnfg put it until the host stops (usb_level_park). */
 				printk("LEVEL locked at %d dBFS while a host takes USB audio out"
-				       " (config/audio.ini)\n", (int)usb_parked_db());
+				       " (audio.cnfg)\n", (int)usb_parked_db());
 			}
 			if (!fnc && !vol_parked && sp1_button_pressed(SP1_BTN_VOL_DOWN)) {
 				sp1_audio_level_step(+1);

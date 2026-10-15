@@ -1,12 +1,13 @@
+; Format: ini
 ; =====================================================================================
 ;  Wakes — the audio settings
 ; =====================================================================================
 ;
-;  How Wakes' sound leaves the device. Edit it in your fork, build (or let CI build) and
-;  flash: the build reads this file and FAILS with the line number if something in it is
-;  wrong, so a typo can never become a firmware that silently ignores your setting.
+;  How Wakes' sound leaves the device. Wakes reads this file from its drive
+;  (WAKES/CNFG/audio.cnfg) every time it turns ON, so a change takes effect at the next ON.
 ;
-;  Lines starting with ; are comments. Every setting can be left out to get its default.
+;  Lines starting with ; or # are comments. Every setting can be left out to get its
+;  default. A line Wakes cannot read keeps its default, and the log (WAKES/LOGS/) names it.
 
 
 [usb]

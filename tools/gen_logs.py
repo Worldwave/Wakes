@@ -4,8 +4,8 @@
     gen_logs.py <logs.cnfg> <out.h>      build step (CMake runs this)
 
 config/logs.cnfg is the DEFAULT: what Wakes does when the drive has no WAKES/CNFG/logs.cnfg,
-or a line in it cannot be read. End users edit the copy on the drive, which wakes-sp1-fresh
-writes from this same file -- so out.h carries the file's text too (SP1_LOGS_TEMPLATE).
+or a line in it cannot be read. End users edit the copy on the drive, which the firmware
+writes from this same file when it is missing -- so out.h carries the file's text too (SP1_LOGS_TEMPLATE).
 
 The build fails, naming the line, on anything invalid: a default that half-works is worse
 than one that refuses to build (gen_audio.py's rule). The device reads the drive's copy with
@@ -112,7 +112,7 @@ def header(cfg, text):
         '#define SP1_LOGS_DEF_ENABLED %d' % cfg['enabled'],
         '#define SP1_LOGS_DEF_CATS    (%s)' % (' | '.join(cats) if cats else '0u'),
         '',
-        '/* config/logs.cnfg as written to WAKES/CNFG/logs.cnfg by wakes-sp1-fresh, which',
+        '/* config/logs.cnfg as the firmware writes it to WAKES/CNFG/ when it is missing; sp1_store.c',
         ' * defines SP1_CNFG_TEMPLATES before including this (no other file has a use for it). */',
         '#if defined(SP1_CNFG_TEMPLATES)',
         'static const char SP1_LOGS_TEMPLATE[] =',

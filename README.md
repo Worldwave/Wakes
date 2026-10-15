@@ -63,8 +63,8 @@ Output: `build/zephyr/wakes-sp1.bin`. The Zephyr patch is required and is lost o
 | [`docs/MARBLES-SETTINGS.md`](docs/MARBLES-SETTINGS.md) | Marbles models, ranges and scales |
 | [`docs/DEFAULTS.md`](docs/DEFAULTS.md) | every default, and what a reset restores |
 | [`docs/MIDI.md`](docs/MIDI.md) | MIDI over USB: what it does, and how to change it |
-| [`config/midi.ini`](config/midi.ini) | the MIDI script: channel, legato, CC numbers (editable) |
-| [`config/audio.ini`](config/audio.ini) | USB audio out: its level (parked or on VOL) and the speaker while a host records (editable) |
+| [`config/midi.cnfg`](config/midi.cnfg) | the MIDI script: channel, legato, CC numbers (the default; Wakes reads `WAKES/CNFG/midi.cnfg` on its drive at every ON) |
+| [`config/audio.cnfg`](config/audio.cnfg) | USB audio out: its level (parked or on VOL) and the speaker while a host records (the default; Wakes reads `WAKES/CNFG/audio.cnfg` on its drive at every ON) |
 | [`config/logs.cnfg`](config/logs.cnfg) | the log Wakes writes to its drive, `WAKES/LOGS/` (the default; Wakes reads `WAKES/CNFG/logs.cnfg` on its drive at every ON) |
 | [`docs/SAFETY.md`](docs/SAFETY.md) | rules for anyone changing the firmware |
 
