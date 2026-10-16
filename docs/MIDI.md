@@ -13,8 +13,8 @@ next ON.
 
 | | |
 |---|---|
-| **Notes** | play Plaits. A note-on strikes **TRIG** and holds **LEVEL** open — as far as the note's **velocity** says, out of the box, so soft notes are quieter and darker (Plaits reads LEVEL as accent too); a note-off lets LEVEL close through Plaits' own low-pass gate, so the release is the LPG's. |
-| **Several keys** | Plaits is one voice: you hear the **newest** key. Let it go and you hear the previous one if it is still held. (`note_priority` in the script can make it the lowest or the highest key held instead.) The same pitch played again before its note-off -- a sequencer's notes longer than its step -- strikes again with `legato = off` and is tied into one long note with `on` / `auto`; it ends at its **last** note-off. Even a note shorter than a quarter of a millisecond opens the gate. |
+| **Notes** | play Plaits, on **any channel** out of the box (`channel = omni`). A note-on strikes **TRIG** and holds **LEVEL** fully open — velocity changes nothing out of the box; `[bind]` can aim it at LEVEL so soft notes are quieter and darker (Plaits reads LEVEL as accent too). A note-off lets LEVEL close through Plaits' own low-pass gate, so the release is the LPG's. |
+| **Several keys** | Plaits is one voice: you hear the **newest** key. Let it go and you hear the previous one if it is still held. (`note_priority` in the script can make it the lowest or the highest key held instead.) Out of the box (`legato = auto`, `portamento = t9`) a key played while another is held **glides** to its pitch in about 18 ms without a new strike, and a key played after letting go strikes and jumps straight to its note. The same pitch played again before its note-off -- a sequencer's notes longer than its step -- strikes again with `legato = off` and is tied into one long note with `on` / `auto`; it ends at its **last** note-off. Even a note shorter than a quarter of a millisecond opens the gate. |
 | **Pitch** | added to FREQUENCY like a V/Oct cable, with **note 60 (C4) adding nothing**. F1 on its centre detent is exactly C4, so a centred F1 plays the keyboard at its real pitch, and moving F1 transposes. While MIDI is in use the FREQUENCY detent is **10 %** of the fader's travel (5 % otherwise), so C4 is easy to land on. |
 | **Pitch bend** | ±2 semitones, or whatever range the host sends (RPN 0, "pitch bend sensitivity"). |
 | **Sustain pedal** | CC 64 holds released notes until it lifts. |
@@ -213,14 +213,14 @@ where to get a clean copy.
 
 What it sets:
 
-- `channel` — 1–16, or `omni`.
+- `channel` — 1–16, or `omni` (default: every channel).
 - `note_priority` — `last` (default), `low` or `high`.
-- `legato` — `off` (every new note strikes; the default), `on` (a note played over a held one
-  slides without striking), `auto` (as `on`, with portamento only between overlapping notes,
-  so playing legato glides and playing detached jumps).
+- `legato` — `off` (every new note strikes), `on` (a note played over a held one slides
+  without striking), `auto` (the default: as `on`, with portamento only between overlapping
+  notes, so playing legato glides and playing detached jumps).
 - `portamento` — `0`, `t1`–`t50` (constant time, an exponential glide), `r0`–`r50`
   (constant rate, a straight line, timed per octave). From about 1 ms up to about 2.6 s;
-  the script lists the steps.
+  the script lists the steps. The default is `t9`, about 18 ms.
 - `bend_range` — 0–24 semitones, until the host sends its own.
 - `sustain` — `cc N`, or `off`.
 - `cc_smoothing` — 0–200 ms: how long a CC glides to a new value. This is what turns a CC's
@@ -234,9 +234,9 @@ What it sets:
 - `[bind]` — `velocity` and `aftertouch` (channel pressure) can push a parameter by a depth
   (`velocity = timbre 40%`). Aimed at `level`, they set how far each note opens LEVEL —
   which Plaits also reads as accent, so soft notes are quieter and darker. **The shipped
-  script has `velocity = level`** (100 %: the softest note barely opens it; at 50 % the
-  softest still opens it half way). Write `velocity = none` to play every note at full LEVEL
-  (leaving the line out keeps the built-in `level`).
+  script has `velocity = none` and `aftertouch = none`**: every note opens LEVEL fully. Write
+  `velocity = level` for velocity on LEVEL (100 %: the softest note barely opens it; at 50 %
+  the softest still opens it half way; at 0 % velocity does nothing).
   You can also do this on the host instead: most DAWs can turn velocity or pressure into a CC
   and aim it at one of the CCs above.
 

@@ -912,8 +912,9 @@ static void bind_section(struct sp1_midi_reader *r, int line, const char *key, c
 		return;
 	}
 	int dest = -1;
-	int depth = 100;
+	int depth = 0;          /* none: depth 0, as gen_midi.py writes an unbound source */
 	if (!same(value, "none")) {
+		depth = 100;
 		char name[SP1_CNFG_NAME_MAX];
 		size_t n = 0u;
 		const char *s = value;

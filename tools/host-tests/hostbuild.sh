@@ -39,10 +39,18 @@ pickup_ini() {
   grep -Eq "^pickup = $1\$" "$2" || { echo "hostbuild: no pickup line in config/midi.cnfg" >&2; exit 1; }
 }
 pickup_ini sum "$GEN/midi-sum.ini"
-# ...and its legato forced to `off`, Yarns' default, whatever the shipped script is set to for
-# a hardware test: miditest.cc checks legato off; miditest_alt.cc checks legato on.
-sed -i -E 's/^legato[[:space:]]*=.*/legato = off/' "$GEN/midi-sum.ini"
-grep -Eq '^legato = off$' "$GEN/midi-sum.ini" || { echo "hostbuild: no legato line in config/midi.cnfg" >&2; exit 1; }
+# ...and four more lines forced, whatever the shipped script says: miditest.cc checks exact
+# pitch steps (legato off, portamento 0), the channel filter (channel 1) and the velocity maths
+# (velocity = level). miditest_alt.cc checks legato on, a glide, omni and the bindings, and
+# miditest_pickup.cc the shipped settings themselves (legato auto, portamento, omni, velocity).
+force_line() {   # $1 = key, $2 = value
+  sed -i -E "s/^[[:space:]]*$1[[:space:]]*=.*/$1 = $2/" "$GEN/midi-sum.ini"
+  grep -Eq "^$1 = $2\$" "$GEN/midi-sum.ini" || { echo "hostbuild: no $1 line in config/midi.cnfg" >&2; exit 1; }
+}
+force_line legato off
+force_line portamento 0
+force_line channel 1
+force_line velocity level
 python3 "$ROOT/tools/gen_midi.py" "$GEN/midi-sum.ini" "$GEN/sp1_midi_gen.h" >/dev/null
 
 INC="-I$OVR -I$SRC/plaits_ovr -I$SRC/plaits_shim -I$ER -I$SRC -I$GEN"

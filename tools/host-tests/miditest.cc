@@ -1,5 +1,7 @@
 // wakes-sp1 M5a: host checks of MIDI in, against the shipped script (config/midi.cnfg) with
-// its pickup set to SUM (hostbuild.sh): this suite checks the offset maths.
+// its pickup set to SUM (hostbuild.sh): this suite checks the offset maths. hostbuild.sh also
+// sets legato off, portamento 0, channel 1 and velocity = level, whatever the shipped script
+// says, for the exact pitch steps, the channel filter and the velocity maths below.
 // Drives the real sp1_midi core directly, then through sp1_synth / both UIs.
 // miditest_alt.cc covers the settings this script leaves at their defaults;
 // miditest_pickup.cc the shipped script under pickup shared and takeover.
@@ -98,7 +100,7 @@ int main() {
   block();
   CHECK(!any_trig(), "TRIG struck twice for one note");
 
-  // ---- §3 Yarns mono, legato off (the script's default): last-note priority, every new
+  // ---- §3 Yarns mono, legato off (as hostbuild.sh sets it): last-note priority, every new
   // note strikes, and so does falling back to a key still held (C4) ----
   printf("§3 last-note priority, legato off\n");
   on(67);
@@ -179,10 +181,10 @@ int main() {
   CHECK(last().gate == 0.0f, "pedal up: the held note should end");
   reset();
 
-  // ---- §4b velocity -> LEVEL, the shipped script's [bind] ----
+  // ---- §4b velocity -> LEVEL (hostbuild.sh sets it; the shipped script has none) ----
   printf("§4b velocity opens LEVEL\n");
   static_assert(SP1_MIDI_VELOCITY_DEST == SP1_MIDI_D_LEVEL,
-                "the shipped script: velocity = level");
+                "hostbuild.sh builds this suite with velocity = level");
   on(60, 64);
   block();
   CHECK(fabsf(last().gate - 64.0f / 127.0f) < 1e-4f, "velocity 64 opens LEVEL to 64/127, %.3f",

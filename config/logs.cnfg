@@ -1,21 +1,23 @@
 ; Format: ini
 ; =====================================================================================
-;  Wakes — logging
+;  Wakes — LOGS
 ; =====================================================================================
 ;
-;  Wakes writes what it is doing to its drive, in WAKES/LOGS/: one file per session (from
-;  turning Wakes on until it is switched off), numbered -- 0001.LOGS, 0002.LOGS, ... after
-;  9999.LOGS comes 0000.LOGS. The last 5 sessions are kept; WAKES/LOGS/SESSION holds the
-;  latest session's number. If you ask us for help, send them all.
-;  Each file stops at 8 MB, about 12 hours of playing. STANDBY (plugged in and off) is not
-;  logged.
+;  Wakes logs activity to its drive, in WAKES/LOGS/. One file per session (from turning Wakes
+;  on, until it is turned off). The last 5 sessions are kept.
+;  Find your log files in WAKES/LOGS/SESSION. Logs are named with the latest session's number.
+;  If you need support, we might ask you to send us these. Each file stops at 8 MB, about 12
+;  hours of playing.
 ;
-;  Wakes reads this file every time it turns ON, so a change takes effect at the next ON.
-;  Lines starting with ; are comments. Every setting can be left out to get its default.
+;  Wakes reads this .cnfg file every time it turns ON and applies cnfg changes.
+;  Edit these settings to control log granularity. Adara might ask to edit these based on your
+;  circumstance.
+;
+;  Lines starting with ; or # are comments. Every setting can be left out to get its default.
 ;  A setting Wakes cannot read keeps its default, and the log says which line it was.
 ;
-;  Startup, power, battery and error lines are always written; the settings below choose
-;  what else goes in.
+;  Startup, power, battery, headphone and cnfg file lines are always written; 
+;  the settings below choose what else gets logged.
 
 [logs]
 ; on  = Wakes writes the log to its drive while ON (default).
@@ -26,13 +28,13 @@ enabled      = on
 performance  = on
 
 ; What you do on the controls: pages, engines, routing, scales, ROTC.
-controls     = on
+controls     = off
 
 ; MIDI over USB, and the MIDI clock.
-midi         = on
+midi         = off
 
 ; USB audio out and the USB connection.
-usb          = on
+usb          = off
 
-; The drive itself: loading and saving presets (PRST), the config files, the log.
+; Storage drive logs: loading and saving presets (PRST), .logs files.
 storage      = on

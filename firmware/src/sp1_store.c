@@ -641,8 +641,8 @@ static void cnfg_create_missing(void)
 
 /* ---------------------------------------------------------------- the log (#52) */
 
-/* One file per session, NNNN.LOGS (Adara): the session number mod 10000, so 9999.LOGS is
- * followed by 0000.LOGS. The number itself keeps counting, in WAKES/LOGS/SESSION and in each
+/* One file per session, NNNN.logs (Adara): the session number mod 10000, so 9999.logs is
+ * followed by 0000.logs. The number itself keeps counting, in WAKES/LOGS/SESSION and in each
  * file's first line. The last SP1_STORE_LOG_KEEP sessions are kept: a new one deletes the
  * file of the session SP1_STORE_LOG_KEEP before it. */
 #define LOG_SESSION    DIR_LOGS "/SESSION"
@@ -651,7 +651,7 @@ static void cnfg_create_missing(void)
 
 static atomic_t log_live_a;            /* main reads it: sp1_store_log_live()        */
 static bool     log_live;              /* the file is open, the card on and mounted  */
-static bool     session_open;          /* this boot has opened (or started) its file */
+static bool     session_open;          /* this boot has opened a session's file     */
 static uint32_t session_n;             /* ...and its session number                  */
 static char     log_path[sizeof(DIR_LOGS) + 16];
 static struct fs_file_t log_f;
@@ -668,7 +668,7 @@ static uint32_t sum_t0, sum_flushes, sum_bytes, sum_max_ms, sum_lost;
 
 static void log_name(uint32_t n, char *buf, size_t size)
 {
-	snprintk(buf, size, DIR_LOGS "/%04u.LOGS", (unsigned)(n % LOG_NAMES));
+	snprintk(buf, size, DIR_LOGS "/%04u.logs", (unsigned)(n % LOG_NAMES));
 }
 
 /* WAKES/LOGS/SESSION: the last session's number. false if it is missing or not a number. */
@@ -720,10 +720,48 @@ static int log_write(const char *d, size_t n)
 	return log_put(d, n);
 }
 
-/* The volume mounted, at the end of the ON job: open this session's file. The first time this
- * boot, a NEW session -- the next number -- unless the boot carries on a log kept across a
- * soft reset (the same session: the crash and what led to it stay in one file). Later ONs of
- * the same boot carry on too. */
+static int log_flush(bool before_standby);
+
+/* Before a new session: the lines the previous one still owes its own file -- what it printed
+ * after its last flush (its closing lines), or a 30 s backstop's tail, or, after a soft reset
+ * that kept the RAM log, the crash and the boot that followed it. They are in the RAM log
+ * before the last STANDBY; without this they would open the NEW file. Its own errors are
+ * logged, not returned: the new session opens anyway, and anything left goes into it. */
+static void log_catch_up(uint32_t prev)
+{
+	log_name(prev, log_path, sizeof(log_path));
+	fs_file_t_init(&log_f);
+	/* No FS_O_CREATE: a file deleted from a computer meanwhile is not brought back. */
+	int rc = fs_open(&log_f, log_path, FS_O_WRITE | FS_O_APPEND);
+	if (rc != 0) {
+		if (rc != -ENOENT) {
+			LINE("LOG could not reopen %s for the last ON's lines (%d)\n",
+			     log_path + sizeof(DIR_LOGS), rc);
+		}
+		return;
+	}
+	rc = fs_seek(&log_f, 0, FS_SEEK_END);
+	const off_t at = (rc == 0) ? fs_tell(&log_f) : -1;
+	if (at >= 0) {
+		log_size = (uint32_t)at;
+		log_full = log_size >= SP1_STORE_LOG_MAX;
+		piece_cont = false;
+		rc = log_flush(true);
+	}
+	const uint32_t added = (at >= 0) ? log_size - (uint32_t)at : 0u;
+	(void)fs_close(&log_f);
+	if ((at < 0 || rc != 0) && !stop) {
+		LINE("LOG the last ON's lines into %s FAILED (%d)\n", log_path + sizeof(DIR_LOGS),
+		     at < 0 ? (int)at : rc);
+	} else if (added > 0u && !stop) {
+		LINE("LOG %u B of the last ON's lines into %s\n", (unsigned)added,
+		     log_path + sizeof(DIR_LOGS));
+	}
+}
+
+/* The volume mounted, at the end of the ON job: every ON starts a NEW session, the next
+ * number (Adara, 2026-10-16: STANDBY then ON is a new file too). The previous session's
+ * last lines go to its own file first (log_catch_up). */
 static int log_open(void)
 {
 	int rc = ensure_dir(DIR_WAKES);
@@ -735,33 +773,28 @@ static int log_open(void)
 	}
 	uint32_t last = 0u;
 	const bool known = log_read_session(&last);
-	bool fresh_session = false;
-	if (!session_open) {
-		if (sp1_logbuf_continued() && known) {
-			session_n = last;                /* a soft reset: the same session */
-		} else {
-			session_n = known ? last + 1u : 1u;
-			fresh_session = true;
-		}
+	if (session_open) {
+		log_catch_up(session_n);         /* an earlier ON of this boot */
+	} else if (sp1_logbuf_continued() && known) {
+		log_catch_up(last);              /* the session a soft reset interrupted */
 	}
+	session_n = (known ? last : (session_open ? session_n : 0u)) + 1u;
 	log_name(session_n, log_path, sizeof(log_path));
-	if (fresh_session) {
-		char t[16];
-		const int n = snprintk(t, sizeof(t), "%u\n", (unsigned)session_n);
-		rc = write_file(LOG_SESSION, t, (size_t)n);
-		if (rc != 0) {
-			return rc;
-		}
-		/* A file already under this name is from a session 10000 back (or a lost
-		 * counter): this session starts it afresh. */
-		(void)fs_unlink(log_path);
-		if (session_n > SP1_STORE_LOG_KEEP) {
-			char old[sizeof(log_path)];
-			log_name(session_n - SP1_STORE_LOG_KEEP, old, sizeof(old));
-			const int urc = fs_unlink(old);
-			if (urc != 0 && urc != -ENOENT) {
-				LINE("LOG could not delete %s (%d)\n", old + sizeof(DIR_LOGS), urc);
-			}
+	char num[16];
+	const int k = snprintk(num, sizeof(num), "%u\n", (unsigned)session_n);
+	rc = write_file(LOG_SESSION, num, (size_t)k);
+	if (rc != 0) {
+		return rc;
+	}
+	/* A file already under this name is from a session 10000 back (or a lost
+	 * counter): this session starts it afresh. */
+	(void)fs_unlink(log_path);
+	if (session_n > SP1_STORE_LOG_KEEP) {
+		char old[sizeof(log_path)];
+		log_name(session_n - SP1_STORE_LOG_KEEP, old, sizeof(old));
+		const int urc = fs_unlink(old);
+		if (urc != 0 && urc != -ENOENT) {
+			LINE("LOG could not delete %s (%d)\n", old + sizeof(DIR_LOGS), urc);
 		}
 	}
 	fs_file_t_init(&log_f);
@@ -778,22 +811,20 @@ static int log_open(void)
 	log_size = (uint32_t)at;
 	log_full = log_size >= SP1_STORE_LOG_MAX;
 	piece_cont = false;
-	if (fresh_session || log_size == 0u) {
-		char h[160];
-		const int n = snprintk(h, sizeof(h), "=== Wakes v" APP_VERSION_STRING ", built %s %s -- "
-				       "log session %u -- resetreas 0x%08x ===\n", __DATE__, __TIME__,
-				       (unsigned)session_n, sp1_logbuf_resetreas());
-		rc = log_write(h, (size_t)n);
-		if (rc != 0) {
-			(void)fs_close(&log_f);
-			return rc;
-		}
+	char h[160];
+	const int n = snprintk(h, sizeof(h), "=== Wakes v" APP_VERSION_STRING ", built %s %s -- "
+			       "log session %u -- resetreas 0x%08x ===\n", __DATE__, __TIME__,
+			       (unsigned)session_n, sp1_logbuf_resetreas());
+	rc = log_write(h, (size_t)n);
+	if (rc != 0) {
+		(void)fs_close(&log_f);
+		return rc;
 	}
 	session_open = true;
 	log_live = true;
 	atomic_set(&log_live_a, 1);
-	LINE("LOG %s %u: WAKES/LOGS/%s (%u KB)\n", fresh_session ? "new session" : "carrying on session",
-	     (unsigned)session_n, log_path + sizeof(DIR_LOGS), (unsigned)(log_size / 1024u));
+	LINE("LOG new session %u: WAKES/LOGS/%s (%u KB)\n", (unsigned)session_n,
+	     log_path + sizeof(DIR_LOGS), (unsigned)(log_size / 1024u));
 	return 0;
 }
 
@@ -813,8 +844,9 @@ static bool keep_piece(const char *d, size_t n)
 }
 
 /* Everything new in the RAM log, into the file, then synced: the file's size on the card is
- * then current, so a cut-off loses only what came after. */
-static int log_flush(void)
+ * then current, so a cut-off loses only what came after. `before_standby`: only the lines
+ * from before the last STANDBY (log_catch_up). */
+static int log_flush(bool before_standby)
 {
 	const uint32_t t0 = k_uptime_get_32();
 	size_t used = 0u;
@@ -822,7 +854,9 @@ static int log_flush(void)
 	int rc = 0;
 	for (;;) {
 		uint32_t lost = 0u;
-		const size_t n = sp1_logbuf_file_take(piece, sizeof(piece), &lost);
+		const size_t n = before_standby
+				 ? sp1_logbuf_file_take_before_standby(piece, sizeof(piece), &lost)
+				 : sp1_logbuf_file_take(piece, sizeof(piece), &lost);
 		if (lost > 0u) {
 			sum_lost += lost;
 			char m[112];
@@ -908,7 +942,7 @@ static void log_tick(void)
 	}
 	log_next = ((int32_t)(now - log_next) > (int32_t)SP1_STORE_LOG_FLUSH_MS)
 		   ? now + SP1_STORE_LOG_FLUSH_MS : log_next + SP1_STORE_LOG_FLUSH_MS;
-	const int rc = log_flush();
+	const int rc = log_flush(false);
 	if (rc != 0) {
 		if (!stop) {
 			LINE("LOG off: writing %s failed (%d) -- no more log on the drive "
@@ -937,7 +971,7 @@ static void log_end(void)
 	const uint32_t t0 = k_uptime_get_32();
 	LINE("LOG closing %s (%u KB)\n", log_path + sizeof(DIR_LOGS),
 	     (unsigned)(log_size / 1024u));
-	const int rc = log_flush();
+	const int rc = log_flush(false);
 	log_finish();
 	if (rc != 0 && !stop) {
 		LINE("LOG the last flush FAILED (%d) after %u ms\n", rc,

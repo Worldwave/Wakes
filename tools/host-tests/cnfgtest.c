@@ -59,8 +59,12 @@ static void reader(void)
 	printf("[1] logs.cnfg: the reader\n");
 	struct sp1_logs_cfg c, d;
 	sp1_logs_defaults(&d);
-	CHECK(d.enabled && d.cats == SP1_LOG_ALL, "the shipped defaults are on/all (got %d/0x%02x)",
-	      d.enabled, d.cats);
+	CHECK((d.cats & ~SP1_LOG_ALL) == 0u, "the shipped defaults: unknown bits 0x%02x", d.cats);
+	/* The checks below hold whatever config/logs.cnfg ships with: a line that must be
+	 * IGNORED sets the opposite of its default, so it would show if it were applied. */
+	const char *not_midi = (d.cats & SP1_LOG_MIDI) ? "off" : "on";
+	const char *not_usb = (d.cats & SP1_LOG_USB) ? "off" : "on";
+	char f[96];
 
 	/* The template the firmware writes when the file is missing reads back as exactly the built-in defaults, with
 	 * no problem -- whatever chunk size the drive hands over. */
@@ -78,13 +82,15 @@ static void reader(void)
 	CHECK(read_logs("\xEF\xBB\xBF; Format: ini\r\n[LOGS]\r\nEnabled = OFF ; quiet\r\n"
 			"midi=off\r\nusb = on # yes\r\nstorage = off", 0u, &c) == 0,
 	      "overrides: %d problems (line %d: %s)", problems_seen, last_line, last_what);
-	CHECK(!c.enabled && c.cats == (SP1_LOG_ALL & ~(SP1_LOG_MIDI | SP1_LOG_STORAGE)),
+	CHECK(!c.enabled && c.cats == ((d.cats & (SP1_LOG_PERFORMANCE | SP1_LOG_CONTROLS)) |
+				       SP1_LOG_USB),
 	      "overrides: got %d/0x%02x", c.enabled, c.cats);
 
 	/* A bad value keeps its default; the rest of the file still applies. */
 	CHECK(read_logs("[logs]\nenabled = maybe\nmidi = off\n", 0u, &c) == 1 && last_line == 2,
 	      "bad value: %d problems, line %d", problems_seen, last_line);
-	CHECK(c.enabled && !(c.cats & SP1_LOG_MIDI), "bad value: got %d/0x%02x", c.enabled, c.cats);
+	CHECK(c.enabled == d.enabled && !(c.cats & SP1_LOG_MIDI), "bad value: got %d/0x%02x",
+	      c.enabled, c.cats);
 	CHECK(strcmp(last_what, "enabled = maybe") == 0, "bad value named as \"%s\"", last_what);
 
 	/* The same key twice: the FIRST is used (Adara's rule, #52). */
@@ -92,7 +98,8 @@ static void reader(void)
 	      "twice: %d problems, line %d", problems_seen, last_line);
 	CHECK(!(c.cats & SP1_LOG_MIDI), "twice: the first did not win (0x%02x)", c.cats);
 	/* ...also when the first one was unreadable: it still counts as set. */
-	CHECK(read_logs("[logs]\nusb = ?\nusb = off\n", 0u, &c) == 2 && (c.cats & SP1_LOG_USB),
+	snprintf(f, sizeof(f), "[logs]\nusb = ?\nusb = %s\n", not_usb);
+	CHECK(read_logs(f, 0u, &c) == 2 && (c.cats & SP1_LOG_USB) == (d.cats & SP1_LOG_USB),
 	      "twice, first bad: %d problems, 0x%02x", problems_seen, c.cats);
 
 	/* Unknown key, unknown section (reported once, its keys ignored), outside any section,
@@ -102,11 +109,13 @@ static void reader(void)
 	CHECK(read_logs("[midi]\nchannel = 3\nclock = off\n[logs]\nmidi = off\n", 0u, &c) == 1 &&
 	      last_line == 2 && !(c.cats & SP1_LOG_MIDI),
 	      "unknown section: %d problems, line %d, 0x%02x", problems_seen, last_line, c.cats);
-	CHECK(read_logs("midi = off\n[logs]\n", 0u, &c) == 1 && (c.cats & SP1_LOG_MIDI),
+	snprintf(f, sizeof(f), "midi = %s\n[logs]\n", not_midi);
+	CHECK(read_logs(f, 0u, &c) == 1 && (c.cats & SP1_LOG_MIDI) == (d.cats & SP1_LOG_MIDI),
 	      "outside a section: %d problems, 0x%02x", problems_seen, c.cats);
 	CHECK(read_logs("[logs]\njust words\n", 0u, &c) == 1 && last_line == 2,
 	      "no '=': %d problems, line %d", problems_seen, last_line);
-	CHECK(read_logs("[logs\nmidi = off\n", 0u, &c) == 2 && (c.cats & SP1_LOG_MIDI),
+	snprintf(f, sizeof(f), "[logs\nmidi = %s\n", not_midi);
+	CHECK(read_logs(f, 0u, &c) == 2 && (c.cats & SP1_LOG_MIDI) == (d.cats & SP1_LOG_MIDI),
 	      "no ']': %d problems, 0x%02x", problems_seen, c.cats);
 
 	/* A line over the limit is one problem, and the line after it is read normally --
@@ -120,7 +129,7 @@ static void reader(void)
 	      "long line: %d problems, line %d, 0x%02x", problems_seen, last_line, c.cats);
 
 	/* An empty file and a file of comments: the defaults, no problem. */
-	CHECK(read_logs("", 0u, &c) == 0 && c.enabled && c.cats == d.cats, "empty file");
+	CHECK(read_logs("", 0u, &c) == 0 && c.enabled == d.enabled && c.cats == d.cats, "empty file");
 	CHECK(read_logs("; nothing\n# here\n\n", 0u, &c) == 0 && c.cats == d.cats, "comments");
 
 	char b[48];
@@ -188,6 +197,18 @@ static void drain(size_t max)
 	char out[256];
 	size_t n;
 	while ((n = sp1_logring_take(&R, data, out, max, &lost)) > 0u) {
+		memcpy(got + got_n, out, n);
+		got_n += n;
+		got[got_n] = '\0';
+	}
+}
+
+/* ...only what the last ON still owes its own file (sp1_logring_take_before_standby). */
+static void drain_old(size_t max)
+{
+	char out[256];
+	size_t n;
+	while ((n = sp1_logring_take_before_standby(&R, data, out, max, &lost)) > 0u) {
 		memcpy(got + got_n, out, n);
 		got_n += n;
 		got[got_n] = '\0';
@@ -303,6 +324,83 @@ static void ring(void)
 	drain(32u);
 	CHECK(strcmp(got, "CNFG logging on\nON2 played\n") == 0 && lost == 0u,
 	      "logging off then on: \"%s\" lost %u", got, lost);
+
+	/* Every ON a new file (Adara, 2026-10-16): what the last ON printed after its last flush
+	 * goes to ITS file first, then the new file gets this ON only -- STANDBY in neither. */
+	reset_ring();
+	puts_r("ON1 played\n");
+	drain(32u);                               /* ON1's flushes */
+	puts_r("LOG closed\n");                   /* after the last one */
+	sp1_logring_pause(&R);
+	puts_r("[STANDBY] a\n");
+	sp1_logring_resume(&R);
+	puts_r("ON2\n");
+	got_n = 0u;
+	got[0] = '\0';
+	drain_old(32u);
+	CHECK(strcmp(got, "LOG closed\n") == 0, "catch-up: the old file gets \"%s\"", got);
+	drain_old(32u);
+	CHECK(strcmp(got, "LOG closed\n") == 0, "catch-up: stops at STANDBY: \"%s\"", got);
+	got_n = 0u;
+	got[0] = '\0';
+	drain(32u);
+	CHECK(strcmp(got, "ON2\n") == 0 && lost == 0u, "catch-up: the new file gets \"%s\" lost %u",
+	      got, lost);
+
+	/* A STANDBY that printed nothing (no gap to jump): the boundary still holds. */
+	reset_ring();
+	puts_r("tail\n");
+	sp1_logring_pause(&R);
+	sp1_logring_resume(&R);
+	puts_r("new\n");
+	drain_old(32u);
+	CHECK(strcmp(got, "tail\n") == 0, "empty STANDBY, old: \"%s\"", got);
+	got_n = 0u;
+	got[0] = '\0';
+	drain(32u);
+	CHECK(strcmp(got, "new\n") == 0, "empty STANDBY, new: \"%s\"", got);
+
+	/* Nothing owed (the last flush took everything): the old file gets nothing. */
+	reset_ring();
+	puts_r("all flushed\n");
+	drain(32u);
+	sp1_logring_pause(&R);
+	puts_r("[STANDBY]\n");
+	sp1_logring_resume(&R);
+	puts_r("new\n");
+	got_n = 0u;
+	got[0] = '\0';
+	drain_old(32u);
+	CHECK(got_n == 0u, "nothing owed: \"%s\"", got);
+	drain(32u);
+	CHECK(strcmp(got, "new\n") == 0, "nothing owed, new: \"%s\"", got);
+
+	/* A line STANDBY cut (the backstop mid-print) ends the old file as it is; still in
+	 * STANDBY, nothing is taken. */
+	reset_ring();
+	puts_r("PWR 29 s\nhal");
+	sp1_logring_pause(&R);
+	drain_old(32u);
+	CHECK(strcmp(got, "PWR 29 s\nhal") == 0, "cut line while paused: \"%s\"", got);
+	puts_r("[STANDBY]\n");
+	sp1_logring_resume(&R);
+	puts_r("new\n");
+	drain_old(32u);
+	CHECK(strcmp(got, "PWR 29 s\nhal") == 0, "cut line: nothing more: \"%s\"", got);
+
+	/* The old lines partly overwritten: counted, and the rest still goes to the old file. */
+	reset_ring();
+	for (int i = 0; i < 12; i++) {
+		char l[16];
+		snprintf(l, sizeof(l), "old %02d\n", i);      /* 7 bytes each: 84 > 64 */
+		puts_r(l);
+	}
+	sp1_logring_pause(&R);
+	sp1_logring_resume(&R);
+	drain_old(32u);
+	CHECK(lost > 0u && got_n > 0u && strncmp(got, "old ", 4) == 0 &&
+	      strcmp(got + got_n - 7u, "old 11\n") == 0 && lost + got_n == 84u,
+	      "old overrun: lost %u, got \"%s\"", lost, got);
 
 	/* After a reset: a cursor ahead of the writer is pulled back; a bad header fails. */
 	reset_ring();

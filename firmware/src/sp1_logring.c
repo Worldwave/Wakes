@@ -99,8 +99,23 @@ void sp1_logring_keep(struct sp1_logring *r)
 	r->discard = 0u;
 }
 
+static size_t take_lines(struct sp1_logring *r, const char *data, char *out, size_t max,
+			 uint32_t *lost, bool before_standby);
+
 size_t sp1_logring_take(struct sp1_logring *r, const char *data, char *out, size_t max,
 			uint32_t *lost)
+{
+	return take_lines(r, data, out, max, lost, false);
+}
+
+size_t sp1_logring_take_before_standby(struct sp1_logring *r, const char *data, char *out,
+				       size_t max, uint32_t *lost)
+{
+	return take_lines(r, data, out, max, lost, true);
+}
+
+static size_t take_lines(struct sp1_logring *r, const char *data, char *out, size_t max,
+			 uint32_t *lost, bool before_standby)
 {
 	bool resync = false;
 
@@ -121,29 +136,40 @@ size_t sp1_logring_take(struct sp1_logring *r, const char *data, char *out, size
 		resync = true;                       /* mid-line, most likely */
 	}
 
-	/* 2. Over a closed gap. Resume lands between lines, so no resync after it. */
-	if (r->gap && !before(r->frd, r->gap_from)) {
-		if (before(r->frd, r->gap_to)) {
-			r->frd = r->gap_to;
-			resync = false;
-		}
-		r->gap = 0u;
-	}
-
-	/* 3. How far the file may read: to the gap, if there is one ahead. While paused,
-	 * everything from gap_from on is STANDBY's (the cursor waits there for the resume);
-	 * after step 2 a closed gap is always ahead of the cursor. */
 	uint32_t limit = r->total;
 	bool cut = false;
-	if (r->paused) {
+	if (before_standby) {
+		/* Only what the last ON still owes ITS file: up to where STANDBY began, never
+		 * across. gap_from marks that whether or not STANDBY printed anything (an empty
+		 * STANDBY leaves gap_from == gap_to, and no gap to jump), and while it lasts. */
 		if (!before(r->frd, r->gap_from)) {
 			return 0u;
 		}
 		limit = r->gap_from;
 		cut = true;
-	} else if (r->gap) {
-		limit = r->gap_from;
-		cut = true;
+	} else {
+		/* 2. Over a closed gap. Resume lands between lines, so no resync after it. */
+		if (r->gap && !before(r->frd, r->gap_from)) {
+			if (before(r->frd, r->gap_to)) {
+				r->frd = r->gap_to;
+				resync = false;
+			}
+			r->gap = 0u;
+		}
+
+		/* 3. How far the file may read: to the gap, if there is one ahead. While paused,
+		 * everything from gap_from on is STANDBY's (the cursor waits there for the
+		 * resume); after step 2 a closed gap is always ahead of the cursor. */
+		if (r->paused) {
+			if (!before(r->frd, r->gap_from)) {
+				return 0u;
+			}
+			limit = r->gap_from;
+			cut = true;
+		} else if (r->gap) {
+			limit = r->gap_from;
+			cut = true;
+		}
 	}
 
 	if (resync) {

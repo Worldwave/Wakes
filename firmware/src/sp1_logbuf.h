@@ -52,8 +52,8 @@ bool sp1_logbuf_replaying(void);
 void sp1_logbuf_replay_step(void);
 
 /* ---- the log file (#52) ----
- * This boot carries on a log kept across a soft reset (the "=== RESET" marker): the same
- * session, so the drive's log is appended to rather than rotated. */
+ * This boot carries on a log kept across a soft reset (the "=== RESET" marker): the crash and
+ * this boot's first lines go to the interrupted session's file, the next ON starts a new one. */
 bool sp1_logbuf_continued(void);
 uint32_t sp1_logbuf_resetreas(void);
 
@@ -61,6 +61,8 @@ uint32_t sp1_logbuf_resetreas(void);
  * bytes, taken under the lock -- one line's copy with interrupts held off, a few us. */
 #define SP1_LOGBUF_TAKE_MAX 256u
 size_t sp1_logbuf_file_take(char *out, size_t max, uint32_t *lost);
+/* The same, only for lines from before the last STANDBY (sp1_logring_take_before_standby). */
+size_t sp1_logbuf_file_take_before_standby(char *out, size_t max, uint32_t *lost);
 
 /* Main thread: STANDBY entry / ON entry (STANDBY is not logged to the drive), and "logging
  * is off this ON" (nothing written so far is owed to the file). */

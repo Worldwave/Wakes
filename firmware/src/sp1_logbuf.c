@@ -207,6 +207,17 @@ size_t sp1_logbuf_file_take(char *out, size_t max, uint32_t *lost)
 	return n;
 }
 
+size_t sp1_logbuf_file_take_before_standby(char *out, size_t max, uint32_t *lost)
+{
+	if (max > SP1_LOGBUF_TAKE_MAX) {
+		max = SP1_LOGBUF_TAKE_MAX;
+	}
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	const size_t n = sp1_logring_take_before_standby(&hdr.ring, data, out, max, lost);
+	k_spin_unlock(&lock, key);
+	return n;
+}
+
 void sp1_logbuf_file_pause(void)
 {
 	k_spinlock_key_t key = k_spin_lock(&lock);

@@ -156,11 +156,12 @@ enum sp1_store_save sp1_store_save_result(void);
  * THE LOG (Adara, #52): with logs.cnfg's `enabled = on` (the default) the ON job opens this
  * session's file in WAKES/LOGS/ and the card STAYS on and mounted for the whole ON session;
  * every SP1_STORE_LOG_FLUSH_MS the thread appends what the RAM log (sp1_logbuf.h) has
- * gathered, filtered by logs.cnfg's categories, and syncs. One file per session, NNNN.LOGS =
- * the session number mod 10000 (9999.LOGS is followed by 0000.LOGS); the number keeps
- * counting in WAKES/LOGS/SESSION. A new session -- the first ON after a power-on from OFF --
- * takes the next number and deletes the file SP1_STORE_LOG_KEEP sessions back; a boot that
- * carries on a RAM log kept across a soft reset is the same session and appends. Each file stops at SP1_STORE_LOG_MAX
+ * gathered, filtered by logs.cnfg's categories, and syncs. One file per session, NNNN.logs =
+ * the session number mod 10000 (9999.logs is followed by 0000.logs); the number keeps
+ * counting in WAKES/LOGS/SESSION. EVERY ON is a new session (Adara, 2026-10-16: STANDBY then
+ * ON too): it takes the next number and deletes the file SP1_STORE_LOG_KEEP sessions back,
+ * after appending to the previous session's file what that one still owed it (its closing
+ * lines, a backstop's tail, or a crash kept across a soft reset). Each file stops at SP1_STORE_LOG_MAX
  * with a last line saying so. STANDBY is not logged. A LOG line once a minute gives the
  * flushes, bytes and the longest flush (the CPU check Adara asked for).
  * At shutdown the PRST save goes first, then the last lines (main waits on

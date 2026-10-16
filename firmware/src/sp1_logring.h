@@ -65,5 +65,10 @@ void sp1_logring_keep(struct sp1_logring *r);
  * line is taken only where a gap cuts it. `*lost` += bytes the ring overwrote first. */
 size_t sp1_logring_take(struct sp1_logring *r, const char *data, char *out, size_t max,
 			uint32_t *lost);
+/* As _take, but only lines from before the last STANDBY began: what the previous ON still owes
+ * its own file (its closing lines, or a 30 s backstop's tail) when this ON starts a new one.
+ * 0 once the cursor reaches STANDBY; never crosses it. */
+size_t sp1_logring_take_before_standby(struct sp1_logring *r, const char *data, char *out,
+				       size_t max, uint32_t *lost);
 
 #endif /* SP1_LOGRING_H */
