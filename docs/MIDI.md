@@ -5,15 +5,16 @@ class-compliant **USB-MIDI** port called `Wakes` — no driver. It listens; it d
 (Through v0.6.x the port was called `wakes-sp1`: re-select it once in your DAW or host.)
 
 Nothing about it needs setting up on the device, and there are **no new pages**: notes play
-Plaits straight away, and everything deeper is set in the MIDI script,
-[`config/midi.ini`](../config/midi.ini), before the firmware is built.
+Plaits straight away, and everything deeper is set in the MIDI script, `midi.cnfg`, on
+Wakes' own drive (`WAKES/CNFG/midi.cnfg`): edit it from a computer, and Wakes reads it at the
+next ON.
 
 ## What MIDI does
 
 | | |
 |---|---|
-| **Notes** | play Plaits. A note-on strikes **TRIG** and holds **LEVEL** open — as far as the note's **velocity** says, out of the box, so soft notes are quieter and darker (Plaits reads LEVEL as accent too); a note-off lets LEVEL close through Plaits' own low-pass gate, so the release is the LPG's. |
-| **Several keys** | Plaits is one voice: you hear the **newest** key. Let it go and you hear the previous one if it is still held. (`note_priority` in the script can make it the lowest or the highest key held instead.) The same pitch played again before its note-off -- a sequencer's notes longer than its step -- strikes again with `legato = off` and is tied into one long note with `on` / `auto`; it ends at its **last** note-off. Even a note shorter than a quarter of a millisecond opens the gate. |
+| **Notes** | play Plaits, on **any channel** out of the box (`channel = omni`). A note-on strikes **TRIG** and holds **LEVEL** fully open — velocity changes nothing out of the box; `[bind]` can aim it at LEVEL so soft notes are quieter and darker (Plaits reads LEVEL as accent too). A note-off lets LEVEL close through Plaits' own low-pass gate, so the release is the LPG's. |
+| **Several keys** | Plaits is one voice: you hear the **newest** key. Let it go and you hear the previous one if it is still held. (`note_priority` in the script can make it the lowest or the highest key held instead.) Out of the box (`legato = auto`, `portamento = t9`) a key played while another is held **glides** to its pitch in about 18 ms without a new strike, and a key played after letting go strikes and jumps straight to its note. The same pitch played again before its note-off -- a sequencer's notes longer than its step -- strikes again with `legato = off` and is tied into one long note with `on` / `auto`; it ends at its **last** note-off. Even a note shorter than a quarter of a millisecond opens the gate. |
 | **Pitch** | added to FREQUENCY like a V/Oct cable, with **note 60 (C4) adding nothing**. F1 on its centre detent is exactly C4, so a centred F1 plays the keyboard at its real pitch, and moving F1 transposes. While MIDI is in use the FREQUENCY detent is **10 %** of the fader's travel (5 % otherwise), so C4 is easy to land on. |
 | **Pitch bend** | ±2 semitones, or whatever range the host sends (RPN 0, "pitch bend sensitivity"). |
 | **Sustain pedal** | CC 64 holds released notes until it lifts. |
@@ -168,7 +169,7 @@ half still works.
 | 25 | 57 | LPG decay |
 | 26 | 58 | LEVEL (PLAITS SETTINGS F4 — can connect it, like the fader) |
 | 102 | | OCTAVE range |
-| 105 | | MODEL: the engine, as an offset up through your filled slots in `config/engines.csv` |
+| 105 | | MODEL: the engine, as an offset up through your filled slots in `config/engines.cnfg` |
 | 27 | 59 | RATE |
 | 16 | 48 | t BIAS |
 | 85 | | JITTER |
@@ -195,21 +196,31 @@ Left free on purpose, for your own script: CC 1 (mod wheel), 2 (breath), 4 (foot
 
 ## Changing it: the MIDI script
 
-[`config/midi.ini`](../config/midi.ini) is commented line by line. In a fork, edit it — GitHub's
-web editor is enough — and the CI build of your fork produces a `.bin` with your settings.
-The build **refuses** a script with a mistake in it and names the line, so a typo cannot become a
-firmware that quietly ignores you.
+`midi.cnfg` is commented line by line. It lives on Wakes' drive: plug Wakes into a computer
+while it is off (STANDBY), open `WAKES/CNFG/midi.cnfg` in a text editor, save, and turn Wakes
+ON — it reads the file at every ON. If the file is not there, Wakes writes it there with the
+built-in settings, commented (so deleting it resets it at the next ON); the built-in default is [`config/midi.cnfg`](../config/midi.cnfg) in this repository, which is also
+where to get a clean copy.
+
+- Every line can be left out: it keeps its default.
+- A line Wakes cannot read keeps its default too, and the log (`WAKES/LOGS/`) names the line
+  and what is wrong with it.
+- **A CC you give a parameter is taken from whichever parameter had it by default**, which then
+  has none (the log notes it). **Two of your own lines on the same CC: the first keeps it**, the
+  later one gets none (the log says so). CC 33–63 (the fine halves) and MIDI's reserved CCs
+  cannot be given.
+- The CC chart that comes with each release lists the built-in CCs; your file may change them.
 
 What it sets:
 
-- `channel` — 1–16, or `omni`.
+- `channel` — 1–16, or `omni` (default: every channel).
 - `note_priority` — `last` (default), `low` or `high`.
-- `legato` — `off` (every new note strikes; the default), `on` (a note played over a held one
-  slides without striking), `auto` (as `on`, with portamento only between overlapping notes,
-  so playing legato glides and playing detached jumps).
+- `legato` — `off` (every new note strikes), `on` (a note played over a held one slides
+  without striking), `auto` (the default: as `on`, with portamento only between overlapping
+  notes, so playing legato glides and playing detached jumps).
 - `portamento` — `0`, `t1`–`t50` (constant time, an exponential glide), `r0`–`r50`
   (constant rate, a straight line, timed per octave). From about 1 ms up to about 2.6 s;
-  the script lists the steps.
+  the script lists the steps. The default is `t9`, about 18 ms.
 - `bend_range` — 0–24 semitones, until the host sends its own.
 - `sustain` — `cc N`, or `off`.
 - `cc_smoothing` — 0–200 ms: how long a CC glides to a new value. This is what turns a CC's
@@ -223,8 +234,9 @@ What it sets:
 - `[bind]` — `velocity` and `aftertouch` (channel pressure) can push a parameter by a depth
   (`velocity = timbre 40%`). Aimed at `level`, they set how far each note opens LEVEL —
   which Plaits also reads as accent, so soft notes are quieter and darker. **The shipped
-  script has `velocity = level`** (100 %: the softest note barely opens it; at 50 % the
-  softest still opens it half way). Comment that line out to play every note at full LEVEL.
+  script has `velocity = none` and `aftertouch = none`**: every note opens LEVEL fully. Write
+  `velocity = level` for velocity on LEVEL (100 %: the softest note barely opens it; at 50 %
+  the softest still opens it half way; at 0 % velocity does nothing).
   You can also do this on the host instead: most DAWs can turn velocity or pressure into a CC
   and aim it at one of the CCs above.
 

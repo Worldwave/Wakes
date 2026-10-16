@@ -1,7 +1,7 @@
 // wakes-sp1 M5a round 4: host checks of the MIDI script's `pickup` = shared and takeover
 // (Adara), against the shipped script with only that line changed. hostbuild.sh builds this
 // file twice: miditest_pickup_shared and miditest_pickup_takeover. (Pickup sum is the offset
-// maths, miditest.cc.)
+// maths, miditest.cc.) Both end with §S, the shipped script's other defaults as they are.
 //
 // Drives the real MIDI core, both UIs and their pickup the way main.c's control loop does:
 // audio block, UI tick, sp1_midi_main_tick, sp1_pui_midi / sp1_mui_midi, then the params.
@@ -78,6 +78,109 @@ static void start() {
   sp1_mui_init();
   sp1_mui_enter(raw, false);
   run(60);
+}
+
+// ---- the shipped defaults (Adara, 2026-10-16): omni, legato auto, portamento t9, no velocity.
+// miditest.cc builds with channel 1, legato off, portamento 0 and velocity = level for its own
+// maths; these are the settings a Wakes ships with, checked as they are. Change the defaults in
+// config/midi.cnfg and the static_assert below says this section needs the same change.
+static const uint32_t kSBlocks = 240u / SP1_SYNTH_BLOCK;   // Plaits blocks per 5 ms
+static sp1_midi_frame sf[kSBlocks];
+
+static void note(uint8_t status, uint8_t n, uint8_t v) {
+  const uint8_t m[3] = { status, n, v };
+  sp1_midi_push(m, 3, 0);
+}
+// One audio block of the MIDI core alone, every Plaits block's frame kept.
+static void sblock(float lpg = 1.0f) {
+  const bool work = sp1_midi_audio_begin(0, kSBlocks, kCentre, moff);
+  for (uint32_t j = 0; j < kSBlocks; ++j) {
+    sf[j] = sp1_midi_frame{ false, false, 0.0f, 0.0f };
+    if (work) {
+      sp1_midi_audio_block(j, &sf[j]);
+      sp1_midi_audio_lpg(lpg, false);
+    }
+  }
+}
+static bool strikes() {
+  for (uint32_t j = 0; j < kSBlocks; ++j) { if (sf[j].trig) return true; }
+  return false;
+}
+static const sp1_midi_frame& slast() { return sf[kSBlocks - 1]; }
+
+static void shipped() {
+  static_assert(SP1_MIDI_CHANNEL == SP1_MIDI_OMNI && SP1_MIDI_LEGATO == 1 &&
+                SP1_MIDI_PORTAMENTO == 9 && SP1_MIDI_VELOCITY_DEST == -1 &&
+                SP1_MIDI_AFTERTOUCH_DEST == -1,
+                "config/midi.cnfg's defaults changed: update this section (and hostbuild.sh)");
+  printf("§S the shipped defaults: omni, legato auto, portamento t9, velocity none\n");
+  sp1_midi_port(false);                        // whatever the pickup checks left: neutral
+  sp1_midi_port(true);
+  for (int i = 0; i < 40; ++i) sblock(0.0f);
+
+  // Omni, and velocity binds nothing: a soft note on channel 11 opens LEVEL fully.
+  note(0x9A, 64, 20);
+  sblock();
+  CHECK(sf[0].trig, "omni: a note on channel 11 must strike");
+  CHECK(slast().gate == 1.0f, "velocity = none: velocity 20 must open LEVEL fully, %.3f",
+        slast().gate);
+  CHECK(fabsf(slast().note - 4.0f) < 1e-4f, "the first note jumps (nothing to glide from): "
+        "%.3f", slast().note);
+
+  // Legato auto, an overlapping note: no strike, and a t9 glide that lands on the note at
+  // Yarns' time, t(18) = (tmin^.25 + (tmax^.25 - tmin^.25) * 18/127)^4 with 0.75 ms / 6 s.
+  const float a = powf(3.0f / 4000.0f, 0.25f), b = powf(6.0f, 0.25f);
+  const float r = a + (b - a) * 18.0f / 127.0f;
+  const float t9_ms = r * r * r * r * 1000.0f;
+  const float block_ms = static_cast<float>(SP1_SYNTH_BLOCK) / 48.0f;
+  note(0x90, 67, 127);
+  int landed = -1;
+  bool struck = false;
+  bool between = false;
+  for (int k = 0; k < 20 && landed < 0; ++k) {
+    sblock();
+    struck = struck || strikes();
+    for (uint32_t j = 0; j < kSBlocks && landed < 0; ++j) {
+      between = between || (sf[j].note > 4.01f && sf[j].note < 6.99f);
+      if (fabsf(sf[j].note - 7.0f) < 1e-4f) {
+        landed = k * static_cast<int>(kSBlocks) + static_cast<int>(j);
+      }
+    }
+  }
+  CHECK(!struck, "legato auto: an overlapping note must not strike");
+  CHECK(between, "portamento t9: the pitch must pass between E4 and G4, not jump");
+  const float landed_ms = static_cast<float>(landed + 1) * block_ms;
+  CHECK(landed >= 0 && fabsf(landed_ms - t9_ms) <= 2.0f * block_ms,
+        "t9 lands on G4 after %.1f ms (Yarns: %.1f ms)", landed_ms, t9_ms);
+
+  // Back to the key still held: a glide again, still no strike.
+  note(0x80, 67, 0);
+  sblock();
+  CHECK(!strikes(), "legato auto: falling back to a held key must not strike");
+  CHECK(slast().note > 4.01f, "falling back glides, not jumps: %.3f", slast().note);
+  for (int i = 0; i < 20; ++i) sblock();
+  CHECK(fabsf(slast().note - 4.0f) < 1e-4f, "...and lands on E4: %.3f", slast().note);
+
+  // Every key up, then a detached note: it strikes and jumps (no glide in auto).
+  note(0x80, 64, 0);
+  for (int i = 0; i < 4; ++i) sblock(0.0f);
+  note(0x90, 60, 90);
+  sblock();
+  CHECK(sf[0].trig, "legato auto: a detached note strikes");
+  CHECK(fabsf(sf[0].note) < 1e-4f, "legato auto: a detached note jumps to C4, %.3f", sf[0].note);
+
+  // The same pitch again before its note-off (a sequencer's long step): tied, one note.
+  note(0x90, 60, 90);
+  sblock();
+  CHECK(!strikes(), "legato auto: the same pitch again before its note-off is tied");
+  note(0x80, 60, 0);
+  sblock();
+  CHECK(slast().gate > 0.0f, "the first note-off must not end the tied note");
+  note(0x80, 60, 0);
+  sblock();
+  CHECK(slast().gate == 0.0f, "the last note-off ends it");
+  sp1_midi_port(false);
+  for (int i = 0; i < 4; ++i) sblock(0.0f);
 }
 
 int main() {
@@ -242,6 +345,7 @@ int main() {
 #else
 #error "miditest_pickup.cc is for pickup = shared or takeover (hostbuild.sh)"
 #endif
+  shipped();
 
   printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "all checks passed", fails,
          fails == 1 ? "" : "s");

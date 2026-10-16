@@ -19,6 +19,7 @@
 #define SP1_MIDI_GEN_TABLES
 #include "sp1_midi.h"
 #include "sp1_synth.h"          // SP1_SYNTH_BLOCK: MIDI runs once per Plaits block (#32)
+#include "sp1_cnfg.h"           // struct sp1_midi_cfg: the script, live (#52)
 
 #include <atomic>
 #include <cmath>
@@ -86,6 +87,12 @@ bool tail;                                   // released, LPG still closing
 bool trig_pending;
 uint8_t velocity;                            // latest note's, Yarns' mod_velocity_
 uint8_t aftertouch;
+
+// ---- the MIDI script, LIVE (#52) ----
+// config/midi.cnfg's built-in values until main hands over the drive's WAKES/CNFG/midi.cnfg
+// at ON entry (sp1_midi_set_config), with the audio thread stopped. The audio thread, the USB
+// interrupt and main all read it; only that call writes it.
+sp1_midi_cfg g_cfg = SP1_MIDI_CFG_DEFAULTS;
 
 // Yarns Voice: the glide, in semitones.
 float note_source = 60.0f, note_target = 60.0f, note_now = 60.0f;
@@ -203,10 +210,10 @@ volatile bool out_usb;                       // main: a host is taking USB audio
 // they have said, auto (lead_learned < 0). A fixed number of ms otherwise.
 float lead_learned = -1.0f;
 float Lead() {
-  if (SP1_MIDI_CLOCK_LEAD_MS >= 0) {
-    return static_cast<float>(SP1_MIDI_CLOCK_LEAD_MS) * static_cast<float>(kBlocksPerMs);
+  if (g_cfg.clock_lead_ms >= 0) {
+    return static_cast<float>(g_cfg.clock_lead_ms) * static_cast<float>(kBlocksPerMs);
   }
-  if (SP1_MIDI_CLOCK_LEAD_MS == -2 && lead_learned >= 0.0f) {
+  if (g_cfg.clock_lead_ms == -2 && lead_learned >= 0.0f) {
     return lead_learned;
   }
   return out_usb ? kLeadAutoUsbBlocks : kLeadAutoBlocks;
@@ -289,12 +296,12 @@ bool prev_begin_valid;
 
 inline float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
-// ---- the pickup setting (config/midi.ini `pickup`, Adara, M5a round 4) ----
+// ---- the pickup setting (midi.cnfg `pickup`, Adara, M5a round 4) ----
 // sum: a CC is an OFFSET on its fader. shared / takeover: a CC is a POSITION on the fader's
 // own value, which the UI moves through sp1_midi_drive() -- so there it is no offset at all.
 // MODEL has no fader and is an offset in every setting.
-constexpr bool CcIsOffset(int d) {
-  return SP1_MIDI_PICKUP == SP1_MIDI_PICKUP_SUM || d == SP1_MIDI_D_MODEL;
+inline bool CcIsOffset(int d) {
+  return g_cfg.pickup == SP1_MIDI_PICKUP_SUM || d == SP1_MIDI_D_MODEL;
 }
 
 // ---- Plaits' catch-up: plaits/pot_controller.h, POT_STATE_CATCHING_UP (Emilie Gillet, MIT) ----
@@ -390,11 +397,12 @@ void Refresh() {
   note_now = note_source + (note_target - note_source) * k;
 }
 
-const stmlib::NoteStackFlags kPriority =
-    static_cast<stmlib::NoteStackFlags>(SP1_MIDI_PRIORITY);
+stmlib::NoteStackFlags Priority() {
+  return static_cast<stmlib::NoteStackFlags>(g_cfg.priority);
+}
 
 uint8_t Top() {
-  return stack.note_by_priority(kPriority).note;
+  return stack.note_by_priority(Priority()).note;
 }
 
 // ---- Yarns part.cc, the 1M (mono) branches ------------------------------------------------
@@ -412,19 +420,19 @@ void NoteOn(uint8_t note, uint8_t vel) {
     // the same pitch is one long note. Either way the note-off of the first one will not end
     // it (on_count).
     stack.NoteOn(note, vel);
-    if (SP1_MIDI_LEGATO == 0) {
-      Glide(note, vel, SP1_MIDI_PORTAMENTO, true);
+    if (g_cfg.legato == 0) {
+      Glide(note, vel, g_cfg.portamento, true);
     }
     return;
   }
   const uint8_t before = Top();
   stack.NoteOn(note, vel);
-  const stmlib::NoteEntry& after = stack.note_by_priority(kPriority);
+  const stmlib::NoteEntry& after = stack.note_by_priority(Priority());
   if (before != after.note) {
     const bool legato = stack.size() > 1;
     Glide(after.note, after.velocity,
-          (SP1_MIDI_LEGATO == 1) && !legato ? 0 : SP1_MIDI_PORTAMENTO,
-          (SP1_MIDI_LEGATO == 0) || !legato);
+          (g_cfg.legato == 1) && !legato ? 0 : g_cfg.portamento,
+          (g_cfg.legato == 0) || !legato);
   }
 }
 
@@ -438,10 +446,10 @@ void InternalNoteOff(uint8_t note) {
       tail = true;
     }
   } else {
-    const stmlib::NoteEntry& after = stack.note_by_priority(kPriority);
+    const stmlib::NoteEntry& after = stack.note_by_priority(Priority());
     if (before != after.note) {
       // Back to a key that is still held: slide there, and in legato off strike again.
-      Glide(after.note, after.velocity, SP1_MIDI_PORTAMENTO, SP1_MIDI_LEGATO == 0);
+      Glide(after.note, after.velocity, g_cfg.portamento, g_cfg.legato == 0);
     }
   }
 }
@@ -534,11 +542,11 @@ void Publish(int d) {
   // their depth, whichever way the CC reads. Aimed at LEVEL they shape the gate height
   // instead (GateHeight()).
   float bound = 0.0f;
-  if (SP1_MIDI_VELOCITY_DEST == d && d != SP1_MIDI_D_LEVEL) {
-    bound += SP1_MIDI_VELOCITY_DEPTH * static_cast<float>(velocity) / 127.0f;
+  if (g_cfg.vel_dest == d && d != SP1_MIDI_D_LEVEL) {
+    bound += g_cfg.vel_depth * static_cast<float>(velocity) / 127.0f;
   }
-  if (SP1_MIDI_AFTERTOUCH_DEST == d && d != SP1_MIDI_D_LEVEL) {
-    bound += SP1_MIDI_AFTERTOUCH_DEPTH * static_cast<float>(aftertouch) / 127.0f;
+  if (g_cfg.at_dest == d && d != SP1_MIDI_D_LEVEL) {
+    bound += g_cfg.at_depth * static_cast<float>(aftertouch) / 127.0f;
   }
   const bool offset = CcIsOffset(d);
   target_bi[d] = Clamp((offset ? CcOffset(d, true) : 0.0f) + bound, -1.0f, 1.0f);
@@ -647,11 +655,11 @@ void ResetControllers() {
 // The gate's height. 1 unless velocity or aftertouch is bound to LEVEL.
 float GateHeight() {
   float h = 1.0f;
-  if (SP1_MIDI_VELOCITY_DEST == SP1_MIDI_D_LEVEL) {
-    h *= 1.0f + SP1_MIDI_VELOCITY_DEPTH * (static_cast<float>(velocity) / 127.0f - 1.0f);
+  if (g_cfg.vel_dest == SP1_MIDI_D_LEVEL) {
+    h *= 1.0f + g_cfg.vel_depth * (static_cast<float>(velocity) / 127.0f - 1.0f);
   }
-  if (SP1_MIDI_AFTERTOUCH_DEST == SP1_MIDI_D_LEVEL) {
-    h *= 1.0f + SP1_MIDI_AFTERTOUCH_DEPTH * (static_cast<float>(aftertouch) / 127.0f - 1.0f);
+  if (g_cfg.at_dest == SP1_MIDI_D_LEVEL) {
+    h *= 1.0f + g_cfg.at_depth * (static_cast<float>(aftertouch) / 127.0f - 1.0f);
   }
   return Clamp(h, 0.0f, 1.0f);
 }
@@ -668,7 +676,7 @@ bool RpnBendSelected() {
 }
 
 void ControlChange(uint8_t cc, uint8_t v) {
-  if (SP1_MIDI_SUSTAIN_CC >= 0 && cc == SP1_MIDI_SUSTAIN_CC) {
+  if (g_cfg.sustain_cc >= 0 && cc == static_cast<uint8_t>(g_cfg.sustain_cc)) {
     Sustain(v >= 64);
     return;
   }
@@ -713,7 +721,7 @@ void ControlChange(uint8_t cc, uint8_t v) {
   }
   int d;
   if (cc >= 32 && cc < 64) {
-    d = SP1_MIDI_CC_DEST[cc - 32];             // the fine half of a 14-bit pair
+    d = g_cfg.cc_dest[cc - 32];                // the fine half of a 14-bit pair
     if (d < 0) {
       ++st_ignored;
       return;
@@ -722,7 +730,7 @@ void ControlChange(uint8_t cc, uint8_t v) {
     cc_has_lsb[d] = true;
     cc_present[d] = true;
   } else {
-    d = SP1_MIDI_CC_DEST[cc];
+    d = g_cfg.cc_dest[cc];
     if (d < 0) {
       ++st_ignored;
       return;
@@ -743,7 +751,7 @@ void ControlChange(uint8_t cc, uint8_t v) {
 __attribute__((noinline)) void Process(const Event& e) {
   const uint8_t status = e.msg[0];
   const uint8_t type = status & 0xF0u;
-  if (SP1_MIDI_CHANNEL != SP1_MIDI_OMNI && (status & 0x0Fu) != SP1_MIDI_CHANNEL) {
+  if (g_cfg.channel != SP1_MIDI_OMNI && (status & 0x0Fu) != static_cast<uint8_t>(g_cfg.channel)) {
     st_ignored = st_ignored + 1u;
     return;
   }
@@ -755,8 +763,8 @@ __attribute__((noinline)) void Process(const Event& e) {
         session = true;
         st_notes = st_notes + 1u;
         NoteOn(d1, d2);
-        if (SP1_MIDI_VELOCITY_DEST >= 0) {
-          Publish(SP1_MIDI_VELOCITY_DEST);
+        if (g_cfg.vel_dest >= 0) {
+          Publish(g_cfg.vel_dest);
         }
         break;
       }
@@ -776,8 +784,8 @@ __attribute__((noinline)) void Process(const Event& e) {
     case 0xD0:
       session = true;
       aftertouch = d1;
-      if (SP1_MIDI_AFTERTOUCH_DEST >= 0) {
-        Publish(SP1_MIDI_AFTERTOUCH_DEST);
+      if (g_cfg.at_dest >= 0) {
+        Publish(g_cfg.at_dest);
       }
       break;
     default:
@@ -918,7 +926,7 @@ void NoteSkew(uint32_t cycles) {
 }
 
 void ClockRealTime(uint8_t b, uint32_t cycles) {
-  if (!SP1_MIDI_CLOCK) {
+  if (!g_cfg.clock) {
     return;
   }
   switch (b) {
@@ -1051,7 +1059,7 @@ void ClockBlock(uint32_t blocks) {
       // they ARRIVE, so a note that arrives `mean` before its tick lines up with Marbles when
       // Marbles leads the tick by -mean. Only from quantised notes (a tight window); a lead
       // never goes below 0 (a clock sent EARLY would need Marbles to lag) or past 200 ms.
-      if (SP1_MIDI_CLOCK_LEAD_MS == -2 && sk_n >= 8u && sd < 1000.0f) {
+      if (g_cfg.clock_lead_ms == -2 && sk_n >= 8u && sd < 1000.0f) {
         float lead_ms = -mean * 1e-3f;
         lead_ms = lead_ms < 0.0f ? 0.0f : (lead_ms > 200.0f ? 200.0f : lead_ms);
         lead_learned = lead_ms * static_cast<float>(kBlocksPerMs);
@@ -1080,16 +1088,16 @@ void Neutral() {
   clk_b = 0.0f;
   ClockForgetTempo();
   pub_bpm10 = 0;
-  if (SP1_MIDI_CLOCK_LEAD_MS == -2) {
+  if (g_cfg.clock_lead_ms == -2) {
     lead_learned = -1.0f;                      // notes: a new host has said nothing yet
-    lead_blocks = Lead();
   }
+  lead_blocks = Lead();                        // the script's lead may have changed (#52)
   session = false;
   AllNotesOff();
   ResetControllers();
   velocity = 0;
   PublishAll();
-  bend_semis = SP1_MIDI_BEND_RANGE;
+  bend_semis = g_cfg.bend_range;
   bend_cents = 0;
   UpdateBendScale();
   trig_pending = false;
@@ -1186,6 +1194,18 @@ extern "C" void sp1_midi_on_enter(void) {
   reset_req = reset_req + 1u;
 }
 
+// ---- the script from the drive (#52) ----
+// Main, at ON entry, BEFORE sp1_midi_on_enter() and audio start: nothing reads a half-copied
+// script then except, possibly, the USB interrupt's `clock` byte. The reset that on_enter
+// requests then puts the bend range, the clock lead and every offset back to neutral under
+// the new script; the smoothing coefficient is recomputed at its next step.
+extern "C" void sp1_midi_set_config(const struct sp1_midi_cfg* c) {
+  g_cfg = *c;
+  smooth_coef_blocks = 0;
+}
+
+extern "C" const struct sp1_midi_cfg* sp1_midi_config(void) { return &g_cfg; }
+
 extern "C" void sp1_midi_main_tick(uint32_t elapsed_ms) {
   if (model_since_ms < kModelStepMs) {
     model_since_ms += elapsed_ms;
@@ -1195,7 +1215,7 @@ extern "C" void sp1_midi_main_tick(uint32_t elapsed_ms) {
     model_held = mt;
     model_since_ms = 0;
   }
-  const float tau = static_cast<float>(SP1_MIDI_SMOOTH_MS);
+  const float tau = static_cast<float>(g_cfg.smooth_ms);
   const float k = tau <= 0.0f ? 1.0f : 1.0f - expf(-static_cast<float>(elapsed_ms) / tau);
   for (int d = 0; d < SP1_MIDI_DESTS; ++d) {
     if (SP1_MIDI_KIND[d] == SP1_MIDI_K_MAIN) {
@@ -1206,7 +1226,7 @@ extern "C" void sp1_midi_main_tick(uint32_t elapsed_ms) {
       }
     }
   }
-  if (SP1_MIDI_PICKUP != SP1_MIDI_PICKUP_SUM) {
+  if (g_cfg.pickup != SP1_MIDI_PICKUP_SUM) {
     // The positions sp1_midi_drive() reads. A CC that has just arrived starts AT its
     // position: smoothing it up from 0 would be a movement the hand never made.
     for (int d = 0; d < SP1_MIDI_DESTS; ++d) {
@@ -1239,7 +1259,7 @@ extern "C" void sp1_midi_main_tick(uint32_t elapsed_ms) {
 //     longer matches it and catches up again, Plaits' way (CatchUp).
 // The UI tells its fader the value moved; the fader then catches up with it the same way.
 extern "C" bool sp1_midi_drive(int d, float* s) {
-  if (SP1_MIDI_PICKUP == SP1_MIDI_PICKUP_SUM || d < 0 || d >= SP1_MIDI_DESTS || CcIsOffset(d)) {
+  if (g_cfg.pickup == SP1_MIDI_PICKUP_SUM || d < 0 || d >= SP1_MIDI_DESTS || CcIsOffset(d)) {
     return false;
   }
   Drive& k = drive[d];
@@ -1278,8 +1298,8 @@ extern "C" bool sp1_midi_drive(int d, float* s) {
 
 // pickup takeover: while the port is up, a fader whose parameter has a CC rests.
 extern "C" bool sp1_midi_fader_held(int d) {
-  return SP1_MIDI_PICKUP == SP1_MIDI_PICKUP_TAKEOVER && d >= 0 && d < SP1_MIDI_DESTS &&
-         !CcIsOffset(d) && SP1_MIDI_DEST_CC[d] >= 0 && port_up != 0u;
+  return g_cfg.pickup == SP1_MIDI_PICKUP_TAKEOVER && d >= 0 && d < SP1_MIDI_DESTS &&
+         !CcIsOffset(d) && g_cfg.dest_cc[d] >= 0 && port_up != 0u;
 }
 
 extern "C" float sp1_midi_offset(int d) {
@@ -1421,7 +1441,7 @@ extern "C" bool sp1_midi_audio_begin(uint32_t cycles, uint32_t blocks, uint8_t e
   if (smooth_due >= kSmoothBlocks) {
     if (smooth_due != smooth_coef_blocks) {
       smooth_coef_blocks = smooth_due;
-      const float tau = static_cast<float>(SP1_MIDI_SMOOTH_MS) * 1e-3f;
+      const float tau = static_cast<float>(g_cfg.smooth_ms) * 1e-3f;
       smooth_coef = tau <= 0.0f
           ? 1.0f
           : 1.0f - expf(-static_cast<float>(smooth_due) / (tau * kRefreshHz));

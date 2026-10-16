@@ -1,0 +1,40 @@
+; Format: ini
+; =====================================================================================
+;  Wakes — LOGS
+; =====================================================================================
+;
+;  Wakes logs activity to its drive, in WAKES/LOGS/. One file per session (from turning Wakes
+;  on, until it is turned off). The last 5 sessions are kept.
+;  Find your log files in WAKES/LOGS/SESSION. Logs are named with the latest session's number.
+;  If you need support, we might ask you to send us these. Each file stops at 8 MB, about 12
+;  hours of playing.
+;
+;  Wakes reads this .cnfg file every time it turns ON and applies cnfg changes.
+;  Edit these settings to control log granularity. Adara might ask to edit these based on your
+;  circumstance.
+;
+;  Lines starting with ; or # are comments. Every setting can be left out to get its default.
+;  A setting Wakes cannot read keeps its default, and the log says which line it was.
+;
+;  Startup, power, battery, headphone and cnfg file lines are always written; 
+;  the settings below choose what else gets logged.
+
+[logs]
+; on  = Wakes writes the log to its drive while ON (default).
+; off = nothing is written to the drive.
+enabled      = on
+
+; CPU and audio load, every 5 seconds.
+performance  = on
+
+; What you do on the controls: pages, engines, routing, scales, ROTC.
+controls     = off
+
+; MIDI over USB, and the MIDI clock.
+midi         = off
+
+; USB audio out and the USB connection.
+usb          = off
+
+; Storage drive logs: loading and saving presets (PRST), .logs files.
+storage      = on

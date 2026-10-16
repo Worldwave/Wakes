@@ -95,14 +95,15 @@
 #include "sp1_prst.h"            /* M6 (#50): the ROTC defaults main.c owns */
 #include "sp1_release_guard.h"
 #include "sp1_midi.h"
+#include "sp1_cnfg.h"           /* the config types: midi.cnfg, audio.cnfg (#52) */
 #endif
 #if defined(CONFIG_SP1_USB_AUDIO)
 #include "sp1_uac.h"
-#include "sp1_audio_gen.h"      /* config/audio.ini */
+#include "sp1_cnfg.h"           /* struct sp1_audio_cfg: audio.cnfg, live (#52) */
 #endif
 
-/* ---- USB audio out's level (M5c; config/audio.ini [usb] level) ----
- * `parked`: while a host takes USB audio out (sp1_uac_live), VOL is set to audio.ini's
+/* ---- USB audio out's level (M5c; audio.cnfg [usb] level) ----
+ * `parked`: while a host takes USB audio out (sp1_uac_live), VOL is set to audio.cnfg's
  * parked_level and its buttons do nothing; when the host stops, VOL goes back to where the
  * user left it. Wakes has ONE output level for every output, so this parks the headphones
  * (and the speaker, if it is on) too -- deliberately: a separate USB level would be a second
@@ -116,25 +117,29 @@ static int vol_saved;
 
 static int usb_parked_db(void)
 {
-	return SP1_AUDIO_USB_PARKED_DB;
+	return sp1_audio_config()->parked_db;
 }
 
 static void usb_level_park(bool usb_live)
 {
-	if (!SP1_AUDIO_USB_LEVEL_PARKED) {
-		return;
-	}
-	if (usb_live && !vol_parked) {
-		vol_saved = sp1_audio_level_get();
-		sp1_audio_level_step(SP1_AUDIO_USB_PARKED_STEP - vol_saved);
-		vol_parked = true;
-		printk("LEVEL parked at %d dBFS: a host takes USB audio out, VOL locked"
-		       " (config/audio.ini)\n", (int)SP1_AUDIO_USB_PARKED_DB);
-	} else if (!usb_live && vol_parked) {
+	const struct sp1_audio_cfg *ac = sp1_audio_config();
+	/* Already parked when the settings changed (a new ON with `level = vol`): unpark. */
+	if ((!ac->parked || !usb_live) && vol_parked) {
 		sp1_audio_level_step(vol_saved - sp1_audio_level_get());
 		vol_parked = false;
 		printk("LEVEL back to step %d: no host takes USB audio out, VOL unlocked\n",
 		       vol_saved);
+		return;
+	}
+	if (!ac->parked) {
+		return;
+	}
+	if (usb_live && !vol_parked) {
+		vol_saved = sp1_audio_level_get();
+		sp1_audio_level_step((int)ac->parked_step - vol_saved);
+		vol_parked = true;
+		printk("LEVEL parked at %d dBFS: a host takes USB audio out, VOL locked"
+		       " (audio.cnfg)\n", (int)ac->parked_db);
 	}
 }
 #else
@@ -310,7 +315,7 @@ static void prst_glyph_levels(int slot, uint32_t t, uint8_t lv[4])
 
 /* ---- the engine flash, for an engine on the list or off it (#50) ----
  * On the list: its fixed glyph through sp1_display_engine(), as always. Off the list (a PRST
- * slot loaded an engine engines.csv does not list): no glyph exists, so all four face LEDs
+ * slot loaded an engine engines.cnfg does not list): no glyph exists, so all four face LEDs
  * ramp 70 % -> 0 every SP1_OFFLIST_RAMP_MS for SP1_DISP_ENGINE_HOLD_MS, then the same fade
  * (Adara). Redrawn every tick by offlist_glyph_tick(); anything else that flashes the row
  * stops it (sp1_display_flash_count). Use this wherever the ENGINE glyph is shown. */
@@ -487,7 +492,7 @@ static void midi_tick(uint32_t dt, bool busy)
 	const bool up = sp1_midi_port_up();
 	if (up != midi_port_was) {
 		midi_port_was = up;
-		/* The script's pickup (config/midi.ini), so a log says which one was flashed. */
+		/* The script's pickup (midi.cnfg, #52), so a log says which one is in use. */
 		static const char *const pickup[] = {
 			[SP1_MIDI_PICKUP_SUM]      = "sum: CCs offset the faders",
 			[SP1_MIDI_PICKUP_SHARED]   = "shared: CCs and faders share each value",
@@ -495,7 +500,7 @@ static void midi_tick(uint32_t dt, bool busy)
 		};
 		if (up) {
 			printk("MIDI port enabled by the host (pickup %s)\n",
-			       pickup[SP1_MIDI_PICKUP]);
+			       pickup[sp1_midi_config()->pickup % 3u]);
 			/* A host can start Marbles before PLAY ever has (M5b), so seed its
 			 * random stream now if PLAY has not: the moment a host enumerates
 			 * varies as much as the moment of a first PLAY. */
@@ -1178,33 +1183,50 @@ static void prst_gather(struct sp1_prst *p)
  * Adara: "the shutdown animation completes -> the UI freezes -> save -> OFF or STANDBY",
  * with the UI locked and the LEDs off, limit 4 s. The UI is frozen because main is in here;
  * audio stops first (sp1_quiesce_peripherals() would stop it a moment later anyway), so the
- * storage thread has the CPU. Never called by the 30 s backstop (sp1_power.h). */
-static void prst_save_at_shutdown(void)
+ * storage thread has the CPU. Never called by the 30 s backstop (sp1_power.h).
+ * #52: then the log's last lines, in what is left of the same 4 s (Adara: the save first). */
+static void storage_at_shutdown(void)
 {
-	if (!g_prst_on) {
+	const bool log = sp1_store_log_live();
+	if (!g_prst_on && !log) {
 		return;
 	}
-	g_prst_on = false;
 	sp1_leds_all_off();
 	sp1_audio_stop();
-	struct sp1_prst p;
-	prst_gather(&p);
 	const uint32_t t0 = k_uptime_get_32();
-	if (!sp1_store_prst_save(g_prst_slot, &p)) {
-		printk("PRST save: not possible (storage not ready) -- nothing saved\n");
-		return;
+	if (!g_prst_on) {
+		sp1_store_log_end();
+	} else {
+		g_prst_on = false;
+		struct sp1_prst p;
+		prst_gather(&p);
+		if (!sp1_store_prst_save(g_prst_slot, &p)) {
+			printk("PRST save: not possible (storage not ready) -- nothing saved\n");
+			sp1_store_log_end();
+		} else {
+			while (sp1_store_save_result() == SP1_STORE_SAVE_BUSY &&
+			       k_uptime_get_32() - t0 < SP1_PRST_SAVE_MS) {
+				sp1_wdt_feed();
+				k_msleep(TICK_MS);
+			}
+			const enum sp1_store_save r = sp1_store_save_result();
+			printk("PRST save slot %d: %s after %u ms\n", g_prst_slot + 1,
+			       r == SP1_STORE_SAVE_OK ? "saved" : (r == SP1_STORE_SAVE_BUSY
+						     ? "NOT finished in time -- powering off anyway"
+						     : "FAILED"),
+			       (unsigned)(k_uptime_get_32() - t0));
+		}
 	}
-	while (sp1_store_save_result() == SP1_STORE_SAVE_BUSY &&
-	       k_uptime_get_32() - t0 < SP1_PRST_SAVE_MS) {
+	/* The save job closes the log after the save (sp1_store.h). */
+	while (sp1_store_log_live() && k_uptime_get_32() - t0 < SP1_PRST_SAVE_MS) {
 		sp1_wdt_feed();
 		k_msleep(TICK_MS);
 	}
-	const enum sp1_store_save r = sp1_store_save_result();
-	printk("PRST save slot %d: %s after %u ms\n", g_prst_slot + 1,
-	       r == SP1_STORE_SAVE_OK ? "saved" : (r == SP1_STORE_SAVE_BUSY
-					     ? "NOT finished in time -- powering off anyway"
-					     : "FAILED"),
-	       (unsigned)(k_uptime_get_32() - t0));
+	if (log) {
+		printk("LOG %s after %u ms\n", sp1_store_log_live()
+		       ? "NOT closed in time -- powering off anyway" : "closed",
+		       (unsigned)(k_uptime_get_32() - t0));
+	}
 }
 #elif defined(CONFIG_SP1_PLAITS)
 /* Without storage there is no PRST: "••" + PLAY is ROTC alone. */
@@ -1373,7 +1395,7 @@ int main(void)
 	sp1_mui_init();
 #endif
 #if defined(CONFIG_SP1_STORAGE) && defined(CONFIG_SP1_PLAITS)
-	sp1_power_set_save_hook(prst_save_at_shutdown);   /* PRST (#50) */
+	sp1_power_set_save_hook(storage_at_shutdown);     /* PRST (#50), the log (#52) */
 #endif
 
 	/* ---- top-level state machine ----
@@ -1384,6 +1406,9 @@ int main(void)
 
 	for (;;) {
 		if (standby) {
+			/* #52 (Adara): STANDBY is not logged to the drive. Its lines stay in the
+			 * RAM log for the console; the file's cursor jumps over them at ON. */
+			sp1_logbuf_file_pause();
 			sp1_standby_run();     /* returns only when powering ON */
 			standby = false;
 		}
@@ -1417,6 +1442,7 @@ int main(void)
 #if defined(CONFIG_SP1_STORAGE)
 		/* M6 (#43): the eMMC job runs in the storage thread, below main and audio;
 		 * this only queues it. Every way out of ON stops it (sp1_quiesce_peripherals). */
+		sp1_logbuf_file_resume();     /* #52: from here the lines are for the log file */
 		sp1_store_on_enter();
 #if defined(CONFIG_SP1_FRESH)
 		/* The fresh image's format holds ON entry, before audio (storage_gate). */
@@ -1430,6 +1456,27 @@ int main(void)
 		if (!prst_gate()) {
 			standby = true;           /* the 30 s backstop, plugged in */
 			continue;
+		}
+		/* #52: the ON job may have installed a new engine stack (engines.cnfg). */
+		sp1_pui_stack_settle();
+		/* ...and read audio.cnfg and midi.cnfg: applied here, before the MIDI reset and
+		 * audio start below, so nothing runs on a half-applied script. */
+		{
+			const struct sp1_audio_cfg *ac;
+			const struct sp1_midi_cfg *mc;
+			if (sp1_store_cnfg(&ac, &mc)) {
+#if defined(CONFIG_SP1_USB_AUDIO)
+				sp1_audio_set_config(ac);
+#endif
+#if defined(CONFIG_SP1_MIDI)
+				sp1_midi_set_config(mc);
+#endif
+			} else {
+				printk("CNFG not read this ON: audio and MIDI settings stay as they "
+				       "were\n");
+			}
+			ARG_UNUSED(ac);
+			ARG_UNUSED(mc);
 		}
 		if (g_prst_on) {
 			prst_apply(sp1_store_prst_slot(g_prst_slot));
@@ -2260,10 +2307,10 @@ int main(void)
 			 * drive above instead, so this whole block stands down. */
 			if (!fnc && vol_parked && (sp1_button_pressed(SP1_BTN_VOL_DOWN) ||
 						   sp1_button_pressed(SP1_BTN_VOL_UP))) {
-				/* config/audio.ini level = parked: a host is recording, so VOL stays
-				 * where audio.ini put it until the host stops (usb_level_park). */
+				/* audio.cnfg level = parked: a host is recording, so VOL stays
+				 * where audio.cnfg put it until the host stops (usb_level_park). */
 				printk("LEVEL locked at %d dBFS while a host takes USB audio out"
-				       " (config/audio.ini)\n", (int)usb_parked_db());
+				       " (audio.cnfg)\n", (int)usb_parked_db());
 			}
 			if (!fnc && !vol_parked && sp1_button_pressed(SP1_BTN_VOL_DOWN)) {
 				sp1_audio_level_step(+1);

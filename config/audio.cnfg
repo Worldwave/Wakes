@@ -1,0 +1,38 @@
+; Format: ini
+; =====================================================================================
+;  Wakes — the audio settings
+; =====================================================================================
+;
+;  This file configures how Wakes handles sound output. Wakes reads this file from its drive
+;  (WAKES/CNFG/audio.cnfg) every time it turns ON.
+;
+;  Lines starting with ; or # are comments. They are not applied as settings.
+;  Every setting can be left blank to get its default. 
+;  A line Wakes cannot read keeps its default, and the log (WAKES/LOGS/) names it.
+
+
+[usb]
+;  USB AUDIO OUT. Plugged into a computer, phone or other USB host, Wakes shows up as an
+;  audio input ("Wakes Audio Out", or "Wakes" - the name depends on the host): 48 kHz,
+;  16-bit stereo, no driver. It carries what the speaker and headphones get.
+
+;  level - How USB audio out sets its level:
+;    parked (default) = 
+;      while a host takes USB audio, VOL is set to `parked_level` (the next parameter below) 
+;      and VOL+/VOL- are disabled. When the host stops, VOL goes back to where you left it.
+;      Wakes has ONE output level controlling every output, so parking it parks the 
+;      headphones (and the speaker, if `speaker = on`) at that level too.
+;    vol = 
+;      VOL+/- are unlocked, controlling USB audio gain like everything else.
+level          = parked
+
+
+;  parked_level - 'parked' mode gainstage, in dB. Options are: -- 0, -3, -6, -9, -12,
+;  -15, -18, -21, -24, -27 or -30. 0 is full scale, which Wakes' loudest patches (the
+;  drive's top steps) reach; -6 leaves the recording device some headroom.
+parked_level   = -6
+
+;  speaker - enable or disable the speaker while a host takes USB audio:
+;    off (default) = while connected, the onboard speaker is disabled.
+;    on = the speaker will play the same audio that goes out over USB and the headphone jack.
+speaker        = off

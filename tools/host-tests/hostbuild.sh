@@ -23,23 +23,34 @@ OBJ=$SP/hostobj$SP1_PLAITS_BLOCK
 
 python3 "$HERE/mkovr.py" "$OVR" >/dev/null
 mkdir -p "$GEN" "$OBJ"
-python3 "$ROOT/tools/gen_engines.py" "$ROOT/config/engines.csv" "$GEN/sp1_engines_gen.h" >/dev/null
+python3 "$ROOT/tools/gen_engines.py" "$ROOT/config/engines.cnfg" "$GEN/sp1_engines_gen.h" >/dev/null
 # M6 (#50): the PRST field table -- also where a format change without a version bump fails.
 python3 "$ROOT/tools/gen_prst.py" "$GEN/sp1_prst_gen.h" >/dev/null
+# #52: the logging defaults and logs.cnfg's text, as the firmware build generates them.
+python3 "$ROOT/tools/gen_logs.py" "$ROOT/config/logs.cnfg" "$GEN/sp1_logs_gen.h" >/dev/null
+python3 "$ROOT/tools/gen_audio.py" "$ROOT/config/audio.cnfg" "$GEN/sp1_audio_gen.h" >/dev/null
 # The MIDI script (M5a) as the firmware build generates it -- with ONE change: its `pickup`
 # forced to `sum`, because miditest.cc checks the offset maths and the other suites were
 # written against offsets. miditest_pickup.cc runs the shipped script as it is otherwise, once
 # per other pickup (below); miditest_alt.cc uses a second script of its own.
 # $1 = pickup, $2 = the ini to write. Fails if the script has no `pickup` line to replace.
 pickup_ini() {
-  sed -E 's/^pickup[[:space:]]*=.*/pickup = '"$1"'/' "$ROOT/config/midi.ini" > "$2"
-  grep -Eq "^pickup = $1\$" "$2" || { echo "hostbuild: no pickup line in config/midi.ini" >&2; exit 1; }
+  sed -E 's/^pickup[[:space:]]*=.*/pickup = '"$1"'/' "$ROOT/config/midi.cnfg" > "$2"
+  grep -Eq "^pickup = $1\$" "$2" || { echo "hostbuild: no pickup line in config/midi.cnfg" >&2; exit 1; }
 }
 pickup_ini sum "$GEN/midi-sum.ini"
-# ...and its legato forced to `off`, Yarns' default, whatever the shipped script is set to for
-# a hardware test: miditest.cc checks legato off; miditest_alt.cc checks legato on.
-sed -i -E 's/^legato[[:space:]]*=.*/legato = off/' "$GEN/midi-sum.ini"
-grep -Eq '^legato = off$' "$GEN/midi-sum.ini" || { echo "hostbuild: no legato line in config/midi.ini" >&2; exit 1; }
+# ...and four more lines forced, whatever the shipped script says: miditest.cc checks exact
+# pitch steps (legato off, portamento 0), the channel filter (channel 1) and the velocity maths
+# (velocity = level). miditest_alt.cc checks legato on, a glide, omni and the bindings, and
+# miditest_pickup.cc the shipped settings themselves (legato auto, portamento, omni, velocity).
+force_line() {   # $1 = key, $2 = value
+  sed -i -E "s/^[[:space:]]*$1[[:space:]]*=.*/$1 = $2/" "$GEN/midi-sum.ini"
+  grep -Eq "^$1 = $2\$" "$GEN/midi-sum.ini" || { echo "hostbuild: no $1 line in config/midi.cnfg" >&2; exit 1; }
+}
+force_line legato off
+force_line portamento 0
+force_line channel 1
+force_line velocity level
 python3 "$ROOT/tools/gen_midi.py" "$GEN/midi-sum.ini" "$GEN/sp1_midi_gen.h" >/dev/null
 
 INC="-I$OVR -I$SRC/plaits_ovr -I$SRC/plaits_shim -I$ER -I$SRC -I$GEN"
@@ -116,6 +127,9 @@ for t in "$@"; do
       gcc -std=c99 -O2 -Wall -fno-tree-loop-distribute-patterns -fno-unroll-loops \
           -include "$SRC/sp1_uac_tuning.h" $EXTRA_UAC_FLAGS -I"$UAC" \
           "$t" "$SP/uacring.c" -o "$out" ;;
+    *cnfgtest.c)
+      # #52: the config-file reader and the log file's cursor -- pure C, nothing else linked.
+      gcc $CFLAGS -Wall -Wextra $INC "$t" "$SRC/sp1_cnfg.c" "$SRC/sp1_logring.c" -o "$out" ;;
     *test_usb_rt_parse.c)
       # feldd's own host test of the packet validator Wakes uses (third_party/feldd).
       gcc -std=gnu11 -O2 "$t" "$FELDD/src/usb_rt_parse.c" -o "$out" ;;

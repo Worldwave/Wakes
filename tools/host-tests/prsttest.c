@@ -6,7 +6,7 @@
 #include <string.h>
 
 #include "sp1_prst.h"
-#include "sp1_engines_gen.h"     /* which engines config/engines.csv lists */
+#include "sp1_engines_gen.h"     /* which engines config/engines.cnfg lists */
 
 /* ---- stubs for the parts that live in the audio thread (as uitest.c) ---- */
 uint8_t sp1_marbles_last_gates(void) { return 0u; }
@@ -200,7 +200,7 @@ int main(void)
 	sp1_mui_get(&a.marbles);
 	CHECK(diff(&a, &d, "rip vs sp1_prst_rip") == 0, "the rip and the PRST defaults differ");
 	/* docs/DEFAULTS.md, spot checks: slot 1 = virtual analog, TIMBRE and HARMONICS bipolar */
-	CHECK(d.plaits.slot == 0 && strcmp(sp1_pui_slot_name(0), "virtual analog") == 0,
+	CHECK(d.plaits.slot == 0 && strcmp(sp1_pui_slot_name(0), "virtual-analog") == 0,
 	      "slot 1 is not virtual analog");
 	CHECK(d.plaits.v[SP1_PUI_BASE][0] == 0.5f && d.plaits.v[SP1_PUI_BASE][1] == 0.5f &&
 	      d.plaits.v[SP1_PUI_BASE][2] == 0.0f && d.plaits.v[SP1_PUI_BASE][3] == 0.5f,
@@ -221,7 +221,7 @@ int main(void)
 	sp1_prst_rip(&b, 6);
 	CHECK(b.plaits.slot == 6 && b.plaits.v[SP1_PUI_BASE][1] == 0.0f &&
 	      b.plaits.v[SP1_PUI_BASE][3] == 0.0f, "chords' neutral BASE is wrong");
-	sp1_prst_rip(&b, 23);    /* an empty slot (config/engines.csv) -> slot 1 */
+	sp1_prst_rip(&b, 23);    /* an empty slot (config/engines.cnfg) -> slot 1 */
 	CHECK(b.plaits.slot == 0, "an empty slot was accepted");
 
 	/* ---------- 2. write -> read gives the patch back ---------- */
@@ -496,7 +496,7 @@ int main(void)
 	printf("   %d corrupt files, all safe\n", runs);
 
 	/* ---------- 9. an engine OFF the list (#50) ---------- */
-	printf("9. engines off engines.csv\n");
+	printf("9. engines off engines.cnfg\n");
 	{
 		int off = -1, first = -1, last = -1;
 		for (int i = 0; i < SP1_ENGINE_SLOTS; i++) {
@@ -541,6 +541,18 @@ int main(void)
 			sp1_prst_parse(text, (size_t)n, &b, &rep);
 			CHECK(diff(&a, &b, "off-list round trip") == 0 && rep.bad == 0,
 			      "an off-list engine does not survive a round trip");
+			/* #52: names became hyphenated (VA-VCF, grain-formant); a file saved under the
+			 * old spelling still loads its engine -- names match on letters and digits. */
+			static const char *const OLD[] = { "VA + VCF", "grain / formant",
+							   "string machine", "virtual analog" };
+			for (size_t k = 0; k < sizeof(OLD) / sizeof(OLD[0]); k++) {
+				with(text, "engine", OLD[k], buf2, sizeof(buf2));
+				sp1_prst_parse(buf2, strlen(buf2), &b, &rep);
+				const int want = sp1_pui_slot_of(OLD[k], (int)strlen(OLD[k]));
+				CHECK(want >= 0 && b.plaits.slot == want && rep.bad == 0,
+				      "old name \"%s\" -> slot %d (want %d), bad %d", OLD[k],
+				      b.plaits.slot, want, rep.bad);
+			}
 			/* the UI plays it, with its own detents and no glyph */
 			sp1_pui_put(&a.plaits);
 			struct sp1_synth_params sp;

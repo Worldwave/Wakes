@@ -96,6 +96,14 @@ uint32_t sp1_audio_take_peak(void);
 
 void sp1_audio_level_step(int delta);  /* +1 = quieter by 3 dB, -1 = louder */
 int  sp1_audio_level_get(void);
+
+#if defined(CONFIG_SP1_USB_AUDIO)
+/* #52: the audio settings from the drive (audio.cnfg). Main, at ON entry. sp1_audio_config()
+ * is the live copy (the built-in one until then). */
+struct sp1_audio_cfg;
+void sp1_audio_set_config(const struct sp1_audio_cfg *c);
+const struct sp1_audio_cfg *sp1_audio_config(void);
+#endif
 int  sp1_audio_level_db_x10(void);     /* tenths of dBFS, -9990 = mute      */
 
 /* ---- the fallback test tone (CONFIG_SP1_PLAITS=n only): 440 Hz, off at start ---- */

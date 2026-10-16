@@ -6,6 +6,7 @@
 #include "sp1_marbles_ui.h"
 #include "sp1_plaits_ui.h"
 #include "sp1_release_guard.h"
+#include "sp1_engines_gen.h"      /* the built-in stack (#52) */
 
 /* ---- stubs for the parts that live in the audio thread ---- */
 static uint8_t stub_gates;   /* t1..t3 as Marbles last rendered them (section 19) */
@@ -1000,6 +1001,54 @@ int main(void)
 		}
 		sp1_pui_params(&pb);
 		CHECK(pb.timbre > pa.timbre + 0.1f, "a real TIMBRE move after the lock did nothing");
+	}
+
+	printf("21. the engine stack from the drive (#52)\n");
+	{
+		/* A user's engines.cnfg: slots 1-4 empty, chords in 5, speech in 9, VA + VCF in 20
+		 * (Plaits indices 14, 15, 0). */
+		uint8_t st[24];
+		memset(st, 255, sizeof(st));
+		st[4] = 14;
+		st[8] = 15;
+		st[19] = 0;
+		sp1_pui_init();
+		sp1_pui_enter(raw_mid);
+		sp1_pui_set_stack(st);
+		sp1_pui_stack_settle();                 /* slot 1 is empty now: -> slot 5 */
+		CHECK(sp1_pui_slot() == 4 && sp1_pui_engine() == 14,
+		      "settle: slot %d engine %d, want slot 5 (chords)", sp1_pui_slot() + 1,
+		      sp1_pui_engine());
+		sp1_pui_engine_step(1);
+		sp1_pui_engine_step(1);
+		CHECK(sp1_pui_slot() == 19 && sp1_pui_engine() == 0,
+		      "T3 twice: slot %d, want 20 (VA + VCF)", sp1_pui_slot() + 1);
+		sp1_pui_engine_step(1);                 /* wraps past the empty slots */
+		CHECK(sp1_pui_slot() == 4, "T3 wrap: slot %d, want 5", sp1_pui_slot() + 1);
+		sp1_pui_engine_step(-1);
+		CHECK(sp1_pui_slot() == 19, "T2 wrap: slot %d, want 20", sp1_pui_slot() + 1);
+		/* ROTC returns to the FIRST FILLED slot of THIS stack (Adara, #52). */
+		sp1_pui_rip();
+		CHECK(sp1_pui_slot() == 4 && sp1_pui_engine() == 14,
+		      "ROTC: slot %d engine %d, want slot 5 (chords)", sp1_pui_slot() + 1,
+		      sp1_pui_engine());
+		/* Names resolve against this stack, any spelling; off it -> off-list. */
+		CHECK(sp1_pui_slot_of("VA-VCF", 6) == 19, "VA-VCF -> %d, want slot 20",
+		      sp1_pui_slot_of("VA-VCF", 6));
+		CHECK(sp1_pui_slot_of("grain / formant", 15) == SP1_PUI_OFFLIST + 11,
+		      "grain / formant is off this stack: %d", sp1_pui_slot_of("grain / formant", 15));
+		CHECK(sp1_pui_slot_of("virtual analog", 14) == SP1_PUI_OFFLIST + 8,
+		      "virtual analog is off this stack");
+		/* A stack with no engine is never installed: the built-in one is used. */
+		memset(st, 255, sizeof(st));
+		sp1_pui_set_stack(st);
+		sp1_pui_rip();
+		CHECK(sp1_pui_slot() == 0 && sp1_pui_engine() == 8,
+		      "empty stack -> built-in: slot %d engine %d", sp1_pui_slot() + 1,
+		      sp1_pui_engine());
+		/* And back to the built-in stack for anything after this. */
+		const uint8_t def[24] = SP1_ENGINE_DEFAULT_STACK;
+		sp1_pui_set_stack(def);
 	}
 
 	printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "all checks passed",

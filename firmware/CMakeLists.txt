@@ -16,29 +16,30 @@ project(wakes-sp1)
 # The USB device is ours since M5a (src/sp1_usbd.c, CONFIG_SP1_USB_* in Kconfig): Zephyr's
 # sample helper, included here through M4e, hard-codes Zephyr's test vendor ID.
 
-# ---- the engine list: generated from config/engines.csv ----
-# The CSV is the USER's choice of engines, slots and glyphs; the facts about each engine
-# (its index inside Plaits, its centre detents) live in tools/gen_engines.py and are not
-# user-editable. The build fails with a message naming the line if the CSV is malformed.
-set(SP1_ENGINES_CSV ${CMAKE_CURRENT_SOURCE_DIR}/../config/engines.csv)
+# ---- the engine list: generated from config/engines.cnfg ----
+# The DEFAULT engine stack (ini, #52): which engine sits in which slot. Each slot's glyph and
+# the facts about each engine (its index inside Plaits, its centre detents) live in
+# tools/gen_engines.py and are not user-editable. The build fails, naming the line, if the
+# file is wrong.
+set(SP1_ENGINES_CNFG ${CMAKE_CURRENT_SOURCE_DIR}/../config/engines.cnfg)
 set(SP1_ENGINES_GEN ${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_engines.py)
 set(SP1_ENGINES_H   ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated/sp1_engines_gen.h)
 add_custom_command(
 	OUTPUT  ${SP1_ENGINES_H}
-	COMMAND ${Python3_EXECUTABLE} ${SP1_ENGINES_GEN} ${SP1_ENGINES_CSV} ${SP1_ENGINES_H}
-	DEPENDS ${SP1_ENGINES_CSV} ${SP1_ENGINES_GEN}
-	COMMENT "Generating the engine table from config/engines.csv"
+	COMMAND ${Python3_EXECUTABLE} ${SP1_ENGINES_GEN} ${SP1_ENGINES_CNFG} ${SP1_ENGINES_H}
+	DEPENDS ${SP1_ENGINES_CNFG} ${SP1_ENGINES_GEN}
+	COMMENT "Generating the engine table from config/engines.cnfg"
 )
 add_custom_target(sp1_engines_gen DEPENDS ${SP1_ENGINES_H})
 add_dependencies(app sp1_engines_gen)
 target_include_directories(app PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated)
 
-# ---- the MIDI script (M5a): generated from config/midi.ini ----
+# ---- the MIDI script (M5a): generated from config/midi.cnfg ----
 # Like the engine list: tools/gen_midi.py fails the build, naming the line, on anything
 # invalid. Generated in EVERY configuration, because the UI files read its enum even where
 # MIDI is compiled out (sp1_midi.h then stubs the calls). With MIDI in, it also writes this
 # build's CC chart next to the firmware: wakes-sp1-midi.md and .csv.
-set(SP1_MIDI_INI ${CMAKE_CURRENT_SOURCE_DIR}/../config/midi.ini)
+set(SP1_MIDI_CNFG ${CMAKE_CURRENT_SOURCE_DIR}/../config/midi.cnfg)
 set(SP1_MIDI_GEN ${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_midi.py)
 set(SP1_MIDI_H   ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated/sp1_midi_gen.h)
 set(SP1_MIDI_OUT ${SP1_MIDI_H})
@@ -50,27 +51,42 @@ if(CONFIG_SP1_MIDI)
 endif()
 add_custom_command(
 	OUTPUT  ${SP1_MIDI_OUT}
-	COMMAND ${Python3_EXECUTABLE} ${SP1_MIDI_GEN} ${SP1_MIDI_INI} ${SP1_MIDI_H} ${SP1_MIDI_CHART}
-	DEPENDS ${SP1_MIDI_INI} ${SP1_MIDI_GEN}
-	COMMENT "Generating the MIDI tables from config/midi.ini"
+	COMMAND ${Python3_EXECUTABLE} ${SP1_MIDI_GEN} ${SP1_MIDI_CNFG} ${SP1_MIDI_H} ${SP1_MIDI_CHART}
+	DEPENDS ${SP1_MIDI_CNFG} ${SP1_MIDI_GEN}
+	COMMENT "Generating the MIDI tables from config/midi.cnfg"
 )
 add_custom_target(sp1_midi_gen DEPENDS ${SP1_MIDI_OUT})
 add_dependencies(app sp1_midi_gen)
 
-# ---- the audio settings: config/audio.ini -> sp1_audio_gen.h (M5c) ----
+# ---- the audio settings: config/audio.cnfg -> sp1_audio_gen.h (M5c) ----
 # How sound leaves the device: USB audio out's level mode and the speaker while a host takes
 # it. Same rule as the MIDI script: a bad value fails the build, naming the line.
-set(SP1_AUDIO_INI ${CMAKE_CURRENT_SOURCE_DIR}/../config/audio.ini)
+set(SP1_AUDIO_CNFG ${CMAKE_CURRENT_SOURCE_DIR}/../config/audio.cnfg)
 set(SP1_AUDIO_GEN ${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_audio.py)
 set(SP1_AUDIO_H   ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated/sp1_audio_gen.h)
 add_custom_command(
 	OUTPUT  ${SP1_AUDIO_H}
-	COMMAND ${Python3_EXECUTABLE} ${SP1_AUDIO_GEN} ${SP1_AUDIO_INI} ${SP1_AUDIO_H}
-	DEPENDS ${SP1_AUDIO_INI} ${SP1_AUDIO_GEN}
-	COMMENT "Generating the audio settings from config/audio.ini"
+	COMMAND ${Python3_EXECUTABLE} ${SP1_AUDIO_GEN} ${SP1_AUDIO_CNFG} ${SP1_AUDIO_H}
+	DEPENDS ${SP1_AUDIO_CNFG} ${SP1_AUDIO_GEN}
+	COMMENT "Generating the audio settings from config/audio.cnfg"
 )
 add_custom_target(sp1_audio_gen DEPENDS ${SP1_AUDIO_H})
 add_dependencies(app sp1_audio_gen)
+
+# ---- the logging defaults: config/logs.cnfg -> sp1_logs_gen.h (#52) ----
+# The built-in defaults the drive's WAKES/CNFG/logs.cnfg overrides, and the file's text for
+# wakes-sp1-fresh to write there. A bad default fails the build, naming the line.
+set(SP1_LOGS_CNFG ${CMAKE_CURRENT_SOURCE_DIR}/../config/logs.cnfg)
+set(SP1_LOGS_GEN  ${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_logs.py)
+set(SP1_LOGS_H    ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated/sp1_logs_gen.h)
+add_custom_command(
+	OUTPUT  ${SP1_LOGS_H}
+	COMMAND ${Python3_EXECUTABLE} ${SP1_LOGS_GEN} ${SP1_LOGS_CNFG} ${SP1_LOGS_H}
+	DEPENDS ${SP1_LOGS_CNFG} ${SP1_LOGS_GEN}
+	COMMENT "Generating the logging defaults from config/logs.cnfg"
+)
+add_custom_target(sp1_logs_gen DEPENDS ${SP1_LOGS_H})
+add_dependencies(app sp1_logs_gen)
 
 # ---- PRST (M6, #50): the slot file's field table, from tools/gen_prst.py ----
 # No user input: the field list lives in the script. It also holds the format versions, and
@@ -94,6 +110,7 @@ target_sources(app PRIVATE
 	src/sp1_standby.c
 	src/sp1_console.c
 	src/sp1_logbuf.c
+	src/sp1_logring.c
 	src/sp1_threads.c
 	src/sp1_usbd.c
 	src/sp1_controls.c
@@ -107,7 +124,7 @@ target_sources(app PRIVATE
 
 # ---- M6 (#43): the eMMC and the FAT volume on it (src/sp1_store.h) ----
 if(CONFIG_SP1_STORAGE)
-	target_sources(app PRIVATE src/sp1_emmc.c src/sp1_store.c)
+	target_sources(app PRIVATE src/sp1_emmc.c src/sp1_store.c src/sp1_cnfg.c)
 	target_sources_ifdef(CONFIG_SP1_STORAGE_TEST app PRIVATE src/sp1_emmc_report.c)
 	# ff.h, for FATFS and MKFS_PARM (Zephyr's fatfs module, ELMFAT interface).
 	target_link_libraries(app PRIVATE ELMFAT)

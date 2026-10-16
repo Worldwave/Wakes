@@ -30,6 +30,7 @@ static bool ok;
 
 static uint16_t lad_raw[2];
 static uint16_t fad_raw[SP1_NUM_FADERS];      /* last VALID fader sample */
+static void track_touch(void);                 /* shutdown suppression: below the scan */
 static uint16_t fad_scratch[SP1_NUM_FADERS];  /* this scan, maybe sagged */
 static bool     fad_valid;
 static enum sp1_rail rail;
@@ -474,6 +475,9 @@ void sp1_controls_scan(void)
 			last_idle[i] = fad_raw[i];
 		}
 	}
+	if (fad_valid) {
+		track_touch();      /* a rejected scan is no evidence either way */
+	}
 
 	decode_buttons();
 }
@@ -700,11 +704,34 @@ static uint16_t why_from, why_to;
  * exact 0 when parked, and 2x oversampling keeps mid-travel quiet), and far below
  * any deliberate move -- a real shift gesture sweeps hundreds of counts. */
 #define SP1_TOUCH_COUNTS 80u
+/* ...and it must be away from the mark on this many VALID scans in a row (2 = 16 ms), the
+ * buttons' own debounce. One reading 82 counts off on a fader parked at 0 suppressed a
+ * shutdown on 2026-10-15 (0006.LOGS) with nobody touching it; the logged positions show no
+ * sign of a worn fader (F4 is the quietest at the bottom), so a lone spike is the likely
+ * cause. A real move lasts far longer than 16 ms, so shifting is unchanged. This only
+ * decides whether the 3 s animation starts; the 30 s backstop never looks (rule 5a). */
+#define SP1_TOUCH_SCANS  2u
+static uint8_t touch_run[SP1_NUM_FADERS];   /* valid scans in a row past the threshold */
+
+static void track_touch(void)
+{
+	for (int i = 0; i < SP1_NUM_FADERS; i++) {
+		const uint16_t v = fad_raw[i];
+		const uint16_t d = (v > mark_fad[i]) ? (uint16_t)(v - mark_fad[i])
+						     : (uint16_t)(mark_fad[i] - v);
+		if (!marked || d < SP1_TOUCH_COUNTS) {
+			touch_run[i] = 0u;
+		} else if (touch_run[i] < 255u) {
+			touch_run[i]++;
+		}
+	}
+}
 
 void sp1_controls_activity_mark(void)
 {
 	for (int i = 0; i < SP1_NUM_FADERS; i++) {
 		mark_fad[i] = fad_raw[i];
+		touch_run[i] = 0u;
 	}
 	marked = true;
 }
@@ -712,6 +739,9 @@ void sp1_controls_activity_mark(void)
 void sp1_controls_activity_clear(void)
 {
 	marked = false;
+	for (int i = 0; i < SP1_NUM_FADERS; i++) {
+		touch_run[i] = 0u;
+	}
 }
 
 bool sp1_controls_activity(void)
@@ -748,9 +778,7 @@ bool sp1_controls_activity(void)
 	 * move through sag -- the sagged samples were never stored. */
 	for (int i = 0; i < SP1_NUM_FADERS; i++) {
 		const uint16_t v = fad_raw[i];
-		const uint16_t d = (v > mark_fad[i]) ? (uint16_t)(v - mark_fad[i])
-						     : (uint16_t)(mark_fad[i] - v);
-		if (d >= SP1_TOUCH_COUNTS) {
+		if (touch_run[i] >= SP1_TOUCH_SCANS) {   /* past the threshold, and stayed */
 			why_kind = WHY_FADER;
 			why_index = i;
 			why_from = mark_fad[i];

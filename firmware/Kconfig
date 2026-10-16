@@ -182,12 +182,16 @@ config FS_FATFS_CUSTOM_MOUNT_POINTS
 
 config SP1_LOGBUF_KB
 	int "Stored log, in KB of RAM"
+	default 16 if SP1_STORAGE
 	default 96
 	range 4 160
 	help
 	  Everything printk writes is also kept in RAM, newest last, and played back when a
 	  terminal next opens the console -- so a session with the USB port in another host's
-	  hands (the OP-XY) is not lost (src/sp1_logbuf.h). 96 KB is ~14 minutes of a session.
+	  hands (the OP-XY) is not lost (src/sp1_logbuf.h). Since #52 the session also goes to
+	  WAKES/LOGS/ on the drive every 5 s, so this only has to cover the gap between flushes
+	  and the boot before the first ON: 16 KB, ~2 minutes of a session (96 KB before, and
+	  still in an image without storage -- the fallback -- where RAM is all there is).
 
 config SP1_USB_THREADS_BELOW_AUDIO
 	bool "Run Zephyr's USB threads below the audio thread (#32)"
@@ -206,7 +210,8 @@ config SP1_MIDI
 	help
 	  A USB-MIDI 1.0 port (feldd's class, third_party/feldd) next to the console.
 	  Notes play Plaits, CCs offset parameters on both modules, all configured by
-	  config/midi.ini at build time. Costs nothing until a host sends something.
+	  the MIDI script (config/midi.cnfg built in, WAKES/CNFG/midi.cnfg on the drive at
+	  every ON). Costs nothing until a host sends something.
 	  n: no MIDI function on the USB device at all.
 
 config SP1_USB_AUDIO

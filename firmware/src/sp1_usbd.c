@@ -23,6 +23,7 @@
 #include <cmsis_core.h>
 #include "sp1_midi.h"
 #include "sp1_midi_usb.h"
+#include "sp1_cnfg.h"           /* struct sp1_midi_cfg: the script's `clock` (#52) */
 #include "usb_rt_parse.h"
 
 BUILD_ASSERT(CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC == SP1_MIDI_STAMP_HZ,
@@ -252,7 +253,7 @@ void sp1_midi_usb_rx(const uint8_t *data, size_t len)
 			rt_cin5 = rt_cin5 + 1u;
 		}
 		if (msg[0] != 0u) {
-			if (SP1_MIDI_CLOCK) {               /* the script's `clock` */
+			if (sp1_midi_config()->clock) {     /* the script's `clock` */
 				sp1_midi_push(msg, 1u, now);
 			}
 			continue;
@@ -265,7 +266,7 @@ void sp1_midi_usb_rx(const uint8_t *data, size_t len)
 		if (cin >= 0x4u && cin <= 0x7u) {
 			const uint8_t mmc = sp1_midi_mmc_feed(&data[i]);
 			if (mmc > 1u) {
-				if (SP1_MIDI_CLOCK) {
+				if (sp1_midi_config()->clock) {
 					msg[0] = mmc;
 					sp1_midi_push(msg, 1u, now);
 				}

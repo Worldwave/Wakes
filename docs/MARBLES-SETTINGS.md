@@ -4,10 +4,10 @@ The Marbles-side companion to `docs/PLAITS-ENGINES.md`: everything that is a *ch
 than a fader, what each choice does, the LED glyph that flashes when you change it, and whether
 it is included in the firmware.
 
-⚠️ **This file is NOT read by the build**, unlike `config/engines.csv` for Plaits. The tables below are the
+⚠️ **This file is NOT read by the build**, unlike `config/engines.cnfg` for Plaits. The tables below are the
 authority for what the firmware *should* do; `firmware/src/sp1_marbles_ui.c` holds the same
 glyphs and inclusion flags in C. If a third consumer ever appears, generate them from here the
-way `tools/gen_engines.py` generates the engine list from `config/engines.csv` — until then, changing a glyph or an
+way `tools/gen_engines.py` generates the engine list from `config/engines.cnfg` — until then, changing a glyph or an
 inclusion flag means changing both.
 
 ## LED glyphs

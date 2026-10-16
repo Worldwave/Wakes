@@ -1,0 +1,278 @@
+; Format: ini
+; =====================================================================================
+;  Wakes — Plaits Engine Stack Configuration
+; =====================================================================================
+;
+;  Mutable Instruments Plaits is a Eurorack macro-oscillator module created by Émilie Gillet,
+;  and its code comprises the audible portion of Wakes! Plaits has 24 sound engines. Its custom
+;  firmware community has created many more over the years. Wakes currently features the originals.
+;  This CNFG file determines the Plaits sound engines you want to include in your engine stack.
+;  T2 and T3 step through the slots in the order shown below, skipping empty slots or unused lines.
+;  Wakes starts on the first filled slot. You'll return to that slot when you Rip Out The Cables.
+;
+;  - LIST FORMAT:
+;      N  = engine-name          ; <glyph>
+;
+;  - 16 default slots, with a maximum of 24. Each slot has its own glyph which flashes when selected.
+;    Glyphs are shown after the ; on each line. The glyph belongs to the SLOT, not to the engine
+;    in that slot. Moving an engine moves it to that slot's glyph.
+;  - To include an engine, paste its name directly from the ENGINES section below.
+;    Each engine can be used once.
+;  - Leave a slot empty (or delete its line) to skip it.
+;  - This file is the whole stack: a slot that is not listed here is empty.
+;  - Engines that are not in the stack will still be usable if a PRST uses them.
+;    You'll know an engine is not in your stack by a flashing glyph across all four face LEDs.
+;  - If Wakes can't use this file (a misspelled engine, an engine used twice, or no engines at
+;    all), it ignores the whole file and plays the 16 built-in engines. The log says which line.
+;
+;  Remember: in ini files, text following a ; or a # is a comment.
+
+[engines]
+1  = virtual-analog          ; ●○○○
+2  = waveshaping             ; ●●○○
+3  = 2-op-FM                 ; ●●●○
+4  = grain-formant           ; ●●●●
+5  = additive                ; ○●●●
+6  = wavetable               ; ○○●●
+7  = chords                  ; ○○○●
+8  = speech                  ; ○●○○
+9  = swarm                   ; ○○●○
+10 = filtered-noise          ; ●○○●
+11 = particle                ; ○●●○
+12 = string                  ; ●○●●
+13 = modal                   ; ●●○●
+14 = bass-drum               ; ●○●○
+15 = snare-drum              ; ○●○●
+16 = hi-hat                  ; ○○○○
+17 =                         ; ◐◐◐◐
+18 =                         ; ○◐◐○
+19 =                         ; ◐○○◐
+20 =                         ; ○◐○◐
+21 =                         ; ◐○◐○
+22 =                         ; ○◐◐◐
+23 =                         ; ○○○◐
+24 =                         ; ○◐○○
+
+
+; =====================================================================================
+;  ENGINES
+; =====================================================================================
+;
+;  This section contains a micro-manual for each Plaits engine Wakes can play, including
+;  engine names to copy from and paste above.
+;  Faders: F1 is always FREQ, but F2, F3 and F4 each have engine-unique parameters.
+;  The signals offered on the AUX output also differ between engines.
+;  Most engine parameters are unipolar. For engines where some parameters are bipolar,
+;  they're indicated below.
+
+; -------------------------------------------------------------------------------------
+;  virtual-analog                                                      (default slot 1)
+; -------------------------------------------------------------------------------------
+;  Two analog-style oscillators mixed together: a variable square and a variable saw.
+;    F2 TIMB       the square: narrow pulse -> full square -> hard-sync formants
+;    F3 MORP       the saw: triangle -> saw, with a notch that widens
+;    F4 HARM       detune between the two oscillators
+;    AUX           two hard-synced waveforms added together, shaped by MORP
+;  Bipolar parameters: F2, F4.
+
+; -------------------------------------------------------------------------------------
+;  waveshaping                                                         (default slot 2)
+; -------------------------------------------------------------------------------------
+;  A triangle wave through a waveshaper and a wavefolder.
+;    F2 TIMB       how hard the wavefolder folds
+;    F3 MORP       asymmetry of the waveform
+;    F4 HARM       the waveshaper's curve
+;    AUX           the same, through a different wavefolder curve
+;  Bipolar parameters: F4.
+
+; -------------------------------------------------------------------------------------
+;  2-op-FM                                                             (default slot 3)
+; -------------------------------------------------------------------------------------
+;  Two sine operators, one modulating the other's phase.
+;    F2 TIMB       modulation index: how bright the tone is
+;    F3 MORP       feedback: one operator modulating its own phase or the other's
+;    F4 HARM       frequency ratio between the two operators
+;    AUX           a sub-oscillator
+;  Bipolar parameters: F3.
+
+; -------------------------------------------------------------------------------------
+;  grain-formant                                                       (default slot 4)
+; -------------------------------------------------------------------------------------
+;  Vocal-like formants made from windowed sine grains.
+;    F2 TIMB       formant frequency
+;    F3 MORP       formant width and shape
+;    F4 HARM       frequency ratio between the two formants
+;    AUX           filtered waveforms imitated with windowed sines
+;  Bipolar parameters: F4.
+
+; -------------------------------------------------------------------------------------
+;  additive                                                            (default slot 5)
+; -------------------------------------------------------------------------------------
+;  A sum of harmonics whose levels follow one or more bumps in the spectrum.
+;    F2 TIMB       which harmonic is loudest -- a little like a filter cutoff
+;    F3 MORP       bump shape: flat and wide -> peaked and narrow
+;    F4 HARM       how many bumps the spectrum has, starting from one
+;    AUX           only the harmonics a drawbar organ has
+
+; -------------------------------------------------------------------------------------
+;  wavetable                                                           (default slot 6)
+; -------------------------------------------------------------------------------------
+;  Banks of single-cycle waves laid out in a grid.
+;    F2 TIMB       wavetable row: the waves are sorted dark to bright
+;    F3 MORP       wavetable column: select shape families
+;    F4 HARM       which bank (from the middle down, TIMB and MORP are interpolated)
+;    AUX           a low-fi, 5-bit version
+
+; -------------------------------------------------------------------------------------
+;  chords                                                              (default slot 7)
+; -------------------------------------------------------------------------------------
+;  Four-note chords played by a string-machine ensemble or a wavetable scan.
+;    F2 TIMB       chord voicing - inversion and transposition
+;    F3 MORP       waveform: string-machine sounds below the middle, wavetable above
+;    F4 HARM       chord types: oct, 5, sus4, m, m7, m9, m11, 69, M9, M7, M
+;    AUX           the chord's isolated root note
+
+; -------------------------------------------------------------------------------------
+;  speech                                                              (default slot 8)
+; -------------------------------------------------------------------------------------
+;  A collection of speech synth algorithms: formant filters, SAM, LPC vowels and words.
+;    F2 TIMB       size of the speaker, from Daleks to chipmunks (Émilie's wording lol)
+;    F3 MORP       which vowel, phoneme or word segment
+;    F4 HARM       the method: formants -> SAM -> LPC vowels, then banks of LPC words
+;    AUX           the raw voice source, pre-filtering
+
+; -------------------------------------------------------------------------------------
+;  swarm                                                               (default slot 9)
+; -------------------------------------------------------------------------------------
+;  Eight saw-like grains, each slightly detuned: a cloud of voices.
+;    F2 TIMB       how many grains per second
+;    F3 MORP       grain length and overlap; at the top they run into each other
+;    F4 HARM       how far each grain's pitch wanders
+;    AUX           the same cloud made of sine waves
+
+; -------------------------------------------------------------------------------------
+;  filtered-noise                                                     (default slot 10)
+; -------------------------------------------------------------------------------------
+;  Clocked noise through a resonant filter.
+;    F2 TIMB       the noise's clock rate
+;    F3 MORP       filter resonance
+;    F4 HARM       filter type: low-pass -> band-pass -> high-pass
+;    AUX           two band-pass filters, as far apart as HARM sets
+;  Bipolar parameters: F4.
+
+; -------------------------------------------------------------------------------------
+;  particle                                                           (default slot 11)
+; -------------------------------------------------------------------------------------
+;  Random impulses ringing through filters: rain, crackle, droplets.
+;    F2 TIMB       how dense the particles are
+;    F3 MORP       below centre: reverberating all-pass network, above it: resonant
+;                  band-pass filters
+;    F4 HARM       how random each particle's pitch is
+;    AUX           the raw impulses (dust)
+;  Bipolar parameters: F3.
+
+; -------------------------------------------------------------------------------------
+;  string                                                             (default slot 12)
+; -------------------------------------------------------------------------------------
+;  A plucked or bowed string, modelled physically. Two strings take turns, so a new note
+;  can ring while the last one fades.
+;    F2 TIMB       how bright the excitation is (and how dense, while it drones)
+;    F3 MORP       decay time
+;    F4 HARM       inharmonicity: dispersive at the bottom, stiff at the top, and
+;                  harmonic in a small zone about a quarter of the way up
+;    AUX           the raw excitation
+
+; -------------------------------------------------------------------------------------
+;  modal                                                              (default slot 13)
+; -------------------------------------------------------------------------------------
+;  A struck resonator: bells, bars, plates, membranes.
+;    F2 TIMB       how bright the excitation is (and how dense, while it drones)
+;    F3 MORP       decay time
+;    F4 HARM       the material: how inharmonic the resonator is
+;    AUX           the raw excitation
+
+; -------------------------------------------------------------------------------------
+;  bass-drum                                                          (default slot 14)
+; -------------------------------------------------------------------------------------
+;  An analog-style kick.
+;    F2 TIMB       brightness
+;    F3 MORP       decay time
+;    F4 HARM       how sharp the attack is, and how much overdrive
+;    AUX           a different kick: a frequency-modulated triangle shaped into a sine
+
+; -------------------------------------------------------------------------------------
+;  snare-drum                                                         (default slot 15)
+; -------------------------------------------------------------------------------------
+;  An analog-style snare: tuned drum modes and noise.
+;    F2 TIMB       balance between the drum's modes
+;    F3 MORP       decay time
+;    F4 HARM       balance between the drum and the noise
+;    AUX           a different snare: two frequency-modulated sines and high-passed noise
+
+; -------------------------------------------------------------------------------------
+;  hi-hat                                                             (default slot 16)
+; -------------------------------------------------------------------------------------
+;  A metallic hi-hat: square oscillators ring-modulating each other, plus noise.
+;    F2 TIMB       high-pass filter cutoff
+;    F3 MORP       decay time
+;    F4 HARM       balance between the metal and the noise
+;    AUX           a different hi-hat: three pairs of ring-modulated squares, cleaner
+
+; -------------------------------------------------------------------------------------
+;  VA-VCF                                                    (not in the default stack)
+; -------------------------------------------------------------------------------------
+;  A classic subtractive voice: an analog-style oscillator into a resonant filter.
+;    F2 TIMB       filter cutoff
+;    F3 MORP       waveform, and how much sub-oscillator
+;    F4 HARM       resonance and character: a gentle 24 dB/oct filter below the middle,
+;                  a harsh 12 dB/oct one above
+;    AUX           the high-pass output
+;  Bipolar parameters: F3, F4.
+
+; -------------------------------------------------------------------------------------
+;  phase-distortion                                          (not in the default stack)
+; -------------------------------------------------------------------------------------
+;  A sine whose phase is bent by a second oscillator: Casio-style tones.
+;    F2 TIMB       how much distortion
+;    F3 MORP       how asymmetric the distortion is
+;    F4 HARM       the distorting oscillator's frequency
+;    AUX           the same with the carrier running free: phase modulation
+
+; -------------------------------------------------------------------------------------
+;  wave-terrain                                              (not in the default stack)
+; -------------------------------------------------------------------------------------
+;  A point circling over a 3D surface; the height under it is the sound.
+;    F2 TIMB       the size of the circle
+;    F3 MORP       where the circle sits on the surface
+;    F4 HARM       which surface
+;    AUX           the height used to bend the phase of a sine instead
+;  Bipolar parameters: F3.
+
+; -------------------------------------------------------------------------------------
+;  string-machine                                            (not in the default stack)
+; -------------------------------------------------------------------------------------
+;  A vintage string ensemble playing chords, through a chorus and a filter.
+;    F2 TIMB       chorus and filter amount
+;    F3 MORP       waveform
+;    F4 HARM       chord
+;    AUX           part of the chord (mostly the 2nd and 4th voices)
+;  Bipolar parameters: F2.
+
+; -------------------------------------------------------------------------------------
+;  chiptune                                                  (not in the default stack)
+; -------------------------------------------------------------------------------------
+;  An 8-bit game console: pulse waves playing chords and arpeggios.
+;    F2 TIMB       arpeggio pattern, or chord inversion
+;    F3 MORP       pulse width, and sync
+;    F4 HARM       chord
+;    AUX           the console's triangle voice
+
+; -------------------------------------------------------------------------------------
+;  6-op-FM-A        6-op-FM-B        6-op-FM-C               (not in the default stack)
+; -------------------------------------------------------------------------------------
+;  Three banks A, B and C, each containing 32 six-operator FM patches in the style of a DX7.
+;    F2 TIMB       modulator levels
+;    F3 MORP       stretches the envelopes and the modulation ("time travel")
+;    F4 HARM       Bank patch selection
+;    AUX           the same as OUT
+;  Bipolar parameters: F3.

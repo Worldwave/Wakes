@@ -43,7 +43,7 @@ extern "C" {
 
 /* Engine the voice is constructed with, before the UI publishes its first parameters
  * (plaits/dsp/voice.cc order): virtual analog. Only a placeholder: the UI starts on the
- * first filled slot of config/engines.csv, whatever that is, and publishes it before the
+ * first filled slot of config/engines.cnfg, whatever that is, and publishes it before the
  * first block. */
 #define SP1_SYNTH_ENGINE_INITIAL 8
 

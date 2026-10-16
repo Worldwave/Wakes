@@ -154,7 +154,7 @@ int  sp1_pui_scale(void);
 void sp1_pui_set_octave_max(void);
 bool sp1_pui_catching(int fader);              /* in the active layer */
 bool sp1_pui_level_connected(void);            /* SETTINGS F4 >= 5 % (M4a) */
-/* ---- engines: slots from config/engines.csv; glyphs and detents fixed in gen_engines.py ---- */
+/* ---- engines: slots from config/engines.cnfg; glyphs and detents fixed in gen_engines.py ---- */
 int  sp1_pui_engine(void);                     /* Plaits engine index (voice.cc) */
 /* Which of the CURRENT engine's parameters are bipolar, as SP1_ENGINE_TABLE[].centre:
  * 0x1 = HARMONICS (F4), 0x2 = TIMBRE (F2), 0x4 = MORPH (F3). A detent is placed exactly
@@ -190,7 +190,7 @@ void sp1_pui_rip(void);
  * quantizer. (The output mode, burst division and drive are main.c's; src/sp1_prst.h.)
  * Pickup state is NOT part of it -- sp1_pui_put() re-evaluates it, as a rip does. */
 struct sp1_pui_patch {
-	int   slot;                       /* engine: position in config/engines.csv  */
+	int   slot;                       /* engine: position in config/engines.cnfg  */
 	float v[SP1_PUI_LAYERS][4];       /* stored values, pot space 0..1          */
 	int   scale;                      /* FREQUENCY quantizer, SP1_PUI_SCALE_OFF */
 };
@@ -205,9 +205,9 @@ void sp1_pui_put(const struct sp1_pui_patch *p);
  * source of PLAITS' ROTC defaults: PRST's field check takes its defaults from here too. */
 void sp1_pui_rip_patch(int slot, struct sp1_pui_patch *p);
 /* The slot whose engine is called `name` (case-insensitive), among the FILLED slots of
- * config/engines.csv; -1 if there is none. */
+ * config/engines.cnfg; -1 if there is none. */
 /* ---- engines OFF the list (#50) ----
- * Every build contains all of Plaits' engines; config/engines.csv only decides which ones
+ * Every build contains all of Plaits' engines; config/engines.cnfg only decides which ones
  * T2/T3 reach. A PRST slot may name one that is not listed, and it plays. Such a selection
  * is SP1_PUI_OFFLIST + its Plaits index, wherever a "slot" appears in this API. It has no
  * glyph (sp1_pui_slot_leds() gives dark; main.c draws the off-list animation), T3 from it
@@ -215,9 +215,21 @@ void sp1_pui_rip_patch(int slot, struct sp1_pui_patch *p);
  * position 1. */
 #define SP1_PUI_OFFLIST 100
 bool sp1_pui_offlist(int slot);
-/* The selection for engine `name` (case ignored): its list position if it is listed, else
- * SP1_PUI_OFFLIST + its Plaits index; -1 if this build has no such engine. */
+/* The selection for engine `name` (letters and digits, case ignored -- sp1_cnfg.h): its
+ * position if it is in the stack, else SP1_PUI_OFFLIST + its Plaits index; -1 if this build
+ * has no such engine. */
 int  sp1_pui_slot_of(const char *name, int len);
+
+/* ---- the stack (#52) ----
+ * Which engine is in each slot: the built-in stack (config/engines.cnfg at build time) until
+ * the ON job reads WAKES/CNFG/engines.cnfg from the drive and calls this -- every ON, before
+ * the PRST slots are read, so their engine names resolve against the new stack. Plaits
+ * indices, SP1_ENGINE_EMPTY for an empty slot; a stack with no engine is replaced by the
+ * built-in one. Safe from the storage thread while main runs (two copies, one flip). */
+void sp1_pui_set_stack(const uint8_t stack[24]);
+/* Main, after the ON job: a selection left on a slot the new stack emptied moves to the
+ * first filled slot. (With PRST on, the loaded slot replaces the selection anyway.) */
+void sp1_pui_stack_settle(void);
 const char *sp1_pui_slot_name(int slot);    /* "" for no engine */
 
 const char *sp1_pui_engine_name(void);
