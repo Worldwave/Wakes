@@ -179,8 +179,9 @@ first in the ring, and only *filled* slots are reachable (`scales.cnfg`, #44). N
   playing as the scale's **root** — any pitch, between semitones too. Tune F1 by ear with the
   quantizer off (TRIG to check), then turn it on. Stepping between scales keeps the root;
   off and on again takes a new one. A scale with `tune_by_ear = off` in `scales.cnfg` (pelog
-  and the ragas by default) stays on C, and so does a scale loaded from a preset (PRST keeps
-  no root). The log's `QUANTIZE` line names the root.
+  and the ragas by default) stays on C. A preset saves the root with the scale
+  (`quantizer_root`, PRST format 2); a preset saved before it (format 1) loads on C. The
+  log's `QUANTIZE` line names the root.
 - **It composes with the OCTAVE range rather than replacing it.** The range decides the span
   F1 covers; the scale decides which notes inside that span exist.
 - **Three of the scales are microtonal** — pelog, bhairav and shri put their degrees at

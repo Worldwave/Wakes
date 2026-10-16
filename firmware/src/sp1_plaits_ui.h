@@ -157,7 +157,8 @@ bool sp1_pui_scales_settle(void);
  * sp1_pui_set_scale() from OFF to a scale takes the note FREQUENCY was playing as the root
  * (semitones, MIDI numbering, fractions kept): every scale with `tune_by_ear = on` in
  * scales.cnfg is quantized around it until the quantizer is turned off. A scale with it off,
- * and a scale loaded from a preset, sits on C. The root of the scale in use (0 = C, or none):
+ * sits on C. A preset brings its own root (sp1_pui_patch.root, PRST format 2; format 1 = C).
+ * The root of the scale in use (0 = C, or none):
  */
 float sp1_pui_scale_root(void);
 bool  sp1_pui_scale_by_ear(void);              /* the scale in use follows the root */
@@ -204,6 +205,7 @@ struct sp1_pui_patch {
 	int   slot;                       /* engine: position in config/engines.cnfg  */
 	float v[SP1_PUI_LAYERS][4];       /* stored values, pot space 0..1          */
 	int   scale;                      /* FREQUENCY quantizer, SP1_PUI_SCALE_OFF */
+	float root;                       /* Tune By Ear's root, semitones (#30)    */
 };
 void sp1_pui_get(struct sp1_pui_patch *p);
 /* Load a patch: the faders do not move, pickup catches them up (Adara, as after a rip).

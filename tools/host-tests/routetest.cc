@@ -64,6 +64,7 @@ static void scale_on_c(int sc) {
   sp1_pui_patch p;
   sp1_pui_get(&p);
   p.scale = sc;
+  p.root = 0.0f;                               // a preset saved on C (PRST format 2, #30)
   sp1_pui_put(&p);
 }
 
@@ -1052,7 +1053,7 @@ int main() {
     sp1_pui_set_scale(0);
     CHECK(fabsf(sp1_pui_scale_root() - tuned) < 1e-4f, "stepping back re-tuned the root");
 
-    // Off and on again takes a new root; a preset sits on C.
+    // Off and on again takes a new root; a preset brings its own (PRST format 2).
     sp1_pui_set_scale(SP1_PUI_SCALE_OFF);
     move_f1(2776);                                   // F1 0.75 -> 48 + 0.5 * 12 = 54
     const float tuned2 = note_now();
@@ -1062,8 +1063,14 @@ int main() {
     {
       sp1_pui_patch pp;
       sp1_pui_get(&pp);
+      CHECK(pp.root == tuned2, "the patch did not take the root: %.3f", pp.root);
+      sp1_pui_set_scale(SP1_PUI_SCALE_OFF);          // forget it, then load the preset
       sp1_pui_put(&pp);
-      CHECK(sp1_pui_scale() == 1 && sp1_pui_scale_root() == 0.0f, "a preset should load on C");
+      CHECK(sp1_pui_scale() == 1 && sp1_pui_scale_root() == tuned2,
+            "a preset should bring its root back: %.3f", sp1_pui_scale_root());
+      pp.root = 0.0f;                                // a format-1 preset
+      sp1_pui_put(&pp);
+      CHECK(sp1_pui_scale_root() == 0.0f, "a preset saved on C should load on C");
     }
 
     // Big scales: 53-EDO in slot 7, a 13-step Bohlen-Pierce tritave (3/1) in slot 6.

@@ -73,8 +73,8 @@
 ;    off (TRIG to listen), then turn the quantizer on (SETTINGS T3): the note FREQUENCY was
 ;    playing becomes the scale's root, between semitones too. Stepping to another scale
 ;    keeps that root; turning the quantizer off and on again takes a new one. Off: the
-;    scale stays on C, for scales whose notes belong to fixed pitches. Presets load their
-;    scale on C.
+;    scale stays on C, for scales whose notes belong to fixed pitches. Presets save the
+;    root with the scale.
 ;
 ; ---- if something is wrong ----
 ;  The log (WAKES/LOGS/) names every line Wakes cannot read. If ANY scale in this file has a

@@ -753,6 +753,7 @@ void sp1_pui_rip_patch(int s, struct sp1_pui_patch *p)
 		p->v[SP1_PUI_SETTINGS][i] = kSettings[i];
 	}
 	p->scale = SP1_PUI_SCALE_OFF;                        /* quantizer off   */
+	p->root = 0.0f;                                      /* Tune By Ear: C  */
 }
 
 void sp1_pui_get(struct sp1_pui_patch *p)
@@ -764,6 +765,7 @@ void sp1_pui_get(struct sp1_pui_patch *p)
 		}
 	}
 	p->scale = scale;
+	p->root = by_ear_root;
 }
 
 void sp1_pui_put(const struct sp1_pui_patch *p)
@@ -775,9 +777,9 @@ void sp1_pui_put(const struct sp1_pui_patch *p)
 			stored[l][i] = isfinite(x) ? clamp01(x) : 0.0f;
 		}
 	}
-	/* Anything unknown -> off. A preset is not a turn-on by ear: its scale is on C (PRST
-	 * keeps no root, #30). */
-	by_ear_root = 0.0f;
+	/* Anything unknown -> off. A preset is not a turn-on by ear: it brings its own root
+	 * (PRST format 2, #30; a format-1 preset's is C). */
+	by_ear_root = (isfinite(p->root) && p->root >= 0.0f && p->root <= 127.0f) ? p->root : 0.0f;
 	set_scale(p->scale, false);
 	base_seeded = true;
 	pickup_all();
