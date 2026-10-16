@@ -22,6 +22,8 @@
 ;  - This file is the whole stack: a slot that is not listed here is empty.
 ;  - Engines that are not in the stack will still be usable if a PRST uses them.
 ;    You'll know an engine is not in your stack by a flashing glyph across all four face LEDs.
+;  - If Wakes can't use this file (a misspelled engine, an engine used twice, or no engines at
+;    all), it ignores the whole file and plays the 16 built-in engines. The log says which line.
 ;
 ;  Remember: in ini files, text following a ; or a # is a comment.
 
