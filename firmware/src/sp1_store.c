@@ -8,7 +8,7 @@
  */
 /* Every image writes a config file that is missing from the drive, with its built-in text
  * (Adara, #52): the text comes with the generated headers, and only when this is defined
- * BEFORE the first include of any of them. ~33 KB of flash for the four files. */
+ * BEFORE the first include of any of them. ~36 KB of flash for the five files. */
 #define SP1_CNFG_TEMPLATES
 #include "sp1_store.h"
 #include "sp1_emmc.h"
@@ -18,6 +18,7 @@
 #include "sp1_engines_gen.h"
 #if defined(CONFIG_SP1_PLAITS)
 #include "sp1_audio_gen.h"
+#include "sp1_scales_gen.h"
 #endif
 #include "sp1_logs_gen.h"
 #if defined(CONFIG_SP1_STORAGE_TEST)
@@ -354,6 +355,7 @@ static int ensure_dir(const char *path)
 #define ENGINES_CNFG  DIR_CNFG "/engines.cnfg"
 #define AUDIO_CNFG    DIR_CNFG "/audio.cnfg"
 #define MIDI_CNFG     DIR_CNFG "/midi.cnfg"
+#define SCALES_CNFG   DIR_CNFG "/scales.cnfg"
 /* A config file is a few KB (engines.cnfg ~16, midi.cnfg ~14); never read a huge one. */
 #define CNFG_READ_MAX 65536u
 
@@ -365,6 +367,7 @@ static struct sp1_logs_cfg logs_cfg;
 #define MISSING_ENGINES 0x2u
 #define MISSING_AUDIO   0x4u
 #define MISSING_MIDI    0x8u
+#define MISSING_SCALES  0x10u
 static uint8_t cnfg_missing;
 
 static void cnfg_problem(void *ctx, int line, const char *what, const char *why)
@@ -555,6 +558,94 @@ static void cnfg_load_midi(void)
 	     bad, bad == 1 ? "" : "s", bad ? " -- those lines keep their defaults" : "",
 	     notes, notes == 1 ? "" : "s");
 }
+
+/* scales.cnfg (#44): ALL OR NOTHING, like engines.cnfg -- except a slot above [7], which is
+ * dropped with a note (Adara). Staged here; scales_commit installs it ONCE per ON job, before
+ * PRST checks its slots' scales. Once: sp1_scales.c keeps two copies and writes the one not
+ * in use, so a single install per job is what keeps a reader off the copy being written. */
+static struct sp1_scale_bank st_scales;
+static bool scales_done;
+
+static void scales_feed(void *r, const char *t, size_t n)
+{
+	sp1_scales_feed(r, t, n);
+}
+
+static void cnfg_load_scales(void)
+{
+	static struct sp1_scales_reader rd;    /* ~1.2 KB: off the thread's stack */
+	sp1_scales_begin(&rd, &st_scales, cnfg_problem, (void *)"scales.cnfg");
+	size_t got;
+	bool rerr;
+	const int rc = cnfg_read(SCALES_CNFG, scales_feed, &rd, &got, &rerr);
+	if (rc != 0) {
+		sp1_scales_defaults(&st_scales);
+		if (rc == -ENOENT) {
+			cnfg_missing |= MISSING_SCALES;
+		}
+		LINE("CNFG scales.cnfg: %s -- the built-in scales\n",
+		     rc == -ENOENT ? "not on the drive (a copy goes there)" : "cannot be opened");
+		return;
+	}
+	int filled, dropped;
+	int bad = sp1_scales_end(&rd, &filled, &dropped);
+	if (bad == 0 && (rerr || got >= CNFG_READ_MAX)) {
+		/* Only part of the file was read: part of a bank is not the user's bank. */
+		bad = 1;
+		sp1_scales_defaults(&st_scales);
+	}
+	LINE("CNFG scales.cnfg: %u B read%s, %d problem%s -- %s\n", (unsigned)got,
+	     rerr ? " (then a read error)" : (got >= CNFG_READ_MAX ? " (too long)" : ""),
+	     bad, bad == 1 ? "" : "s",
+	     bad ? "the built-in scales instead (the whole file is set aside)" : "your scales");
+	if (dropped > 0) {
+		LINE("CNFG scales.cnfg is OVERLOADED: %d scale%s above [7] dropped (7 slots)\n",
+		     dropped, dropped == 1 ? "" : "s");
+	}
+}
+
+/* The bank in use from now on, and -- with logs.cnfg's `scales = on` -- what is in it. */
+static void scales_commit(void)
+{
+	if (scales_done) {
+		return;
+	}
+	scales_done = true;
+	sp1_scales_install(&st_scales);
+	int n = 0;
+	for (int i = 0; i < SP1_SCALE_SLOTS; i++) {
+		n += sp1_scale_filled(i);
+	}
+	LINE("CNFG scale bank: %d scale%s, starting at slot %d\n", n, n == 1 ? "" : "s",
+	     sp1_scale_first() + 1);
+	for (int i = 0; i < SP1_SCALE_SLOTS; i++) {
+		const struct sp1_scale *s = sp1_scale_at(i);
+		if (s == NULL) {
+			LINE("SCALES %d: empty\n", i + 1);
+			continue;
+		}
+		int plaits = 0;
+		for (int k = 0; k < s->n; k++) {
+			plaits += s->weight[k] >= s->plaits;
+		}
+		const int pc = (int)(s->period * 120000.0f + 0.5f);   /* cents x 100 */
+		LINE("SCALES %d: %s -- %d degree%s, period %d.%02d cents, Plaits plays %d "
+		     "(weight >= %d)\n", i + 1, s->name, s->n, s->n == 1 ? "" : "s",
+		     pc / 100, pc % 100, plaits, s->plaits);
+		/* Every degree as cents/weight, so a file can be checked against what Wakes read. */
+		char b[SP1_SCALE_DEGREES * 14 + 1];
+		size_t m = 0u;
+		for (int k = 0; k < s->n; k++) {
+			const int c = (int)(s->volts[k] * 120000.0f + 0.5f);
+			m += (size_t)snprintk(b + m, sizeof(b) - m, " %d.%02d/%u", c / 100, c % 100,
+					      (unsigned)s->weight[k]);
+			if (m >= sizeof(b)) {
+				break;
+			}
+		}
+		LINE("SCALES %d degrees (cents/weight):%s\n", i + 1, b);
+	}
+}
 #endif
 
 /* No volume: the built-in everything, so nothing from an earlier ON's files lingers. */
@@ -567,6 +658,7 @@ static void cnfg_defaults(void)
 	sp1_pui_set_stack(stack);
 	sp1_audio_cfg_defaults(&st_audio);
 	sp1_midi_cfg_defaults(&st_midi);
+	sp1_scales_defaults(&st_scales);         /* staged: scales_commit installs it */
 	atomic_set(&cnfg_ready, 1);
 #endif
 }
@@ -586,6 +678,9 @@ static void cnfg_load(void)
 	}
 	if (!stop) {
 		cnfg_load_midi();
+	}
+	if (!stop) {
+		cnfg_load_scales();
 	}
 	atomic_set(&cnfg_ready, 1);
 #endif
@@ -634,6 +729,10 @@ static void cnfg_create_missing(void)
 	if ((cnfg_missing & MISSING_MIDI) && !stop) {
 		(void)cnfg_write_one(MIDI_CNFG, "midi.cnfg", SP1_MIDI_TEMPLATE,
 				     sizeof(SP1_MIDI_TEMPLATE) - 1u);
+	}
+	if ((cnfg_missing & MISSING_SCALES) && !stop) {
+		(void)cnfg_write_one(SCALES_CNFG, "scales.cnfg", SP1_SCALES_TEMPLATE,
+				     sizeof(SP1_SCALES_TEMPLATE) - 1u);
 	}
 #endif
 	cnfg_missing = 0u;
@@ -1566,6 +1665,9 @@ static void job_on_enter(void)
 	if (log_live) {
 		log_teardown();          /* never expected: every way out of ON closes the log */
 	}
+#if defined(CONFIG_SP1_PLAITS)
+	scales_done = false;         /* one install of the scale bank per ON job (#44) */
+#endif
 	cnfg_defaults();             /* until (unless) the drive's files say otherwise (#52) */
 	claim_for_wakes();
 	struct sp1_emmc_ident id;
@@ -1589,6 +1691,7 @@ static void job_on_enter(void)
 	}
 #if defined(CONFIG_SP1_PLAITS)
 	if (!ok) {
+		scales_commit();         /* the built-in scales, before main may go on (#44) */
 		atomic_set(&prst_state, SP1_STORE_PRST_OFF);
 	}
 #endif
@@ -1615,6 +1718,9 @@ static void job_on_enter(void)
 			cnfg_load();
 		}
 #if defined(CONFIG_SP1_PLAITS)
+		/* #44: the scales in use from now on (the file's, or the built-in ones), BEFORE
+		 * PRST checks its slots' scales against them. */
+		scales_commit();
 		/* PRST (#50): all four slots into RAM, before main starts audio. */
 		if (rc == 0 && !stop) {
 			prst_load_all();

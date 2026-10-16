@@ -38,3 +38,7 @@ usb          = off
 
 ; Storage drive logs: loading and saving presets (PRST), .logs files.
 storage      = on
+
+; The scales scales.cnfg gave Wakes at every ON: each slot's scale, its degrees in cents and
+; weights, and what Plaits plays. (A problem in scales.cnfg is always logged.)
+scales       = off

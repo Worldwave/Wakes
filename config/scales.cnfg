@@ -1,0 +1,174 @@
+; Format: scl blocks (Scala .scl scales, one per [slot])
+; =====================================================================================
+;  Wakes — SCALES
+; =====================================================================================
+;
+;  The scales MARBLES' X quantizer (•• + FFWD / RWD on the X page) and PLAITS' FREQUENCY
+;  quantizer (SETTINGS T2 / T3) choose from. Both modules use this one list.
+;
+;  Wakes reads this .cnfg file every time it turns ON and applies cnfg changes.
+;
+;  Lines starting with ; or # are comments. Delete this file to get the original back:
+;  Wakes writes it again at the next ON.
+;
+; ---- slots ----
+;  There are 7 scale slots, [1] to [7]. A slot that is not in this file is empty, and the
+;  scale buttons skip it. A slot above [7] is dropped (the log says the file is overloaded).
+;  Every slot has its own glyph, so slot 2 always flashes ●●○○ whatever scale is in it.
+;  Presets (PRST) remember the scale SLOT: change what is in a slot and a preset that used it
+;  plays the new scale.
+;
+; ---- a scale ----
+;  Under its [slot], a scale is written in the Scala format (.scl), the format of the Scala
+;  scale archive and of Scale Workshop (https://sevish.com/scaleworkshop/): build a scale
+;  there, export it as a Scala file (.scl), open that in a text editor and paste it under a
+;  [slot] here.
+;
+;    ! lines starting with ! are comments (Scala's own)
+;    the first other line is the scale's NAME (it can be empty)
+;    the next line is how many PITCHES follow
+;    then one pitch per line, the last one being the PERIOD: 2/1 is the octave.
+;
+;  The root (1/1, 0 cents) is not written: every scale starts on it.
+;  A pitch with a "." is in CENTS (100.0 is a semitone); without one it is a RATIO (3/2,
+;  or 2 for 2/1). Write them in any order; each one must be above the root and below the
+;  period. Wakes takes 16 pitches at most, the period included (Marbles' limit).
+;
+; ---- Wakes' extras (other Scala programs ignore these) ----
+;  WEIGHT: a whole number 0-255 after a pitch is its weight. Weights are how Marbles' STEPS
+;  fader thins the scale out: turn STEPS up and the low-weight notes drop out first, until
+;  only the root (always 255) is left. A pitch without a weight gets 255 (always there).
+;  Any other text after a pitch is ignored.
+;
+;  plaits = N  (above the scale, under its [slot]): PLAITS' quantizer plays the degrees with a
+;  weight of N or more. 0 (or leaving it out) = every degree. Marbles' scales below use 32,
+;  so Plaits plays the 7 notes of major, not all 12 of its degrees.
+;
+; ---- if something is wrong ----
+;  The log (WAKES/LOGS/) names every line Wakes cannot read. If ANY scale in this file has a
+;  problem, Wakes uses the original scales instead, so a typo never leaves you with half a
+;  list. Turn on "scales" in logs.cnfg to see which scales were loaded at every ON.
+;
+;  Slots 1-6 are Mutable Instruments Marbles' own scales (marbles/settings.cc, Emilie
+;  Gillet, MIT), written as Scala.
+
+[1]
+plaits = 32
+! Marbles' major scale
+major
+12
+!
+ 100.0   16    ; C#
+ 200.0   96    ; D
+ 300.0   24    ; D#
+ 400.0  128    ; E
+ 500.0   64    ; F
+ 600.0    8    ; F#
+ 700.0  192    ; G
+ 800.0   16    ; G#
+ 900.0   96    ; A
+1000.0   24    ; A#
+1100.0  128    ; B
+2/1
+
+[2]
+plaits = 32
+! Marbles' minor scale
+minor
+12
+!
+ 100.0   16    ; C#
+ 200.0   96    ; D
+ 300.0  128    ; Eb
+ 400.0    8    ; E
+ 500.0   64    ; F
+ 600.0    4    ; F#
+ 700.0  192    ; G
+ 800.0   96    ; G#
+ 900.0   16    ; A
+1000.0  128    ; Bb
+1100.0   16    ; B
+2/1
+
+[3]
+plaits = 32
+! Marbles' pentatonic scale
+pentatonic
+12
+!
+ 100.0    4    ; C#
+ 200.0   96    ; D
+ 300.0    4    ; Eb
+ 400.0    4    ; E
+ 500.0  140    ; F
+ 600.0    4    ; F#
+ 700.0  192    ; G
+ 800.0    4    ; G#
+ 900.0   96    ; A
+1000.0    4    ; Bb
+1100.0    4    ; B
+2/1
+
+[4]
+plaits = 0
+! Pelog: seven degrees, all of them the scale
+pelog
+7
+!
+ 153.0  128    ; Db+
+ 315.0   32    ; Eb-
+ 552.0    8    ; F#-
+ 705.96 192    ; G
+ 848.04  64    ; Ab
+1058.04  16    ; Bb+
+2/1
+
+[5]
+plaits = 32
+! Raag Bhairav That, just intonation
+bhairav
+12
+!
+256/243 128    ; Komal Re
+9/8       4    ; Re
+6/5       4    ; Komal Ga
+5/4     128    ; Ga
+4/3      64    ; Ma
+45/32     4    ; Tivre Ma
+3/2     192    ; Pa
+128/81   64    ; Komal Dha
+27/16     4    ; Dha
+9/5       4    ; Komal Ni
+15/8     64    ; Ni
+2/1
+
+[6]
+plaits = 32
+! Raag Shri, just intonation
+shri
+12
+!
+256/243   4    ; Komal Re
+9/8     128    ; Re
+6/5      64    ; Komal Ga
+5/4       4    ; Ga
+4/3     128    ; Ma
+45/32     4    ; Tivre Ma
+3/2     192    ; Pa
+128/81    4    ; Komal Dha
+27/16    64    ; Dha
+9/5     128    ; Komal Ni
+15/8      4    ; Ni
+2/1
+
+; [7] is empty: yours. For example, remove the ; from these lines for a whole-tone scale:
+; [7]
+; ! six equal steps, every one always there
+; whole-tone
+; 6
+; 200.0
+; 400.0
+; 600.0
+; 800.0
+; 1000.0
+; 2/1

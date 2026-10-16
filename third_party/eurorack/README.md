@@ -36,8 +36,8 @@ our own firmware.
 (`utils/gate_flags.h`, `utils/ring_buffer.h`). Not vendored: `marbles.cc`, `ui.cc`,
 `settings.cc`, `cv_reader*`, `clock_inputs`, the self-patching detector, `scale_recorder`,
 `note_filter`, `io_buffer`, `drivers/`. `firmware/src/sp1_marbles.cc` does what `marbles.cc`
-does for the generators; the six preset scales are copied from `settings.cc` into
-`firmware/src/sp1_marbles_scales.inc`. `ramp_extractor.cc` (the external clock) is compiled
+does for the generators; the six preset scales from `settings.cc` are the default bank in
+`config/scales.cnfg`, written as Scala (#44). `ramp_extractor.cc` (the external clock) is compiled
 but never called.
 
 **MIDI (M5a):** `stmlib/algorithms/note_stack.h`, from the same stmlib commit — the note

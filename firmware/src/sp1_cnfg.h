@@ -39,8 +39,16 @@ typedef void (*sp1_cnfg_problem_fn)(void *ctx, int line, const char *what, const
 typedef void (*sp1_cnfg_entry_fn)(void *ctx, int line, const char *section, const char *key,
 				  const char *value);
 
+/* LINE MODE (scales.cnfg, #44): every line that is not a ; / # comment, as it is -- trimmed,
+ * an inline comment removed, and BLANK lines included (a Scala description may be empty).
+ * `header` is true for a [section] line, with `text` = its name; a [section] that cannot be
+ * read is reported and then delivered as header "" so the reader stops the section before. */
+typedef void (*sp1_cnfg_line_fn)(void *ctx, int line, const char *section, bool header,
+				 const char *text);
+
 struct sp1_cnfg_parser {
 	sp1_cnfg_entry_fn   entry;
+	sp1_cnfg_line_fn    raw;          /* set: line mode, `entry` unused */
 	sp1_cnfg_problem_fn problem;
 	void *ctx;
 	char  section[SP1_CNFG_NAME_MAX];
@@ -52,6 +60,8 @@ struct sp1_cnfg_parser {
 
 void sp1_cnfg_begin(struct sp1_cnfg_parser *p, sp1_cnfg_entry_fn entry,
 		    sp1_cnfg_problem_fn problem, void *ctx);
+void sp1_cnfg_begin_lines(struct sp1_cnfg_parser *p, sp1_cnfg_line_fn raw,
+			  sp1_cnfg_problem_fn problem, void *ctx);
 void sp1_cnfg_feed(struct sp1_cnfg_parser *p, const char *text, size_t n);
 void sp1_cnfg_end(struct sp1_cnfg_parser *p);
 
@@ -63,7 +73,8 @@ void sp1_cnfg_end(struct sp1_cnfg_parser *p);
 #define SP1_LOG_MIDI         0x04u
 #define SP1_LOG_USB          0x08u
 #define SP1_LOG_STORAGE      0x10u
-#define SP1_LOG_ALL          0x1Fu
+#define SP1_LOG_SCALES       0x20u   /* scales.cnfg: what each ON loaded (#44) */
+#define SP1_LOG_ALL          0x3Fu
 
 struct sp1_logs_cfg {
 	bool    enabled;
@@ -89,8 +100,8 @@ void sp1_logs_begin(struct sp1_logs_reader *r, struct sp1_logs_cfg *c,
 void sp1_logs_feed(struct sp1_logs_reader *r, const char *text, size_t n);
 int  sp1_logs_end(struct sp1_logs_reader *r);
 
-/* The categories as words, for the log: "performance controls midi usb storage" or "none".
- * buf of at least 48 bytes. */
+/* The categories as words, for the log: "performance controls midi usb storage scales" or
+ * "none". buf of at least 48 bytes. */
 const char *sp1_logs_describe(uint8_t cats, char *buf, size_t size);
 
 /* Which category a log line belongs to, from its tag -- the first word after the
@@ -251,5 +262,63 @@ void sp1_midi_reader_begin(struct sp1_midi_reader *r, struct sp1_midi_cfg *c,
 void sp1_midi_reader_feed(struct sp1_midi_reader *r, const char *text, size_t n);
 /* Problems; `*notes` = defaults that gave up their CC to one of your lines. */
 int  sp1_midi_reader_end(struct sp1_midi_reader *r, int *notes);
+
+/* ---------------------------------------------------------------- scales.cnfg */
+
+#include "sp1_scales.h"
+
+/* scales.cnfg (#44): a [1]-[7] section per slot, each holding one Scala (.scl) scale
+ * (config/scales.cnfg explains the format to users; tools/gen_scales.py reads it the same way
+ * at build time):
+ *
+ *   [3]
+ *   plaits = 32            Wakes: Plaits plays the degrees of weight >= 32 (default 0, all)
+ *   ! comment              Scala's comment lines
+ *   name                   the description: the first other line (may be blank after a !)
+ *   12                     how many pitches follow, the period included (1-16)
+ *   100.0  16              cents (has a "."), or a ratio (3/2, 2); then a WEIGHT 0-255
+ *   ...                    (Wakes: missing = 255; any other text after the pitch ignored)
+ *   2/1                    the last pitch is the period
+ *
+ * The root is implicit (0 V, weight 255). Pitches may come in any order; each must lie
+ * strictly between the root and the period, and two may not be equal.
+ *
+ * ALL OR NOTHING, like engines.cnfg: any problem in any scale -> the built-in bank, every
+ * problem named. The one exception (Adara): a slot above [7] is DROPPED with a note that the
+ * file is overloaded, and the rest still loads. */
+struct sp1_scales_reader {
+	struct sp1_cnfg_parser p;
+	sp1_cnfg_problem_fn problem;
+	void *ctx;
+	struct sp1_scale_bank *bank;
+	float    pitch[SP1_SCALE_DEGREES];   /* this scale's pitches as read, in volts      */
+	uint8_t  pw[SP1_SCALE_DEGREES];      /* ...their weights                            */
+	int      pl[SP1_SCALE_DEGREES];      /* ...their lines                              */
+	int      slot;           /* the section's slot 0-6; -1 none yet, -2 set aside       */
+	int      head_line;      /* the section's [n] line                                  */
+	int      at;             /* problems before this section: its own start from here  */
+	uint8_t  state;
+	bool     bang;           /* a ! line came before the description                    */
+	bool     plaits_set;
+	uint8_t  count;          /* pitches the count line promised                         */
+	uint8_t  got;
+	uint8_t  seen;           /* slots with a section, bit per slot                      */
+	bool     loose;          /* a line outside any slot has been reported               */
+	char     what[SP1_CNFG_LINE_MAX + 8];
+	char     why[112];
+	int      problems;
+	int      dropped;        /* slots above [7]                                         */
+	int      filled;
+};
+void sp1_scales_begin(struct sp1_scales_reader *r, struct sp1_scale_bank *out,
+		      sp1_cnfg_problem_fn problem, void *ctx);
+void sp1_scales_feed(struct sp1_scales_reader *r, const char *text, size_t n);
+/* The number of problems. *out is the file's bank when there were none, otherwise the built-in
+ * one. `*filled` = scales in *out, `*dropped` = slots above [7] that were left out. */
+int  sp1_scales_end(struct sp1_scales_reader *r, int *filled, int *dropped);
+
+/* A pitch as Scala writes it -- "100.0" (cents) or "3/2" / "2" (a ratio) -- in volts at
+ * 1 V/oct. False if it is not one (a negative or zero ratio included). */
+bool sp1_scl_pitch(const char *s, size_t n, float *volts);
 
 #endif /* SP1_CNFG_H */

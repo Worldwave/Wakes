@@ -66,26 +66,18 @@ static const uint8_t model_glyph[SP1_MUI_MODELS] = {
 };
 
 /* ---- the scales ----
- * Marbles ships six (sp1_marbles_scales.inc, from marbles/settings.cc); slot 7 is the
- * free one for Adara to fill. Glyphs are those of engine slots 1-7 (SLOT_GLYPHS in
- * tools/gen_engines.py), as she asked; a copy. "on" is the inclusion column of
- * docs/MARBLES-SETTINGS.md.
- *
- * ⚠️ This table and that document must agree; the document is the authority and
- * explains the degree / weight format so a custom scale can be written. Unlike the
- * engine list it is NOT build-generated -- if it grows a third consumer, generate it. */
+ * Seven slots, filled from the scale bank (sp1_scales.h, #44): config/scales.cnfg, or the
+ * drive's copy. A slot the file leaves out is empty and skipped. Glyphs belong to the
+ * SLOTS (as the engine glyphs do): those of engine slots 1-7 (SLOT_GLYPHS in
+ * tools/gen_engines.py), as Adara asked; a copy. docs/MARBLES-SETTINGS.md lists them. */
 static const uint8_t scale_glyph[SP1_MUI_SCALES] = {
-	0x8u,   /* ●○○○ 1 major      */
-	0xCu,   /* ●●○○ 2 minor      */
-	0xEu,   /* ●●●○ 3 pentatonic */
-	0xFu,   /* ●●●● 4 pelog      */
-	0x7u,   /* ○●●● 5 bhairav    */
-	0x3u,   /* ○○●● 6 shri       */
-	0x1u,   /* ○○○● 7 free slot  */
-};
-static const bool scale_on[SP1_MUI_SCALES] = {
-	true, true, true, true, true, true,
-	false,  /* the free slot: chromatic until Adara defines it (M4a) */
+	0x8u,   /* ●○○○ 1 (major)      */
+	0xCu,   /* ●●○○ 2 (minor)      */
+	0xEu,   /* ●●●○ 3 (pentatonic) */
+	0xFu,   /* ●●●● 4 (pelog)      */
+	0x7u,   /* ○●●● 5 (bhairav)    */
+	0x3u,   /* ○○●● 6 (shri)       */
+	0x1u,   /* ○○○● 7 (empty)      */
 };
 
 /* ---- defaults ----
@@ -268,7 +260,7 @@ static void defaults_pages(struct sp1_mui_patch *p)
 	p->t_range = 1;
 	p->range = DEF_RANGE;
 	p->diversity = 0;
-	p->scale = 0;                                    /* major                 */
+	p->scale = sp1_scale_first();                    /* major, by default     */
 	/* [F] and [G]: Marbles applies DEJA VU to both sections unless you turn one off. */
 	p->dv_t = 1;
 	p->dv_x = 1;
@@ -694,7 +686,16 @@ uint8_t sp1_mui_unpatch_x(int out)
 
 bool sp1_mui_scale_included(int s)
 {
-	return s >= 0 && s < SP1_MUI_SCALES && scale_on[s];
+	return sp1_scale_filled(s);
+}
+
+bool sp1_mui_scales_settle(void)
+{
+	if (sp1_scale_filled(scale)) {
+		return false;
+	}
+	scale = sp1_scale_first();
+	return true;
 }
 
 void sp1_mui_scale_glyph(int s, uint8_t lv[4])
@@ -713,7 +714,7 @@ bool sp1_mui_scale_step(int dir)
 		if (s < 0 || s >= SP1_MUI_SCALES) {
 			return false;            /* no wrap, like [B] (Adara) */
 		}
-		if (scale_on[s]) {
+		if (sp1_scale_filled(s)) {
 			scale = s;
 			return true;
 		}

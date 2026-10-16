@@ -83,11 +83,10 @@ third_party/eurorack/
   (marbles/random, marbles/ramp, resources), vendored unmodified in
   third_party/eurorack/marbles, same repository and licence.
   firmware/src/sp1_marbles.cc adapts marbles/marbles.cc's generator code
-  and copies its y-divider table; firmware/src/sp1_marbles_scales.inc
-  copies the preset scales from marbles/settings.cc; sp1_marbles_ui.c
-  copies the loop-length table from marbles.cc and Plaits' pot catch-up.
-  The seventh scale slot (sp1_free_scale in sp1_marbles.cc) is ours, written
-  in Marbles' own Scale format. Three changes to Marbles are applied at build
+  and copies its y-divider table; config/scales.cnfg holds the preset
+  scales from marbles/settings.cc, written in the Scala format (#44);
+  sp1_marbles_ui.c copies the loop-length table from marbles.cc and
+  Plaits' pot catch-up. Three changes to Marbles are applied at build
   time to generated copies, by firmware/CMakeLists.txt, leaving the vendored
   files unmodified: marbles/random/t_generator.h gains a master-phase setter
   so the clock can start on a beat (M4), marbles/random/x_y_generator.cc

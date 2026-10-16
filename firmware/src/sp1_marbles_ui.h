@@ -144,14 +144,18 @@ uint8_t sp1_mui_unpatch_x(int out);                /* out = 0..2 X1-X3, 3 = Y   
 int  sp1_mui_unpatch_dest(uint8_t dest);
 
 /* The scale table, for the PLAITS SETTINGS page's own scale selector (M4b). Plaits keeps
- * its OWN index into the same seven scales, so the two modules can disagree. */
+ * its OWN index into the same seven scales, so the two modules can disagree.
+ * #44: INCLUDED = a slot that holds a scale in the bank in use (scales.cnfg); the glyphs
+ * belong to the slots. */
 bool sp1_mui_scale_included(int scale);
 void sp1_mui_scale_glyph(int scale, uint8_t lv[4]);
-#define SP1_MUI_SCALES 7
+#define SP1_MUI_SCALES SP1_SCALE_SLOTS
 /* "••" + FFWD / RWD on the X page: the next / previous INCLUDED scale, no wrap.
- * Returns true if it moved (false at either end). docs/MARBLES-SETTINGS.md owns the
- * table -- which scales exist, their glyphs and which are included. */
+ * Returns true if it moved (false at either end). */
 bool sp1_mui_scale_step(int dir);
+/* Main, at ON entry after the ON job (#44): a scale left on a slot the new bank emptied
+ * moves to the first filled slot. True if it moved. */
+bool sp1_mui_scales_settle(void);
 /* "••" + PLAY held 3 s on MARBLES: a **FULL WIPE** of the module (Adara, M4d --
  * docs/DEFAULTS.md is the spec).
  *

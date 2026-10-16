@@ -41,10 +41,11 @@ extern "C" {
 /* Marbles samples rendered per audio block: one per Plaits block. */
 #define SP1_MARBLES_MAX_FRAMES 20u
 
-/* Selectable scales: Marbles' six presets plus one free slot for a user scale
- * (docs/MARBLES-SETTINGS.md). Not Marbles' own limit of six -- only the SELECTED scale
- * is loaded into a quantizer, so this number is ours to choose (sp1_marbles.cc). */
-#define SP1_MARBLES_SCALES 7
+/* Selectable scales: the slots of the scale bank (sp1_scales.h, #44: config/scales.cnfg,
+ * Marbles' six presets by default). Not Marbles' own limit of six -- only the SELECTED
+ * scale is loaded into a quantizer, so this number is ours to choose (sp1_marbles.cc). */
+#include "sp1_scales.h"
+#define SP1_MARBLES_SCALES SP1_SCALE_SLOTS
 
 /* X/Y voltage ranges ([J]). The first three are Marbles': 0..2 V, 0..5 V, -5..+5 V.
  *
@@ -210,14 +211,19 @@ const char *sp1_marbles_scale_name(int scale);
  * ⚠️ There is no "amount" control (Adara): each scale is quantized to the note set its
  * NAME means. That is not the same as every degree in the table -- Marbles stores major
  * as twelve weighted degrees, so admitting all of them would quantize to a chromatic
- * scale. The per-scale weight threshold that yields the named set is in sp1_marbles.cc
- * (`scale_level`), with the resulting note sets written out in
- * docs/MARBLES-SETTINGS.md. */
-void  sp1_marbles_plaits_scale(int scale);      /* load; -1 or out of range = none  */
+ * scale. Each scale's `plaits` weight (config/scales.cnfg, #44) picks the named set, and
+ * the note sets are written out in docs/MARBLES-SETTINGS.md.
+ *
+ * #44: when the ON job installs a new bank, the loaded slot is reloaded with its new
+ * contents at the next call; an emptied slot quantizes nothing (main moves the selection
+ * off it, sp1_pui_scales_settle). */
+void  sp1_marbles_plaits_scale(int scale);      /* load; -1, out of range, empty = none */
 float sp1_marbles_plaits_quantize(float semitones);   /* identity if none is loaded */
 /* The loaded scale's degrees as semitones above the root, ascending. Returns how many
  * were written, or 0 if no scale is loaded. For the octave-mode-9 degree sweep. */
 int   sp1_marbles_plaits_degrees(float *semitones, int max);
+/* ...and its period in semitones (12 for an octave; 12 when none is loaded). */
+float sp1_marbles_plaits_period(void);
 
 #ifdef __cplusplus
 }

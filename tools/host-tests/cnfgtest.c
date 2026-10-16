@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #define SP1_CNFG_TEMPLATES
 #include "sp1_cnfg.h"
@@ -11,6 +12,7 @@
 #include "sp1_logs_gen.h"
 #include "sp1_engines_gen.h"
 #include "sp1_audio_gen.h"
+#include "sp1_scales_gen.h"
 
 static int fails;
 #define CHECK(cond, ...) do { if (!(cond)) { printf("  FAIL: "); \
@@ -134,7 +136,7 @@ static void reader(void)
 
 	char b[48];
 	CHECK(strcmp(sp1_logs_describe(SP1_LOG_ALL, b, sizeof(b)),
-		     "performance controls midi usb storage") == 0, "describe all: %s", b);
+		     "performance controls midi usb storage scales") == 0, "describe all: %s", b);
 	CHECK(strcmp(sp1_logs_describe(0u, b, sizeof(b)), "none") == 0, "describe none: %s", b);
 }
 
@@ -157,7 +159,10 @@ static void categories(void)
 		{ "[+00:01:02.345] UAC open=1\n", SP1_LOG_USB },
 		{ "[+00:01:02.345] STORE volume ok\n", SP1_LOG_STORAGE },
 		{ "[+00:01:02.345] LOG 60 s: 12 flushes\n", SP1_LOG_STORAGE },
+		{ "[+00:01:02.345] SCALES 1: major -- 12 degrees\n", SP1_LOG_SCALES },
+		{ "[+00:01:02.345] SCALE 2: minor\n", SP1_LOG_CONTROLS },  /* the selection */
 		/* Always written. */
+		{ "[+00:01:02.345] CNFG scales.cnfg is OVERLOADED: 1 scale\n", 0u },
 		{ "[+00:01:02.345] PWR  shutdown suppressed\n", 0u },
 		{ "[+00:01:02.345] BOOT on battery\n", 0u },
 		{ "[+00:01:02.345] CNFG logs.cnfg line 3: x -- y\n", 0u },
@@ -748,6 +753,194 @@ static void midi(void)
 	}
 }
 
+/* ---------------------------------------------------------------- scales.cnfg (#44) */
+
+static struct sp1_scale_bank sbank;
+static int s_filled, s_dropped;
+
+static int read_scales(const char *text, size_t chunk)
+{
+	struct sp1_scales_reader r;
+	problems_seen = 0;
+	last_line = 0;
+	last_what[0] = '\0';
+	sp1_scales_begin(&r, &sbank, problem, NULL);
+	const size_t n = strlen(text);
+	if (chunk == 0u) {
+		chunk = n ? n : 1u;
+	}
+	for (size_t i = 0u; i < n; i += chunk) {
+		sp1_scales_feed(&r, text + i, (i + chunk <= n) ? chunk : n - i);
+	}
+	const int bad = sp1_scales_end(&r, &s_filled, &s_dropped);
+	/* Problems + the notes for dropped slots are everything the reader reported. */
+	CHECK(bad + s_dropped == problems_seen, "scales reader counted %d problems + %d notes, "
+	      "reported %d", bad, s_dropped, problems_seen);
+	return bad;
+}
+
+static bool same_scale(const struct sp1_scale *a, const struct sp1_scale *b)
+{
+	if (a->n != b->n || a->plaits != b->plaits || strcmp(a->name, b->name) != 0 ||
+	    fabsf(a->period - b->period) > 1e-6f) {
+		return false;
+	}
+	for (int i = 0; i < a->n; i++) {
+		if (a->weight[i] != b->weight[i] || fabsf(a->volts[i] - b->volts[i]) > 1e-6f) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool is_defaults(void)
+{
+	struct sp1_scale_bank d;
+	sp1_scales_defaults(&d);
+	for (int i = 0; i < SP1_SCALE_SLOTS; i++) {
+		if (!same_scale(&sbank.s[i], &d.s[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static void scales(void)
+{
+	printf("[7] scales.cnfg\n");
+	struct sp1_scale_bank d;
+	sp1_scales_defaults(&d);
+
+	/* Scala's pitch syntax. */
+	static const struct {
+		const char *s;
+		bool ok;
+		float cents;
+	} P[] = {
+		{ "100.0", true, 100.0f }, { "100.", true, 100.0f },  { ".5", true, 0.5f },
+		{ "-5.0", true, -5.0f },   { "1200.000", true, 1200.0f }, { "3/2", true, 701.955f },
+		{ "2", true, 1200.0f },    { "2/1", true, 1200.0f },  { "81/80", true, 21.506f },
+		{ "0/1", false, 0 },       { "3/0", false, 0 },       { "-3/2", false, 0 },
+		{ "1.2.3", false, 0 },     { "abc", false, 0 },       { ".", false, 0 },
+		{ "3/2/1", false, 0 },     { "", false, 0 },          { "99999999999/2", false, 0 },
+	};
+	for (size_t i = 0u; i < sizeof(P) / sizeof(P[0]); i++) {
+		float v = -1.0f;
+		const bool ok = sp1_scl_pitch(P[i].s, strlen(P[i].s), &v);
+		CHECK(ok == P[i].ok && (!ok || fabsf(v * 1200.0f - P[i].cents) < 0.005f),
+		      "pitch \"%s\": %d, %.4f cents", P[i].s, ok, (double)(v * 1200.0f));
+	}
+
+	/* The template the firmware writes when the file is missing reads back as exactly the
+	 * built-in bank, with no problem, whatever chunk size the drive hands over. */
+	const size_t chunks[] = { 0u, 1u, 7u, 128u };
+	for (size_t k = 0u; k < sizeof(chunks) / sizeof(chunks[0]); k++) {
+		const int bad = read_scales(SP1_SCALES_TEMPLATE, chunks[k]);
+		CHECK(bad == 0 && s_dropped == 0, "template, chunk %u: %d problems (line %d: %s)",
+		      (unsigned)chunks[k], bad, last_line, last_what);
+		CHECK(is_defaults(), "template, chunk %u: not the built-in bank", (unsigned)chunks[k]);
+	}
+	/* What the built-in bank is: Marbles' six, slot 7 empty, and its Plaits note sets. */
+	CHECK(s_filled == 6 && d.s[6].n == 0u, "built-in: %d scales", s_filled);
+	static const int plaits_notes[6] = { 7, 7, 5, 7, 7, 7 };
+	for (int i = 0; i < 6; i++) {
+		int n = 0;
+		for (int k = 0; k < d.s[i].n; k++) {
+			n += d.s[i].weight[k] >= d.s[i].plaits;
+		}
+		CHECK(n == plaits_notes[i], "%s: Plaits plays %d, expected %d", d.s[i].name, n,
+		      plaits_notes[i]);
+		CHECK(d.s[i].period == 1.0f && d.s[i].weight[0] == 255u && d.s[i].volts[0] == 0.0f,
+		      "%s: root/period", d.s[i].name);
+	}
+	/* Within 0.12 cents of Marbles' own 4-decimal tables (marbles/settings.cc). */
+	static const float bhairav[12] = { 0.0f, 0.0752f, 0.1699f, 0.2630f, 0.3219f, 0.4150f,
+					   0.4918f, 0.5850f, 0.6601f, 0.7549f, 0.8479f, 0.9069f };
+	for (int k = 0; k < 12; k++) {
+		CHECK(fabsf(d.s[4].volts[k] - bhairav[k]) * 1200.0f < 0.12f, "bhairav %d: %.5f", k,
+		      (double)d.s[4].volts[k]);
+	}
+
+	/* A Scale Workshop export pasted as it is, CRLF and a BOM included, unsorted, a ratio
+	 * period of 3/1, no weights. */
+	CHECK(read_scales("\xEF\xBB\xBF[2]\r\n! tritave.scl\r\n!\r\nBohlen-Pierce\r\n 3\r\n!\r\n"
+			  " 9/5\r\n 7/5\r\n 3/1\r\n", 1u) == 0 && s_filled == 1 &&
+	      sbank.s[0].n == 0u && sbank.s[1].n == 3u &&
+	      strcmp(sbank.s[1].name, "Bohlen-Pierce") == 0 &&
+	      fabsf(sbank.s[1].period - log2f(3.0f)) < 1e-6f &&
+	      fabsf(sbank.s[1].volts[1] - log2f(1.4f)) < 1e-6f &&
+	      fabsf(sbank.s[1].volts[2] - log2f(1.8f)) < 1e-6f &&
+	      sbank.s[1].weight[1] == 255u && sbank.s[1].weight[2] == 255u &&
+	      sbank.s[1].plaits == 0u, "Scale Workshop paste: %d problems (line %d: %s)",
+	      problems_seen, last_line, last_what);
+	/* An empty description is a blank line once the .scl has begun with a ! line. */
+	CHECK(read_scales("[1]\n!\n\n2\n150.0 16\n2/1\n", 0u) == 0 && sbank.s[0].n == 2u &&
+	      sbank.s[0].name[0] == '\0' && sbank.s[0].weight[1] == 16u,
+	      "an empty description: %d problems (%s)", problems_seen, last_what);
+	/* Blank lines straight after [n] are spacing; weights and plaits; text after a pitch. */
+	CHECK(read_scales("[3]\n\nplaits = 100\nmine\n3\n700.0 200 ; G\n400.0 an E\n2/1\n"
+			  "plaits = 7\n", 0u) == 1 && is_defaults(),
+	      "plaits twice: the whole file set aside");
+	CHECK(read_scales("[3]\n\nplaits = 100\nmine\n3\n700.0 200 ; G\n400.0 an E\n2/1\n", 0u) == 0 &&
+	      sbank.s[2].plaits == 100u && sbank.s[2].n == 3u &&
+	      sbank.s[2].weight[1] == 255u && sbank.s[2].weight[2] == 200u,
+	      "weights, plaits, comments: %d problems (%s)", problems_seen, last_what);
+	/* An empty [n] is an empty slot, not a problem. */
+	CHECK(read_scales("[5]\n[6]\nx\n1\n2/1\n", 0u) == 0 && s_filled == 1 && sbank.s[5].n == 1u,
+	      "an empty section: %d problems", problems_seen);
+
+	/* Overloaded (Adara): above [7] is dropped with a note, the rest loads. */
+	CHECK(read_scales("[1]\na\n1\n2/1\n[8]\nb\n1\n2/1\n[12]\nc\n2\n100.0\n2/1\n", 0u) == 0 &&
+	      s_dropped == 2 && s_filled == 1 && sbank.s[0].n == 1u && !is_defaults(),
+	      "overloaded: %d problems, %d dropped", problems_seen, s_dropped);
+
+	/* Every problem sets the WHOLE file aside: the built-in bank. */
+	static const char *const BAD[] = {
+		"[1]\na\n17\n",                                   /* > 16 pitches            */
+		"[1]\na\n0\n",                                    /* no period               */
+		"[1]\na\ntwelve\n100.0\n2/1\n",                   /* count is not a number   */
+		"[1]\na\n2\n100.0\n",                             /* ends early              */
+		"[1]\na\n2\n100.0\n2/1\n300.0\n",                 /* after the last pitch    */
+		"[1]\na\n2\n1300.0\n2/1\n",                       /* above the period        */
+		"[1]\na\n2\n1200.0\n2/1\n",                       /* on the period           */
+		"[1]\na\n2\n-100.0\n2/1\n",                       /* below the root          */
+		"[1]\na\n3\n100.0\n100.0\n2/1\n",                 /* the same pitch twice    */
+		"[1]\na\n2\n100.0 256\n2/1\n",                    /* weight above 255        */
+		"[1]\na\n2\nC#\n2/1\n",                           /* not a pitch             */
+		"[1]\na\n1\n-1200.0\n",                           /* period below the root   */
+		"[1]\nplaits = 300\na\n1\n2/1\n",                 /* plaits above 255        */
+		"[1]\na\n1\n2/1\n[1]\nb\n1\n2/1\n",               /* a slot twice            */
+		"[0]\na\n1\n2/1\n",                               /* slot 0                  */
+		"[major]\na\n1\n2/1\n",                           /* not a slot              */
+		"a\n1\n2/1\n[1]\nb\n1\n2/1\n",                    /* before any slot         */
+		"[1]\n[2]\n",                                     /* no scale at all         */
+		"",                                               /* nothing                 */
+		"[1\na\n1\n2/1\n",                                /* a broken header         */
+	};
+	for (size_t i = 0u; i < sizeof(BAD) / sizeof(BAD[0]); i++) {
+		const int bad = read_scales(BAD[i], 0u);
+		CHECK(bad >= 1 && is_defaults() && s_filled == 6, "bad file %u: %d problems, %d "
+		      "scales", (unsigned)i, bad, s_filled);
+	}
+
+	/* The bank itself: an empty one is refused, a slot's contents change with an install,
+	 * and every install moves the generation on. */
+	struct sp1_scale_bank b;
+	memset(&b, 0, sizeof(b));
+	const uint32_t g0 = sp1_scales_gen();
+	sp1_scales_install(&b);
+	CHECK(sp1_scales_gen() == g0 + 1u && sp1_scale_filled(0) && sp1_scale_first() == 0 &&
+	      strcmp(sp1_scale_name(0), "major") == 0, "an empty bank installs the built-in one");
+	CHECK(read_scales("[4]\nmine\n2\n350.0\n2/1\n", 0u) == 0, "a one-scale file");
+	sp1_scales_install(&sbank);
+	CHECK(!sp1_scale_filled(0) && sp1_scale_first() == 3 && sp1_scale_at(3)->n == 2u &&
+	      strcmp(sp1_scale_name(3), "mine") == 0 && sp1_scale_name(0)[0] == '\0' &&
+	      sp1_scale_at(7) == NULL && sp1_scale_at(-1) == NULL, "installed: slot 4 only");
+	sp1_scales_defaults(&b);
+	sp1_scales_install(&b);
+	CHECK(sp1_scales_gen() == g0 + 3u && sp1_scale_first() == 0, "back to the built-in bank");
+}
+
 int main(void)
 {
 	reader();
@@ -756,6 +949,7 @@ int main(void)
 	engines();
 	audio();
 	midi();
+	scales();
 	printf(fails ? "cnfgtest: %d FAILED\n" : "cnfgtest: all passed\n", fails);
 	return fails ? 1 : 0;
 }

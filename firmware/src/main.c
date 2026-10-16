@@ -1459,6 +1459,16 @@ int main(void)
 		}
 		/* #52: the ON job may have installed a new engine stack (engines.cnfg). */
 		sp1_pui_stack_settle();
+		/* #44: ...and a new scale bank (scales.cnfg): a selection on a slot it emptied
+		 * moves (Marbles: the first filled slot; Plaits: off), and Plaits' quantizer takes
+		 * its slot's new contents. Marbles' X reloads by itself (sp1_marbles.cc). */
+		if (sp1_mui_scales_settle()) {
+			printk("SCALES Marbles' scale slot is empty now: %d (%s) instead\n",
+			       sp1_mui_scale() + 1, sp1_marbles_scale_name(sp1_mui_scale()));
+		}
+		if (sp1_pui_scales_settle()) {
+			printk("SCALES Plaits' scale slot is empty now: its quantizer is off\n");
+		}
 		/* ...and read audio.cnfg and midi.cnfg: applied here, before the MIDI reset and
 		 * audio start below, so nothing runs on a half-applied script. */
 		{

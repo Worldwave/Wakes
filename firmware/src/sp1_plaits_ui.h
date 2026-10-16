@@ -150,6 +150,9 @@ int  sp1_pui_octave_mode(void);
 #define SP1_PUI_SCALE_OFF (-1)
 void sp1_pui_set_scale(int scale);
 int  sp1_pui_scale(void);
+/* Main, at ON entry after the ON job (#44): the quantizer reloads its slot from the new
+ * scale bank, or turns off if that slot is now empty. True if it turned off. */
+bool sp1_pui_scales_settle(void);
 /* Open the FREQUENCY range fully (mode 10). Called when something is routed to V/Oct. */
 void sp1_pui_set_octave_max(void);
 bool sp1_pui_catching(int fader);              /* in the active layer */

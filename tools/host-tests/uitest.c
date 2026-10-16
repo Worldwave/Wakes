@@ -24,6 +24,7 @@ const char *sp1_marbles_model_name(int m)
 void  sp1_marbles_plaits_scale(int s) { (void)s; }
 float sp1_marbles_plaits_quantize(float st) { return st; }
 int   sp1_marbles_plaits_degrees(float *st, int max) { (void)st; (void)max; return 0; }
+float sp1_marbles_plaits_period(void) { return 12.0f; }
 const char *sp1_marbles_scale_name(int s)
 {
 	static const char *const n[7] = { "major", "minor", "pentatonic", "pelog",

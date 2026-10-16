@@ -134,88 +134,115 @@ the value it is on (and, with STEPS smooth, ramps across the two). One clock tic
 ## Scales — `••` + FFWD / RWD on the X page
 
 Marbles puts scale selection on a long press of `[J]`; here it is the shifted FFWD / RWD rocker,
-because there are no long presses in this UI (Adara, M4a). **No wrap**, and **excluded scales
-are skipped**. Glyphs are those of engine slots 1–7, as Adara asked. Slot glyphs are fixed, so the two can't
-drift apart.
+because there are no long presses in this UI (Adara, M4a). **No wrap**, and **empty slots are
+skipped**. Glyphs are those of engine slots 1–7, as Adara asked, and belong to the SLOT, not to
+the scale in it.
 
 The scale is what X quantizes to when `STEPS` (X page F3) is above its centre. Below the centre
 X is smooth and the scale does nothing.
 
-| # | Glyph | Scale | Degrees (volts above the root, weight 0–255) | On |
-|---|---|---|---|---|
-| 1 | `●○○○` | major | C 0.0000/255 · C♯ 0.0833/16 · D 0.1667/96 · D♯ 0.2500/24 · E 0.3333/128 · F 0.4167/64 · F♯ 0.5000/8 · G 0.5833/192 · G♯ 0.6667/16 · A 0.7500/96 · A♯ 0.8333/24 · B 0.9167/128 | yes |
-| 2 | `●●○○` | minor | C 0.0000/255 · C♯ 0.0833/16 · D 0.1667/96 · E♭ 0.2500/128 · E 0.3333/8 · F 0.4167/64 · F♯ 0.5000/4 · G 0.5833/192 · G♯ 0.6667/96 · A 0.7500/16 · B♭ 0.8333/128 · B 0.9167/16 | yes |
-| 3 | `●●●○` | pentatonic | C 0.0000/255 · C♯ 0.0833/4 · D 0.1667/96 · E♭ 0.2500/4 · E 0.3333/4 · F 0.4167/140 · F♯ 0.5000/4 · G 0.5833/192 · G♯ 0.6667/4 · A 0.7500/96 · B♭ 0.8333/4 · B 0.9167/4 | yes |
-| 4 | `●●●●` | pelog | 7 degrees, Javanese tuning — not 12-tone | yes |
-| 5 | `○●●●` | bhairav | Hindustani raga | yes |
-| 6 | `○○●●` | shri | Hindustani raga | yes |
-| 7 | `○○○●` | **free slot** | chromatic, every degree at 255 — **Adara's to replace** | **no** |
+### The scales are a file: `scales.cnfg` (#44)
 
-Slots 1–6 are Marbles' own, verbatim in `firmware/src/sp1_marbles_scales.inc` (copied from
-`marbles/settings.cc` and not to be edited). Slot 7 is ours, in `sp1_marbles.cc` as
-`sp1_free_scale`.
+Since #44 the seven slots come from **`WAKES/CNFG/scales.cnfg`** on Wakes' drive, read at every
+ON; `config/scales.cnfg` in the repository is the built-in default (and the text Wakes writes to
+the drive when the file is missing). The file explains its own format to users. In short: one
+`[1]`–`[7]` section per slot, each holding a scale in the **Scala `.scl` format**, so a scale
+built in [Scale Workshop](https://sevish.com/scaleworkshop/) and exported as `.scl` can be pasted
+under a slot as it is.
 
-### Writing a custom scale
-
-```c
-const Scale sp1_free_scale = {
-  1.0f,        // base_interval: how far up the pattern repeats, in VOLTS.
-               // 1.0 = one octave at 1 V/oct. 0.5 would repeat every tritone.
-  12,          // num_degrees: how many entries below are used. Up to 16.
-  {
-    { 0.0000f, 255 },   // { volts above the root, weight }
-    { 0.0833f,  16 },
-    ...
-  }
-};
+```
+[1]
+plaits = 32             Wakes: Plaits plays the degrees of weight >= 32 (default 0: all)
+! a Scala comment
+major                   the description: the scale's name in the log
+12                      pitches that follow, the period included (1-16)
+ 100.0   16             cents (has a ".") or a ratio (3/2, 2), then Wakes' WEIGHT 0-255
+ ...
+2/1                     the last pitch is the period: 2/1 = the octave
 ```
 
-- **Volts, not semitones.** One semitone is `1/12 V = 0.0833333f`. Two semitones is
-  `0.1666667f`, and so on. Non-equal tunings are just other numbers — that is how pelog works.
-  Degrees must be in ascending order and below `base_interval`.
-- **Weight is probability, not level.** It is how often the quantizer is willing to land on that
-  degree: 255 = always available, 0 = never chosen, and everything between biases the sequence.
-  It does **not** make that note louder. Marbles' own scales use it to make a scale *sound* like
-  itself — in `major`, the root is 255, the fifth 192, the third and seventh 128, and the
-  accidentals 4–24, so chromatic notes appear as occasional colour rather than as equals.
-- A **flat** scale (every weight equal) is a chromatic run with no tonal centre. That is what
-  the free slot holds today, which is why it ships **off**: it is a placeholder, not a choice.
-- After editing it, set its `On` to `yes` here **and** `scale_on[6]` to `true` in
-  `firmware/src/sp1_marbles_ui.c`.
+- The root (1/1) is implicit, as in Scala, and always weight 255. Pitches may come in any order.
+- A **weight** after a pitch is Wakes' extra (Scala tools ignore text after a pitch); a pitch
+  without one is 255. Any other text after a pitch is ignored.
+- **16 pitches at most**, the period included: Marbles' quantizer (`kMaxDegrees`, 16-bit masks).
+- Any period, not only the octave: 3/1 (Bohlen-Pierce) works on both modules.
+- **All or nothing**, like `engines.cnfg`: a problem anywhere in the file and Wakes uses the
+  built-in scales, every problem named in the log (`CNFG scales.cnfg line N: …`). The one
+  exception (Adara): a slot above `[7]` is **dropped** and the log says the file is
+  **overloaded**; the rest loads.
+- **PRST stores the slot** (its tokens `major` … `free` mean slots 1–7, unchanged so every saved
+  preset still loads). Change what a slot holds and the presets that used it play the new scale.
+  A preset on a slot that is now empty: Marbles takes the first filled slot, Plaits' quantizer off.
+- `logs.cnfg`'s `scales = on` logs the bank at every ON: each slot's name, period, degrees in
+  cents with their weights, and what Plaits plays (`SCALES …` lines).
+
+### The built-in bank
+
+Slots 1–6 are Marbles' own (`marbles/settings.cc`, Emilie Gillet, MIT), written as Scala. Slot 7
+is empty.
+
+| # | Glyph | Scale | Written as | Plaits plays |
+|---|---|---|---|---|
+| 1 | `●○○○` | major | 12-TET cents, Marbles' weights (C 255 · G 192 · E, B 128 · D, A 96 · F 64 · the rest 8–24) | weight ≥ 32 |
+| 2 | `●●○○` | minor | 12-TET cents, Marbles' weights | weight ≥ 32 |
+| 3 | `●●●○` | pentatonic | 12-TET cents, Marbles' weights | weight ≥ 32 |
+| 4 | `●●●●` | pelog | Marbles' cents: 153 · 315 · 552 · 705.96 · 848.04 · 1058.04 | all |
+| 5 | `○●●●` | bhairav | just ratios: 256/243 · 9/8 · 6/5 · 5/4 · 4/3 · 45/32 · 3/2 · 128/81 · 27/16 · 9/5 · 15/8 | weight ≥ 32 |
+| 6 | `○○●●` | shri | the same ratios, shri's weights | weight ≥ 32 |
+| 7 | `○○○●` | *(empty)* | yours | |
+
+Marbles stores its scales as 4-decimal voltages (a semitone is `0.0833`, Komal Re `0.0752`). The
+Scala form writes what those numbers stand for — 100 cents, 256/243 — so every degree moved by
+**at most 0.12 cents** (9/5 in the ragas; 0.04 cents in the 12-TET scales). Inaudible, and
+`cnfgtest` §7 checks the bound.
+
+### Weights and STEPS
+
+**Weight is how long a degree survives as STEPS goes up**, not loudness or probability of a
+single note. Marbles' quantizer has seven levels, thresholds 0 · 16 · 32 · 64 · 128 · 192 · 255:
+past STEPS' centre, turning it up raises the threshold, and the degrees whose weight falls below
+it drop out, until only the root (255) is left. Marbles' own scales use this to make a scale
+*sound* like itself — in `major`, the root is 255, the fifth 192, the third and seventh 128, and
+the accidentals 4–24, so chromatic notes appear as occasional colour rather than as equals.
+
+A **flat** scale (every weight 255, which is what a pasted Scale Workshop scale is) stays whole at
+every STEPS setting above the centre.
 
 ### Plaits borrows the same scales (M4b)
 
 The PLAITS SETTINGS page's T2 / T3 quantize **Plaits' FREQUENCY fader** to one of these
-scales. Plaits keeps its **own** index into the table, so the two modules can be in different
+scales. Plaits keeps its **own** index into the slots, so the two modules can be in different
 scales at once, and it runs on its own `marbles::Quantizer` instance in the main thread —
 nothing shared with the four the audio thread is using.
 
 **There is no "amount" control (Adara): each scale quantizes to the note set its NAME means.**
 That is not the same as "every degree in the table". Marbles stores major as *twelve* weighted
 degrees, so admitting all of them would quantize to a chromatic scale and make four of the six
-scales sound identical. `scale_level` in `sp1_marbles.cc` picks the weight threshold per scale
-that yields the named set. Measured by sweeping F1 across the full range and collecting the
-distinct pitches, in semitones above the root:
+scales sound identical. Each scale's **`plaits =`** weight picks the set; the quantizer is loaded
+with only those degrees. Measured by sweeping F1 across the full range and collecting the
+distinct pitches, in semitones above the root (`routetest`):
 
-| scale | level | notes per octave | degrees (semitones) |
+| scale | `plaits` | notes per period | degrees (semitones) |
 |---|---|---|---|
-| major | 3 (≥32) | 7 | 0 · 2 · 4 · 5 · 7 · 9 · 11 |
-| minor | 3 (≥32) | 7 | 0 · 2 · 3 · 5 · 7 · 8 · 10 |
-| pentatonic | 3 (≥32) | 5 | 0 · 2 · 5 · 7 · 9 |
-| pelog | 1 (all) | 7 | 0 · **1.53** · **3.15** · **5.52** · **7.06** · **8.48** · **10.58** |
-| bhairav | 3 (≥32) | 7 | 0 · **0.90** · **3.86** · **4.98** · **7.02** · **7.92** · **10.88** |
-| shri | 3 (≥32) | 7 | 0 · **2.04** · **3.16** · **4.98** · **7.02** · **9.06** · **10.17** |
-| free slot | 1 (all) | 12 | every semitone, until you replace it |
+| major | 32 | 7 | 0 · 2 · 4 · 5 · 7 · 9 · 11 |
+| minor | 32 | 7 | 0 · 2 · 3 · 5 · 7 · 8 · 10 |
+| pentatonic | 32 | 5 | 0 · 2 · 5 · 7 · 9 |
+| pelog | 0 (all) | 7 | 0 · **1.53** · **3.15** · **5.52** · **7.06** · **8.48** · **10.58** |
+| bhairav | 32 | 7 | 0 · **0.90** · **3.86** · **4.98** · **7.02** · **7.92** · **10.88** |
+| shri | 32 | 7 | 0 · **2.04** · **3.16** · **4.98** · **7.02** · **9.06** · **10.18** |
 
-⚠️ **Pelog is the one that needs level 1**: its seven degrees *are* the scale, and at level 3 it
-would lose two of them. ⚠️ **Level 1 on major, minor, bhairav or shri admits all twelve
-degrees** — chromatic. Do not collapse `scale_level` to a single constant.
+⚠️ **Pelog needs 0**: its seven degrees *are* the scale, and at 32 it would lose two of them.
+⚠️ **0 on major, minor, bhairav or shri admits all twelve degrees** — chromatic.
+
+Until #44 this was `scale_level` (a Marbles level per scale, 3 = weight ≥ 32, 1 = all) with the
+whole scale loaded: the same notes, but only the seven level thresholds were possible.
 
 **Three of these are microtonal.** Pelog, bhairav and shri put degrees at 1.53, 0.90, 3.16…
 semitones — nowhere near the semitone grid. That is what they are for, and it means Plaits'
-pitch will not be a MIDI note number when they are selected.
+pitch will not be a MIDI note number when they are selected. Octave mode 9 with a scale steps
+through the degrees across nine PERIODS (nine octaves for every built-in scale).
 
-### Why there can be seven
+### Why there can be seven, and how a new file takes effect
 
 Marbles gives every output channel six quantizer slots and preloads all six, so six is its
 ceiling. We load **only the selected scale**, into slot 0 of all four channels, from the audio
@@ -227,41 +254,13 @@ about a thousand cycles for four channels.
 three X channels, so M4 left Y's quantizer holding Marbles' empty default scale. Nothing showed,
 because Y STEPS defaults below its centre where Y uses the lag processor and never quantizes.
 
-### Writing a scale of your own (Adara asked, M4e)
+The bank (`sp1_scales.c`) keeps **two copies**: the ON job writes the one not in use and flips,
+**once per ON job**, before PRST checks its slots — so no reader ever sees a scale half-written.
+Every install bumps a generation number; the audio thread and Plaits' quantizer reload their slot
+when it changes (one compare per audio block). Main then moves a selection off a slot the new
+file emptied (`sp1_mui_scales_settle`, `sp1_pui_scales_settle`).
 
-Slot 7, `sp1_free_scale` in `sp1_marbles.cc`, is yours. It ships as a chromatic placeholder with
-`scale_on[6] = false`, so it exists and is skipped.
-
-⚠️ **Do not add to `sp1_marbles_scales.inc`** — that file is vendored verbatim from
-`marbles/settings.cc` and must stay byte-identical to upstream. Edit `sp1_free_scale` instead.
-
-The format is Marbles' own `Scale` (`marbles/random/quantizer.h`):
-
-```c
-{
-  1.0f,            // base_interval: the octave, in VOLTS. 1.0 = 1 V/oct.
-  12,              // num_degrees: how many entries below are used (max 16)
-  {
-    { 0.0000f, 255 },   // { voltage within the interval, weight 0-255 }
-    { 0.0833f, 16  },   // 0.0833 V = one semitone at 1 V/oct
-    ...
-  }
-}
-```
-
-- **Degrees are VOLTAGES, not semitones.** A semitone is 1/12 = 0.08333 V. That is exactly what
-  makes the microtonal scales above possible: pelog's degrees are not multiples of 1/12.
-- **Weight is how strongly a degree attracts**, and a threshold decides which weights count at
-  all. That is why `scale_level` exists. **If you add a scale, give it a level too** — or the
-  simplest thing: weight every degree **255** and set its level to **1**, which means "all of
-  these, always" and is how to write a scale you want taken literally.
-- To put it in the ring: `scale_on[6] = true` and give it a glyph in `scale_glyph[]`
-  (`sp1_marbles_ui.c`). Both are already wired. Going beyond seven means bumping
-  `SP1_MUI_SCALES` and `SP1_MARBLES_SCALES` and adding a row to each of those three tables.
-- `tools/host-tests/uitest` fails if two glyphs collide, so a mistake there is caught before it
-  reaches hardware.
-
----
+`tools/host-tests/uitest` fails if two slot glyphs collide.
 
 ## Y divider — SETTINGS F4
 

@@ -171,7 +171,7 @@ Tap `••` to get back to the base page first.
 Restricts the notes F1 can select to one of the seven scales Marbles' X quantizer offers
 (`docs/MARBLES-SETTINGS.md` has the table, the glyphs and the exact note sets). Plaits keeps
 its **own** index into that table, so the two modules can be in different scales. `○○○○` = off,
-first in the ring, and only *included* scales are reachable. No wrap.
+first in the ring, and only *filled* slots are reachable (`scales.cnfg`, #44). No wrap.
 
 - **It composes with the OCTAVE range rather than replacing it.** The range decides the span
   F1 covers; the scale decides which notes inside that span exist.

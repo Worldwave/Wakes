@@ -19,9 +19,10 @@ import os
 import re
 import sys
 
-KEYS = ['enabled', 'performance', 'controls', 'midi', 'usb', 'storage']
+KEYS = ['enabled', 'performance', 'controls', 'midi', 'usb', 'storage', 'scales']
 CATS = {'performance': 'SP1_LOG_PERFORMANCE', 'controls': 'SP1_LOG_CONTROLS',
-        'midi': 'SP1_LOG_MIDI', 'usb': 'SP1_LOG_USB', 'storage': 'SP1_LOG_STORAGE'}
+        'midi': 'SP1_LOG_MIDI', 'usb': 'SP1_LOG_USB', 'storage': 'SP1_LOG_STORAGE',
+        'scales': 'SP1_LOG_SCALES'}
 ONOFF = {'on': 1, 'off': 0}
 LINE_MAX = 160                       # SP1_CNFG_LINE_MAX: the device ignores longer lines
 

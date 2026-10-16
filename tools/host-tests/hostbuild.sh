@@ -29,6 +29,8 @@ python3 "$ROOT/tools/gen_prst.py" "$GEN/sp1_prst_gen.h" >/dev/null
 # #52: the logging defaults and logs.cnfg's text, as the firmware build generates them.
 python3 "$ROOT/tools/gen_logs.py" "$ROOT/config/logs.cnfg" "$GEN/sp1_logs_gen.h" >/dev/null
 python3 "$ROOT/tools/gen_audio.py" "$ROOT/config/audio.cnfg" "$GEN/sp1_audio_gen.h" >/dev/null
+# #44: the built-in scale bank (config/scales.cnfg).
+python3 "$ROOT/tools/gen_scales.py" "$ROOT/config/scales.cnfg" "$GEN/sp1_scales_gen.h" >/dev/null
 # The MIDI script (M5a) as the firmware build generates it -- with ONE change: its `pickup`
 # forced to `sum`, because miditest.cc checks the offset maths and the other suites were
 # written against offsets. miditest_pickup.cc runs the shipped script as it is otherwise, once
@@ -111,6 +113,7 @@ g++ $CXXFLAGS $INC -c $SRC/sp1_midi.cc    -o $OBJ/sp1_midi.o
 gcc $CFLAGS  $INC -c $SRC/sp1_plaits_ui.c  -o $OBJ/pui.o
 gcc $CFLAGS  $INC -c $SRC/sp1_marbles_ui.c -o $OBJ/mui.o
 gcc $CFLAGS  $INC -c $SRC/sp1_prst.c       -o $OBJ/prst.o
+gcc $CFLAGS  $INC -c $SRC/sp1_scales.c     -o $OBJ/scales.o
 
 # Binaries land in the build dir, never in the repo.
 for t in "$@"; do
@@ -129,7 +132,7 @@ for t in "$@"; do
           "$t" "$SP/uacring.c" -o "$out" ;;
     *cnfgtest.c)
       # #52: the config-file reader and the log file's cursor -- pure C, nothing else linked.
-      gcc $CFLAGS -Wall -Wextra $INC "$t" "$SRC/sp1_cnfg.c" "$SRC/sp1_logring.c" -o "$out" ;;
+      gcc $CFLAGS -Wall -Wextra $INC "$t" "$SRC/sp1_cnfg.c" "$SRC/sp1_logring.c" "$SRC/sp1_scales.c" -lm -o "$out" ;;
     *test_usb_rt_parse.c)
       # feldd's own host test of the packet validator Wakes uses (third_party/feldd).
       gcc -std=gnu11 -O2 "$t" "$FELDD/src/usb_rt_parse.c" -o "$out" ;;
@@ -145,7 +148,7 @@ for t in "$@"; do
       gcc $CFLAGS  $AINC -c $SRC/sp1_plaits_ui.c  -o $OBJ/pui_alt.o
       gcc $CFLAGS  $AINC -c $SRC/sp1_marbles_ui.c -o $OBJ/mui_alt.o
       g++ $CXXFLAGS $AINC "$t" $OBJ/sp1_synth_alt.o $OBJ/sp1_marbles.o $OBJ/sp1_midi_alt.o \
-          $OBJ/pui_alt.o $OBJ/mui_alt.o "$LIB" -lm -o "$out" ;;
+          $OBJ/pui_alt.o $OBJ/mui_alt.o $OBJ/scales.o "$LIB" -lm -o "$out" ;;
     *miditest_pickup.cc)
       # The shipped script under pickup shared and takeover (Adara, M5a round 4): one
       # binary each, miditest_pickup_shared and miditest_pickup_takeover.
@@ -160,13 +163,13 @@ for t in "$@"; do
         gcc $CFLAGS  $PINC -c $SRC/sp1_plaits_ui.c  -o $OBJ/pui_$m.o
         gcc $CFLAGS  $PINC -c $SRC/sp1_marbles_ui.c -o $OBJ/mui_$m.o
         g++ $CXXFLAGS $PINC "$t" $OBJ/sp1_synth_$m.o $OBJ/sp1_marbles.o $OBJ/sp1_midi_$m.o \
-            $OBJ/pui_$m.o $OBJ/mui_$m.o "$LIB" -lm -o "${out}_$m"
+            $OBJ/pui_$m.o $OBJ/mui_$m.o $OBJ/scales.o "$LIB" -lm -o "${out}_$m"
         [ "$m" = takeover ] || echo "${out}_$m"
       done
       out=${out}_takeover ;;
     *.cc) g++ $CXXFLAGS $INC "$t" $OBJ/sp1_synth.o $OBJ/sp1_marbles.o $OBJ/sp1_midi.o \
-              $OBJ/pui.o $OBJ/mui.o "$LIB" -lm -o "$out" ;;
-    *.c)  gcc $CFLAGS  $INC "$t" $OBJ/pui.o $OBJ/mui.o $OBJ/prst.o $OBJ/sp1_midi.o -lm -o "$out" ;;
+              $OBJ/pui.o $OBJ/mui.o $OBJ/scales.o "$LIB" -lm -o "$out" ;;
+    *.c)  gcc $CFLAGS  $INC "$t" $OBJ/pui.o $OBJ/mui.o $OBJ/prst.o $OBJ/scales.o $OBJ/sp1_midi.o -lm -o "$out" ;;
   esac
   echo "$out"
 done

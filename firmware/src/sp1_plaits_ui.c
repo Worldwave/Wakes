@@ -523,14 +523,16 @@ void sp1_pui_params(struct sp1_synth_params *p)
 		 * would be a no-op (an octave is degree 0 of every scale), so the mode
 		 * becomes what it should be: F1 steps through every degree of the scale, in
 		 * order, across the same nine octaves. Seven degrees gives 63 steps, about
-		 * 59 fader counts each. Same asymmetric hysteresis as the octave version. */
+		 * 59 fader counts each. Same asymmetric hysteresis as the octave version.
+		 * #44: nine PERIODS -- a scales.cnfg scale may repeat at 3/1, not 2/1. */
 		const int steps = 9 * n_deg;
 		const float v = f1 * (float)steps - 0.5f;
 		const float h = v > (float)deg_q ? -0.01f : 0.01f;
 		int q = (int)(v + h + 0.5f);
 		q = q < 0 ? 0 : (q > steps - 1 ? steps - 1 : q);
 		deg_q = q;
-		note = 60.0f + 12.0f * (float)(q / n_deg - 4) + degrees[q % n_deg];
+		note = 60.0f + sp1_marbles_plaits_period() * (float)(q / n_deg - 4) +
+		       degrees[q % n_deg];
 	} else if (oct == 9) {
 		/* stmlib HysteresisQuantizer2(9 steps, 0.01, asymmetric) */
 		const float v = f1 * 9.0f - 0.5f;
@@ -626,8 +628,15 @@ int  sp1_pui_scale(void)                { return scale; }
 
 void sp1_pui_set_scale(int s)
 {
-	scale = (s >= 0 && s < SP1_MARBLES_SCALES) ? s : SP1_PUI_SCALE_OFF;
+	scale = sp1_scale_filled(s) ? s : SP1_PUI_SCALE_OFF;   /* an empty slot (#44): off */
 	sp1_marbles_plaits_scale(scale);
+}
+
+bool sp1_pui_scales_settle(void)
+{
+	const int was = scale;
+	sp1_pui_set_scale(scale);          /* reloads the slot's new contents, or turns off */
+	return scale != was;
 }
 
 void sp1_pui_set_octave_max(void)

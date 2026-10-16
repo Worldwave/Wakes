@@ -7,7 +7,7 @@ what was changed.
 
 | File | Holder | Covers |
 |---|---|---|
-| `MIT-Mutable-Instruments.txt` | Emilie Gillet | `third_party/eurorack/` (Plaits, Marbles, stmlib), `firmware/src/plaits_ovr/`, `firmware/src/sp1_marbles_scales.inc`, the build-time copies made by `firmware/CMakeLists.txt`, and the adapted parts of `sp1_marbles.cc`, `sp1_plaits_ui.c`, `sp1_marbles_ui.c` and `sp1_midi.cc` (ported from Yarns) |
+| `MIT-Mutable-Instruments.txt` | Emilie Gillet | `third_party/eurorack/` (Plaits, Marbles, stmlib), `firmware/src/plaits_ovr/`, `config/scales.cnfg` (Marbles' preset scales, written as Scala), the build-time copies made by `firmware/CMakeLists.txt`, and the adapted parts of `sp1_marbles.cc`, `sp1_plaits_ui.c`, `sp1_marbles_ui.c` and `sp1_midi.cc` (ported from Yarns) |
 | `MIT-feldd.txt` | Benjamin Reece | `third_party/feldd/` (the USB-MIDI 1.0 class and its packet parser) and the build-time patched copy of `usb_midi1.c` |
 | `MIT-sp1-tape-looper.txt` | chattock | the board definition, power-off and watchdog sequence, and codec bring-up adapted from chattock/sp1-tape-looper |
 | `MIT-SP-1-dev.txt` | Tim Knapen | the SP-1 pin map and hardware documentation from timknapen/SP-1-dev |
