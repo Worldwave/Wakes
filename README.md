@@ -5,13 +5,15 @@
 
 Wakes is a semimodular synthesizer, built as a custom firmware for the SP-1, an unreleased Teenage Engineering stem player that was turned into a dev board by its community.
 
-Wakes combines two Mutable Instruments modules:
+Wakes combines code from three Mutable Instruments modules:
 
 - **Plaits**: A macro-synthesizer voice, featuring multiple sound engines
 - **Marbles**: A playful random sequencer
+- **Yarns**: A MIDI translator
 
 The development of Wakes is unaffiliated with Teenage Engineering or Mutable Instruments.
-**IMPORTANT:** Flash custom firmware on the SP-1 at your own risk. SP-1s are abandonware, they do not have manufacturer support. There is no way to go back to the base firmware once you've flashed it away.
+
+**CRITICAL:** Flash custom firmware on the SP-1 at your own risk. SP-1s are abandonware, they do not have manufacturer support. There is no way to go back to the base firmware once you've flashed it away.
 
 ## 📖 Manual
 
