@@ -15,11 +15,11 @@ The development of Wakes is unaffiliated with Teenage Engineering or Mutable Ins
 
 ## 📖 Manual
 
-**[Wakes – Manual (PDF)](docs/Wakes%20-%20Manual.pdf)**: The manual details the layout of each page, with every control and how how to use them, in an aesthetically pleasing and readable format. Once you've installed Wakes on your SP-1 using the Flashing section below, start here.
+**[Wakes – Manual (PDF)](docs/Wakes%20-%20Manual.pdf)**: The manual details the layout of each page, with every control and how to use them, in an aesthetically pleasing and readable format. Once you've installed Wakes on your SP-1 using the Flashing section below, start here.
 
 ## Status
 
-**v0.8.0, pre-release for beta testing.** Report problems with the bug form under [Issues](https://github.com/Worldwave/Wakes/issues).
+**v0.8.2, pre-release for beta testing.** Report problems with the bug form under [Issues](https://github.com/Worldwave/Wakes/issues).
 
 ## Flashing
 
@@ -35,6 +35,17 @@ The development of Wakes is unaffiliated with Teenage Engineering or Mutable Ins
 The T1+T4 recovery trigger in step 4 lives in Teenage Engineering's bootloader, not in Wakes, so it
 works with whatever firmware is installed. Wakes never writes below the flash memory's `0x20000` (and neither should your CFW's),
 because that's where the bootloader lives.
+
+## Configuration
+
+Wakes keeps its settings as `.cnfg` files on its own drive, in `WAKES/CNFG/`: the engine stack
+(`engines.cnfg`), MIDI (`midi.cnfg`), USB audio (`audio.cnfg`) and logging (`logs.cnfg`). Plug the
+SP-1 into a computer while it's in STANDBY (OFF, with USB plugged in), edit a file in a text editor,
+eject, and turn Wakes ON: it reads them at every ON. Each file explains its own settings. Delete a
+file to reset it; Wakes writes a fresh copy with the defaults at the next ON. No fork or build needed.
+
+The files in [`config/`](config/) are the defaults built into the firmware, not your device's
+settings. Edit them only to build Wakes with different defaults ([`config/README.md`](config/README.md)).
 
 ## Building
 
