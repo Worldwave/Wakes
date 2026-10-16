@@ -24,6 +24,93 @@ static int fails;
 
 static const uint32_t kFrames = 240;   // one DMA block
 
+// ---- section 13 (#44, #30): drive F1 like a hand, read the note Plaits gets ----
+static uint16_t f1_pos = 1850;
+
+static void move_f1(uint16_t to, int settle_ticks = 40) {
+  const uint16_t mid[4] = { 1850, 1850, 1850, 1850 };
+  uint16_t f[4];
+  memcpy(f, mid, sizeof(f));
+  while (f1_pos != to) {                       // small steps: pickup follows MOVEMENT
+    const int d = static_cast<int>(to) - static_cast<int>(f1_pos);
+    f1_pos = static_cast<uint16_t>(f1_pos + (d > 8 ? 8 : (d < -8 ? -8 : d)));
+    f[0] = f1_pos;
+    sp1_pui_tick(8u, f, true, false, false);
+  }
+  f[0] = f1_pos;
+  for (int t = 0; t < settle_ticks; ++t) { sp1_pui_tick(8u, f, true, false, false); }
+}
+
+static float note_now() {
+  sp1_synth_params p;
+  sp1_pui_params(&p);
+  return p.note;
+}
+
+// OCTV to `mode` through a patch (the SETTINGS fader is not under test), quantizer off.
+static void put_mode(int mode) {
+  sp1_pui_patch p;
+  sp1_pui_get(&p);
+  p.v[SP1_PUI_SETTINGS][0] = (mode + 0.5f) / 11.0f;
+  p.v[SP1_PUI_BASE][0] = f1_pos / 3701.0f;
+  p.scale = SP1_PUI_SCALE_OFF;
+  sp1_pui_put(&p);
+  move_f1(f1_pos);
+}
+
+// A scale on C, whatever FREQUENCY plays: the preset path (Tune By Ear only acts on a turn-on
+// from the SETTINGS page, #30). For the checks written against C-rooted note sets.
+static void scale_on_c(int sc) {
+  sp1_pui_patch p;
+  sp1_pui_get(&p);
+  p.scale = sc;
+  sp1_pui_put(&p);
+}
+
+struct Sweep {
+  float lo, hi;
+  float cls[80];        // pitch classes above the root, within one period
+  int cnt;
+};
+
+// F1 from bottom to top: the note range, and the distinct classes relative to `root`.
+static void sweep(Sweep* s, float root, float period) {
+  move_f1(0);
+  s->lo = 1e9f;
+  s->hi = -1e9f;
+  s->cnt = 0;
+  for (int k = 0; k <= 3701; k += 2) {
+    move_f1(static_cast<uint16_t>(k), k == 3701 ? 40 : 3);
+    const float n = note_now();
+    s->lo = n < s->lo ? n : s->lo;
+    s->hi = n > s->hi ? n : s->hi;
+    float c = fmodf(n - root, period);
+    if (c < 0.0f) { c += period; }
+    if (period - c < 0.02f) { c = 0.0f; }
+    bool seen = false;
+    for (int i = 0; i < s->cnt; ++i) {
+      if (fabsf(s->cls[i] - c) < 0.02f) { seen = true; break; }
+    }
+    if (!seen && s->cnt < 80) { s->cls[s->cnt++] = c; }
+  }
+  move_f1(3701);
+  const float n = note_now();
+  s->hi = n > s->hi ? n : s->hi;
+}
+
+// Exactly these classes (any order), to 0.02 of a semitone.
+static bool same_classes(const Sweep& s, const float* want, int n) {
+  if (s.cnt != n) { return false; }
+  for (int i = 0; i < n; ++i) {
+    bool found = false;
+    for (int j = 0; j < s.cnt; ++j) {
+      if (fabsf(s.cls[j] - want[i]) < 0.02f) { found = true; break; }
+    }
+    if (!found) { return false; }
+  }
+  return true;
+}
+
 static void base_params(sp1_synth_params* p) {
   memset(p, 0, sizeof(*p));
   p->note = 48.0f;
@@ -232,7 +319,7 @@ int main() {
     // and collect the pitch classes that come out.
     for (int sc = -1; sc < SP1_MUI_SCALES; ++sc) {
       if (sc >= 0 && !sp1_mui_scale_included(sc)) { continue; }
-      sp1_pui_set_scale(sc);
+      scale_on_c(sc);                          // on C: these are the C-rooted note sets
       // Distinct pitch classes, to 0.05 of a semitone -- NOT rounded to integers:
       // pelog, bhairav and shri are microtonal and never land on the semitone grid.
       float cls[32];
@@ -293,7 +380,7 @@ int main() {
     }
 
     // ---- octave mode 9 + a scale = a sweep of scale DEGREES over nine octaves ----
-    sp1_pui_set_scale(0);                        // major, 7 degrees -> 63 steps
+    scale_on_c(0);                               // major on C, 7 degrees -> 63 steps
     memcpy(f, mid, sizeof(f));
     f[0] = 0;
     // SETTINGS F1 to mode 9: 9/11 of travel
@@ -917,6 +1004,134 @@ int main() {
     CHECK(edges[0] > 0u && edges[0] == edges[1], "GTLT changed TRIG: %u vs %u edges",
           edges[0], edges[1]);
     sp1_marbles_run(false);
+  }
+
+  // ---------- 13. OCTV's two octaves, Tune By Ear, big scales (#44, #30) ----------
+  printf("13. OCTV two-octave lock, Tune By Ear, 64-degree scales\n");
+  {
+    const uint16_t mid[4] = { 1850, 1850, 1850, 1850 };
+    sp1_pui_init();
+    sp1_pui_enter(mid);
+    f1_pos = 1850;
+    struct Sweep s;
+
+    // Modes 1-8: one octave either side of the octave's C, no scale (Adara, #44).
+    put_mode(4);
+    CHECK(sp1_pui_octave_mode() == 4, "OCTV is mode %d, not 4", sp1_pui_octave_mode());
+    sweep(&s, 0.0f, 12.0f);
+    printf("   mode 4, no scale: MIDI %.2f .. %.2f\n", s.lo, s.hi);
+    CHECK(fabsf(s.lo - 36.0f) < 0.05f && fabsf(s.hi - 60.0f) < 0.05f,
+          "mode 4 should run C2..C4 (36..60), got %.2f..%.2f", s.lo, s.hi);
+
+    // Tune By Ear: park F1, turn the quantizer on -> that note is the root.
+    move_f1(1110);                                   // F1 0.3 -> 48 - 0.4 * 12 = 43.2
+    const float tuned = note_now();
+    sp1_pui_set_scale(0);                            // major: tune_by_ear on
+    printf("   tuned by ear at %.3f, root %.3f\n", tuned, sp1_pui_scale_root());
+    // (Not 43.2 exactly: FREQUENCY's 5 % centre detent stretches the rest of the travel.)
+    CHECK(tuned > 42.5f && tuned < 44.5f && fabsf(tuned - lrintf(tuned)) > 0.1f,
+          "F1 0.3 in mode 4 should be a little above G2, off the semitone grid, got %.3f",
+          tuned);
+    CHECK(sp1_pui_scale_by_ear() && fabsf(sp1_pui_scale_root() - tuned) < 1e-4f,
+          "the root is %.3f, not the note FREQUENCY played (%.3f)", sp1_pui_scale_root(),
+          tuned);
+    sweep(&s, tuned, 12.0f);
+    const float major[7] = { 0, 2, 4, 5, 7, 9, 11 };
+    printf("   major on that root: %d classes, MIDI %.2f .. %.2f\n", s.cnt, s.lo, s.hi);
+    CHECK(fabsf(s.lo - (tuned - 12.0f)) < 0.05f && fabsf(s.hi - (tuned + 12.0f)) < 0.05f,
+          "the ends should be the root an octave down / up, got %.2f..%.2f", s.lo, s.hi);
+    CHECK(same_classes(s, major, 7), "major around the tuned root: wrong notes");
+
+    // A scale with tune_by_ear off (pelog) sits on C; stepping does not re-tune.
+    sp1_pui_set_scale(3);
+    CHECK(!sp1_pui_scale_by_ear() && sp1_pui_scale_root() == 0.0f, "pelog should stay on C");
+    sweep(&s, 0.0f, 12.0f);
+    const float pelog[7] = { 0.0f, 1.53f, 3.15f, 5.52f, 7.0596f, 8.4804f, 10.5804f };
+    CHECK(same_classes(s, pelog, 7) && fabsf(s.lo - 36.0f) < 0.05f &&
+          fabsf(s.hi - 60.0f) < 0.05f, "pelog on C: %d classes, %.2f..%.2f", s.cnt, s.lo, s.hi);
+    sp1_pui_set_scale(0);
+    CHECK(fabsf(sp1_pui_scale_root() - tuned) < 1e-4f, "stepping back re-tuned the root");
+
+    // Off and on again takes a new root; a preset sits on C.
+    sp1_pui_set_scale(SP1_PUI_SCALE_OFF);
+    move_f1(2776);                                   // F1 0.75 -> 48 + 0.5 * 12 = 54
+    const float tuned2 = note_now();
+    sp1_pui_set_scale(1);
+    CHECK(fabsf(sp1_pui_scale_root() - tuned2) < 1e-4f && tuned2 > 53.0f && tuned2 < 55.0f,
+          "re-tuned root %.3f, FREQUENCY played %.3f", sp1_pui_scale_root(), tuned2);
+    {
+      sp1_pui_patch pp;
+      sp1_pui_get(&pp);
+      sp1_pui_put(&pp);
+      CHECK(sp1_pui_scale() == 1 && sp1_pui_scale_root() == 0.0f, "a preset should load on C");
+    }
+
+    // Big scales: 53-EDO in slot 7, a 13-step Bohlen-Pierce tritave (3/1) in slot 6.
+    sp1_scale_bank b;
+    sp1_scales_defaults(&b);
+    sp1_scale* e = &b.s[6];
+    memset(e, 0, sizeof(*e));
+    e->period = 1.0f;
+    e->n = 53;
+    for (int k = 0; k < 53; ++k) { e->volts[k] = k / 53.0f; e->weight[k] = 255; }
+    strcpy(e->name, "53-EDO");
+    sp1_scale* bp = &b.s[5];
+    memset(bp, 0, sizeof(*bp));
+    bp->period = log2f(3.0f);
+    bp->n = 13;
+    for (int k = 0; k < 13; ++k) { bp->volts[k] = bp->period * k / 13.0f; bp->weight[k] = 255; }
+    strcpy(bp->name, "bohlen-pierce");
+    sp1_scales_install(&b);
+    sp1_pui_scales_settle();
+
+    put_mode(10);
+    sp1_pui_set_scale(6);
+    sweep(&s, 0.0f, 12.0f);
+    float edo53[53];
+    for (int k = 0; k < 53; ++k) { edo53[k] = 12.0f * k / 53.0f; }
+    printf("   53-EDO, mode 10: %d classes per octave\n", s.cnt);
+    CHECK(s.cnt == 53 && same_classes(s, edo53, 53), "53-EDO gave %d classes", s.cnt);
+
+    put_mode(4);
+    sp1_pui_set_scale(5);
+    sweep(&s, 0.0f, 12.0f * log2f(3.0f));
+    const float tri = 12.0f * log2f(3.0f);
+    printf("   tritave, mode 4: MIDI %.2f .. %.2f (roots at k * %.2f)\n", s.lo, s.hi, tri);
+    // Centre = the root nearest C3 (48): 3 x 19.02 = 57.06; ends one tritave either side.
+    CHECK(fabsf(s.lo - 2.0f * tri) < 0.05f && fabsf(s.hi - 4.0f * tri) < 0.05f,
+          "mode 4 with a 3/1 period should run %.2f..%.2f, got %.2f..%.2f", 2.0f * tri,
+          4.0f * tri, s.lo, s.hi);
+
+    // The quantizer itself past 32 degrees: at the most selective level only the weight-255
+    // degrees (every 4th of 53) remain, including those above bit 31.
+    {
+      marbles::Scale sc;
+      sc.base_interval = 1.0f;
+      sc.num_degrees = 53;
+      for (int k = 0; k < 53; ++k) {
+        sc.degree[k].voltage = k / 53.0f;
+        sc.degree[k].weight = (k % 4 == 0) ? 255 : 16;
+      }
+      static marbles::Quantizer q;
+      q.Init(sc);
+      bool on_grid = true, high = false;
+      for (int i = 0; i < 4000; ++i) {
+        const float v = -5.0f + 10.0f * i / 4000.0f;
+        for (int t = 0; t < 8; ++t) { q.Process(v, 1.0f, false); }   // settle the level
+        const float o = q.Process(v, 1.0f, false);
+        const int k = static_cast<int>(lrintf(o * 53.0f));
+        const int cls = ((k % 53) + 53) % 53;
+        on_grid = on_grid && fabsf(o * 53.0f - k) < 1e-3f && cls % 4 == 0;
+        high = high || cls > 32;
+      }
+      CHECK(on_grid && high, "53-degree quantizer: on grid %d, reached past degree 32 %d",
+            on_grid, high);
+    }
+
+    sp1_scales_defaults(&b);
+    sp1_scales_install(&b);
+    sp1_pui_scales_settle();
+    sp1_pui_set_scale(SP1_PUI_SCALE_OFF);
   }
 
   printf("\n%s (%d failure%s)\n", fails ? "FAILED" : "all checks passed",

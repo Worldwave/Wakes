@@ -630,20 +630,22 @@ static void scales_commit(void)
 		}
 		const int pc = (int)(s->period * 120000.0f + 0.5f);   /* cents x 100 */
 		LINE("SCALES %d: %s -- %d degree%s, period %d.%02d cents, Plaits plays %d "
-		     "(weight >= %d)\n", i + 1, s->name, s->n, s->n == 1 ? "" : "s",
-		     pc / 100, pc % 100, plaits, s->plaits);
-		/* Every degree as cents/weight, so a file can be checked against what Wakes read. */
-		char b[SP1_SCALE_DEGREES * 14 + 1];
-		size_t m = 0u;
-		for (int k = 0; k < s->n; k++) {
-			const int c = (int)(s->volts[k] * 120000.0f + 0.5f);
-			m += (size_t)snprintk(b + m, sizeof(b) - m, " %d.%02d/%u", c / 100, c % 100,
-					      (unsigned)s->weight[k]);
-			if (m >= sizeof(b)) {
-				break;
+		     "(weight >= %d), tune by ear %s\n", i + 1, s->name, s->n, s->n == 1 ? "" : "s",
+		     pc / 100, pc % 100, plaits, s->plaits, s->by_ear ? "on" : "off");
+		/* Every degree as cents/weight, so a file can be checked against what Wakes read;
+		 * 16 to a line (a scale can have 64). */
+		static char b[16 * 14 + 1];
+		for (int k0 = 0; k0 < s->n; k0 += 16) {
+			size_t m = 0u;
+			b[0] = '\0';
+			for (int k = k0; k < s->n && k < k0 + 16 && m < sizeof(b); k++) {
+				const int c = (int)(s->volts[k] * 120000.0f + 0.5f);
+				m += (size_t)snprintk(b + m, sizeof(b) - m, " %d.%02d/%u", c / 100,
+						      c % 100, (unsigned)s->weight[k]);
 			}
+			LINE("SCALES %d degrees %d-%d (cents/weight):%s\n", i + 1, k0 + 1,
+			     k0 + 16 < s->n ? k0 + 16 : s->n, b);
 		}
-		LINE("SCALES %d degrees (cents/weight):%s\n", i + 1, b);
 	}
 }
 #endif

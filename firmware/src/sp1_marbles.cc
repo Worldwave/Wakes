@@ -113,6 +113,9 @@ marbles::Scale plaits_degrees;          // what plaits_quantizer holds
 
 // A bank scale as Marbles' Scale: the degrees of weight >= `min` (0 = all), weights kept.
 // The root is weight 255, so there is always one.
+static_assert(SP1_SCALE_DEGREES == marbles::kMaxDegrees,
+              "the bank and Marbles' quantizer hold the same number of degrees "
+              "(src/plaits_ovr/marbles/random/quantizer.h)");
 void ToMarbles(const sp1_scale& s, uint8_t min, marbles::Scale* out) {
   out->base_interval = s.period;
   int n = 0;
@@ -266,7 +269,7 @@ void LoadScaleIfNeeded(int s) {
   if (sc == nullptr) {
     sc = sp1_scale_at(sp1_scale_first());
   }
-  marbles::Scale m;
+  static marbles::Scale m;               // 520 B at 64 degrees: off the audio stack
   ToMarbles(*sc, 0u, &m);
   for (int ch = 0; ch < 4; ++ch) {
     xy_generator.LoadScale(ch, 0, m);

@@ -638,6 +638,28 @@ static const char *plaits_scale_name(void)
 	return s < 0 ? "off (every semitone)" : sp1_marbles_scale_name(s);
 }
 
+/* The scale's root for the log (Tune By Ear, #30): "root D#3 +12 cents (by ear)". */
+static const char *plaits_scale_root(char *b, size_t n)
+{
+	static const char *const NAME[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#",
+					      "A", "A#", "B" };
+	if (sp1_pui_scale() < 0) {
+		b[0] = '\0';
+		return b;
+	}
+	if (!sp1_pui_scale_by_ear()) {
+		snprintk(b, n, ", root C (this scale is not tuned by ear)");
+		return b;
+	}
+	const float r = sp1_pui_scale_root();
+	const int k = (int)(r + 1000.5f) - 1000;            /* the nearest semitone */
+	const float c = (r - (float)k) * 100.0f;             /* -50 .. +50 */
+	const int cents = (int)(c + (c < 0.0f ? -0.5f : 0.5f));
+	const int pc = ((k % 12) + 12) % 12;
+	snprintk(b, n, ", root %s%d %+d cents (by ear)", NAME[pc], (k - pc) / 12 - 1, cents);
+	return b;
+}
+
 static void plaits_scale_glyph(uint8_t lv[4])
 {
 	const int s = sp1_pui_scale();
@@ -670,15 +692,16 @@ static void plaits_scale_step(int dir)
 	 * A quantizer and a Marbles output both deciding the pitch is never wanted. Turning
 	 * a scale ON therefore UNPATCHES every V/Oct route. (The other direction, routing to
 	 * V/Oct, turns the scale off and opens the range -- see marbles_buttons.) */
+	char root[64];
 	if (s != SP1_PUI_SCALE_OFF) {
 		const int n = sp1_mui_unpatch_voct();
 		if (n > 0) {
-			printk("QUANTIZE %s: unpatched %d V/Oct route%s\n",
-			       plaits_scale_name(), n, n == 1 ? "" : "s");
+			printk("QUANTIZE %s%s: unpatched %d V/Oct route%s\n", plaits_scale_name(),
+			       plaits_scale_root(root, sizeof(root)), n, n == 1 ? "" : "s");
 			return;
 		}
 	}
-	printk("QUANTIZE %s\n", plaits_scale_name());
+	printk("QUANTIZE %s%s\n", plaits_scale_name(), plaits_scale_root(root, sizeof(root)));
 }
 
 /* PLAITS module buttons, except PLAY, T4 (module) and FFWD's burst, which main handles for

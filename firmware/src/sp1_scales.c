@@ -5,16 +5,21 @@
 #include <string.h>
 
 _Static_assert(SP1_SCALES_GEN_SLOTS == SP1_SCALE_SLOTS, "scales.cnfg has 7 slots");
-_Static_assert(SP1_SCALES_GEN_DEGREES == SP1_SCALE_DEGREES, "16 degrees a scale");
+_Static_assert(SP1_SCALES_GEN_DEGREES == SP1_SCALE_DEGREES, "64 degrees a scale");
 
 static const struct sp1_scale_bank builtin = SP1_SCALES_DEFAULTS;
 
-static struct sp1_scale_bank banks[2] = { SP1_SCALES_DEFAULTS, SP1_SCALES_DEFAULTS };
+/* Zeroed (.bss: no 2 x 2.5 KB initialiser in flash). Until the first install -- the first ON
+ * job -- every reader gets `builtin` (gen 0). */
+static struct sp1_scale_bank banks[2];
 static int      live;
 static uint32_t gen;
 
 static const struct sp1_scale_bank *bank(void)
 {
+	if (__atomic_load_n(&gen, __ATOMIC_ACQUIRE) == 0u) {
+		return &builtin;
+	}
 	return &banks[__atomic_load_n(&live, __ATOMIC_ACQUIRE) & 1];
 }
 
@@ -32,7 +37,9 @@ void sp1_scales_install(const struct sp1_scale_bank *b)
 	}
 	memcpy(&banks[next], any ? b : &builtin, sizeof(banks[next]));
 	__atomic_store_n(&live, next, __ATOMIC_RELEASE);
-	__atomic_store_n(&gen, __atomic_load_n(&gen, __ATOMIC_RELAXED) + 1u, __ATOMIC_RELEASE);
+	/* Never back to 0, which means "nothing installed yet". */
+	uint32_t g = __atomic_load_n(&gen, __ATOMIC_RELAXED) + 1u;
+	__atomic_store_n(&gen, g != 0u ? g : 1u, __ATOMIC_RELEASE);
 }
 
 uint32_t sp1_scales_gen(void)

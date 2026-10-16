@@ -889,6 +889,83 @@ static void scales(void)
 	CHECK(read_scales("[5]\n[6]\nx\n1\n2/1\n", 0u) == 0 && s_filled == 1 && sbank.s[5].n == 1u,
 	      "an empty section: %d problems", problems_seen);
 
+	/* Tune By Ear (#30): on unless the scale says off, before or after the pitches. */
+	CHECK(read_scales("[1]\na\n1\n2/1\n[2]\ntune_by_ear = OFF\nb\n1\n2/1\n"
+			  "[3]\nc\n1\n2/1\ntune_by_ear = off\n", 0u) == 0 &&
+	      sbank.s[0].by_ear == 1u && sbank.s[1].by_ear == 0u && sbank.s[2].by_ear == 0u,
+	      "tune_by_ear: %d problems (%s)", problems_seen, last_what);
+	CHECK(d.s[0].by_ear == 1u && d.s[2].by_ear == 1u && d.s[3].by_ear == 0u &&
+	      d.s[5].by_ear == 0u, "built-in tune_by_ear: modes on, pelog and the raags off");
+
+	/* 64 pitches (#44, Adara: 31-EDO and beyond): 53-EDO fills 53 degrees; 64 is the most. */
+	{
+		static char t[4096];
+		static const int EDO[3] = { 31, 53, 64 };
+		for (int e = 0; e < 3; e++) {
+			const int edo = EDO[e];
+			int m = snprintf(t, sizeof(t), "[2]\n%d-EDO\n%d\n", edo, edo);
+			for (int k = 1; k < edo; k++) {
+				m += snprintf(t + m, sizeof(t) - (size_t)m, "%.4f\n",
+					      1200.0 * k / edo);
+			}
+			snprintf(t + m, sizeof(t) - (size_t)m, "2/1\n");
+			CHECK(read_scales(t, 13u) == 0 && sbank.s[1].n == (uint8_t)edo &&
+			      fabsf(sbank.s[1].volts[edo - 1] - (float)(edo - 1) / (float)edo) < 1e-5f,
+			      "%d-EDO: %d problems (%s), %u degrees", edo, problems_seen, last_what,
+			      sbank.s[1].n);
+		}
+	}
+
+	/* The seven modes at the end of the template, uncommented and put in a slot each, as
+	 * the file tells users to: each loads, and plaits = 32 gives exactly its 7 notes. */
+	{
+		static const char *const MODE[7] = { "ionian", "dorian", "phrygian", "lydian",
+						     "mixolydian", "aeolian", "locrian" };
+		static const int NOTES[7][7] = {
+			{ 0, 2, 4, 5, 7, 9, 11 }, { 0, 2, 3, 5, 7, 9, 10 }, { 0, 1, 3, 5, 7, 8, 10 },
+			{ 0, 2, 4, 6, 7, 9, 11 }, { 0, 2, 4, 5, 7, 9, 10 }, { 0, 2, 3, 5, 7, 8, 10 },
+			{ 0, 1, 3, 5, 6, 8, 10 },
+		};
+		static char t[8192];
+		int m = 0;
+		int found = 0;
+		const char *p = SP1_SCALES_TEMPLATE;
+		while ((p = strstr(p, "\n; plaits = 32\n; tune_by_ear")) != NULL && found < 7) {
+			p++;
+			m += snprintf(t + m, sizeof(t) - (size_t)m, "[%d]\n", ++found);
+			const char *end = strstr(p, "; 2/1\n");
+			for (const char *l = p; l <= end; ) {
+				const char *nl = strchr(l, '\n');
+				m += snprintf(t + m, sizeof(t) - (size_t)m, "%.*s\n", (int)(nl - l - 2),
+					      l + 2);            /* without the "; " */
+				l = nl + 1;
+			}
+		}
+		CHECK(found == 7, "the template has %d mode blocks, expected 7", found);
+		CHECK(read_scales(t, 0u) == 0 && s_filled == 7, "the modes: %d problems (line %d: "
+		      "%s)", problems_seen, last_line, last_what);
+		for (int i = 0; i < 7 && found == 7; i++) {
+			const struct sp1_scale *s = &sbank.s[i];
+			int n = 0;
+			bool ok = strcmp(s->name, MODE[i]) == 0 && s->n == 12u && s->plaits == 32u &&
+				  s->by_ear == 1u;
+			for (int k = 0; k < s->n; k++) {
+				if (s->weight[k] >= s->plaits) {
+					ok = ok && n < 7 &&
+					     fabsf(s->volts[k] * 12.0f - (float)NOTES[i][n]) < 1e-4f;
+					n++;
+				}
+			}
+			CHECK(ok && n == 7, "mode %s: %d notes for Plaits", MODE[i], n);
+		}
+		/* Ionian is Marbles' major, weight for weight. */
+		bool same_w = true;
+		for (int k = 0; k < 12; k++) {
+			same_w = same_w && sbank.s[0].weight[k] == d.s[0].weight[k];
+		}
+		CHECK(same_w, "ionian's weights are not Marbles' major's");
+	}
+
 	/* Overloaded (Adara): above [7] is dropped with a note, the rest loads. */
 	CHECK(read_scales("[1]\na\n1\n2/1\n[8]\nb\n1\n2/1\n[12]\nc\n2\n100.0\n2/1\n", 0u) == 0 &&
 	      s_dropped == 2 && s_filled == 1 && sbank.s[0].n == 1u && !is_defaults(),
@@ -896,7 +973,9 @@ static void scales(void)
 
 	/* Every problem sets the WHOLE file aside: the built-in bank. */
 	static const char *const BAD[] = {
-		"[1]\na\n17\n",                                   /* > 16 pitches            */
+		"[1]\na\n65\n",                                   /* > 64 pitches            */
+		"[1]\ntune_by_ear = maybe\na\n1\n2/1\n",          /* not on / off            */
+		"[1]\ntune_by_ear = on\ntune_by_ear = off\na\n1\n2/1\n",   /* twice           */
 		"[1]\na\n0\n",                                    /* no period               */
 		"[1]\na\ntwelve\n100.0\n2/1\n",                   /* count is not a number   */
 		"[1]\na\n2\n100.0\n",                             /* ends early              */

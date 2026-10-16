@@ -29,7 +29,7 @@ extern "C" {
 #endif
 
 #define SP1_SCALE_SLOTS    7     /* Adara (#44): more than 7 in the file are dropped     */
-#define SP1_SCALE_DEGREES  16    /* marbles::kMaxDegrees: its quantizer's 16-bit masks   */
+#define SP1_SCALE_DEGREES  64    /* marbles::kMaxDegrees, raised from 16 (plaits_ovr)    */
 #define SP1_SCALE_NAME_MAX 24    /* the Scala description, cut to fit, for the log       */
 
 /* One scale, in Marbles' terms (marbles/random/quantizer.h, Scale). */
@@ -37,6 +37,7 @@ struct sp1_scale {
 	float   period;                      /* volts at 1 V/oct: 1.0 = the octave (2/1)      */
 	uint8_t n;                           /* degrees, the root included; 0 = EMPTY slot    */
 	uint8_t plaits;                      /* Plaits plays the degrees of weight >= this    */
+	uint8_t by_ear;                      /* 1: Plaits' root is Tune By Ear's (#30), 0: C  */
 	uint8_t weight[SP1_SCALE_DEGREES];   /* 0-255: how selective STEPS must be to drop it */
 	float   volts[SP1_SCALE_DEGREES];    /* rising, volts[0] = 0 (the root, weight 255)   */
 	char    name[SP1_SCALE_NAME_MAX];

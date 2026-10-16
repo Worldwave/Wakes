@@ -361,6 +361,21 @@ if(CONFIG_SP1_PLAITS)
 	sp1_plaits_override(marbles/random/t_generator.h
 		"  inline void set_model(TGeneratorModel model) {"
 		"  // wakes-sp1 (M4): PLAY starts the clock on a beat.\n  inline void set_master_phase(float phase) {\n    master_phase_ = phase;\n  }\n\n  inline void set_model(TGeneratorModel model) {")
+	# #44: scales.cnfg scales of up to 64 degrees (31-EDO, 53-EDO): the quantizer's degree
+	# arrays and active-degree masks, upstream 16 / uint16_t. Whole-file replacements, as
+	# three passages in the .cc and two in the .h are past one override per file.
+	sp1_plaits_replace(marbles/random/quantizer.h)
+	sp1_plaits_replace(marbles/random/quantizer.cc)
+	# #44: ONE quantizer per output channel, upstream six (one per stored scale). Wakes loads
+	# the selected scale into slot 0 and never selects another (sp1_marbles.cc,
+	# LoadScaleIfNeeded), so the other five were dead weight: 20 quantizers of ~0.4 KB each
+	# at 64 degrees.
+	sp1_plaits_override(marbles/random/output_channel.h
+		"  Quantizer quantizer_[6];"
+		"  Quantizer quantizer_[1];  // wakes-sp1 (#44): upstream 6, Wakes uses slot 0 only")
+	sp1_plaits_override(marbles/random/output_channel.cc
+		"  for (int i = 0; i < 6; ++i) {"
+		"  for (int i = 0; i < 1; ++i) {  // wakes-sp1 (#44): one quantizer (output_channel.h)")
 
 	# ⚠️ Remove any generated file that is no longer an override (issue #22). SP1_OVR is
 	# FIRST on the include path, so a stale copy left by an earlier configure -- voice.h

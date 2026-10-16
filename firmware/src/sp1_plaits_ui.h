@@ -153,6 +153,14 @@ int  sp1_pui_scale(void);
 /* Main, at ON entry after the ON job (#44): the quantizer reloads its slot from the new
  * scale bank, or turns off if that slot is now empty. True if it turned off. */
 bool sp1_pui_scales_settle(void);
+/* ---- Tune By Ear (#30, Adara) ----
+ * sp1_pui_set_scale() from OFF to a scale takes the note FREQUENCY was playing as the root
+ * (semitones, MIDI numbering, fractions kept): every scale with `tune_by_ear = on` in
+ * scales.cnfg is quantized around it until the quantizer is turned off. A scale with it off,
+ * and a scale loaded from a preset, sits on C. The root of the scale in use (0 = C, or none):
+ */
+float sp1_pui_scale_root(void);
+bool  sp1_pui_scale_by_ear(void);              /* the scale in use follows the root */
 /* Open the FREQUENCY range fully (mode 10). Called when something is routed to V/Oct. */
 void sp1_pui_set_octave_max(void);
 bool sp1_pui_catching(int fader);              /* in the active layer */

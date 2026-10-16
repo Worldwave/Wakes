@@ -153,9 +153,10 @@ under a slot as it is.
 ```
 [1]
 plaits = 32             Wakes: Plaits plays the degrees of weight >= 32 (default 0: all)
+tune_by_ear = on        Wakes: Plaits' root is the note tuned by ear (default on; #30)
 ! a Scala comment
 major                   the description: the scale's name in the log
-12                      pitches that follow, the period included (1-16)
+12                      pitches that follow, the period included (1-64)
  100.0   16             cents (has a ".") or a ratio (3/2, 2), then Wakes' WEIGHT 0-255
  ...
 2/1                     the last pitch is the period: 2/1 = the octave
@@ -164,7 +165,12 @@ major                   the description: the scale's name in the log
 - The root (1/1) is implicit, as in Scala, and always weight 255. Pitches may come in any order.
 - A **weight** after a pitch is Wakes' extra (Scala tools ignore text after a pitch); a pitch
   without one is 255. Any other text after a pitch is ignored.
-- **16 pitches at most**, the period included: Marbles' quantizer (`kMaxDegrees`, 16-bit masks).
+- **64 pitches at most**, the period included: 31-EDO, 53-EDO fit. Upstream Marbles holds 16
+  (`kMaxDegrees`, 16-bit masks); Wakes replaces its quantizer (`src/plaits_ovr/marbles/random/
+  quantizer.{h,cc}`: 64 and 64-bit masks, nothing else changed) and keeps ONE quantizer per
+  output instead of six (generated override of `output_channel.{h,cc}`), which pays for the
+  bigger tables. The quantizer only runs when an output draws a new value (a clock tick), not
+  per sample, so a long scale costs no CPU to speak of.
 - Any period, not only the octave: 3/1 (Bohlen-Pierce) works on both modules.
 - **All or nothing**, like `engines.cnfg`: a problem anywhere in the file and Wakes uses the
   built-in scales, every problem named in the log (`CNFG scales.cnfg line N: …`). The one
@@ -245,7 +251,8 @@ through the degrees across nine PERIODS (nine octaves for every built-in scale).
 ### Why there can be seven, and how a new file takes effect
 
 Marbles gives every output channel six quantizer slots and preloads all six, so six is its
-ceiling. We load **only the selected scale**, into slot 0 of all four channels, from the audio
+ceiling. We load **only the selected scale**, into slot 0 of all four channels (since #44 the
+only slot: the other five are overridden away), from the audio
 thread when the selection changes (`LoadScaleIfNeeded` in `sp1_marbles.cc`). The count is
 therefore ours to pick and costs one `Quantizer::Init` per change, which is a table recompute of
 about a thousand cycles for four channels.

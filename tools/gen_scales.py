@@ -12,9 +12,10 @@ The format (sp1_cnfg.h has the device's reader, which reads it the same way):
 
     [3]                     a slot, 1-7
     plaits = 32             Plaits plays the degrees of weight >= 32 (default 0: all)
+    tune_by_ear = off       Plaits' root stays C (default on: Tune By Ear, #30)
     ! comment               Scala's comment lines; ; and # are comments too
     name                    the Scala description
-    12                      pitches that follow, the period included (1-16)
+    12                      pitches that follow, the period included (1-64)
     100.0  16               cents (has a ".") or a ratio (3/2, 2), then a weight 0-255
     ...
     2/1                     the last pitch is the period
@@ -31,7 +32,7 @@ import struct
 import sys
 
 SLOTS = 7                 # SP1_SCALE_SLOTS
-DEGREES = 16              # SP1_SCALE_DEGREES = marbles::kMaxDegrees
+DEGREES = 64              # SP1_SCALE_DEGREES = marbles::kMaxDegrees (raised from 16, #44)
 NAME_MAX = 24             # SP1_SCALE_NAME_MAX, the NUL included
 LINE_MAX = 160            # SP1_CNFG_LINE_MAX: the device ignores longer lines
 
@@ -108,8 +109,8 @@ def parse(path):
             slot = int(m.group(1)) - 1
             if bank[slot] is not None:
                 fail(path, ln, '[%d] is there twice' % (slot + 1))
-            scale = {'name': b'', 'plaits': 0, 'plaits_set': False, 'count': 0, 'p': [],
-                     'head': ln, 'has': False}
+            scale = {'name': b'', 'plaits': 0, 'plaits_set': False, 'by_ear': 1,
+                     'by_ear_set': False, 'count': 0, 'p': [], 'head': ln, 'has': False}
             bank[slot] = scale
             state = 'desc'
             bang = False
@@ -131,6 +132,16 @@ def parse(path):
                 fail(path, ln, 'plaits must be a weight, 0-255, not "%s"' % v)
             scale['plaits'] = int(v)
             scale['plaits_set'] = True
+            continue
+        m = re.fullmatch(r'(?i)tune_by_ear\s*=\s*(.*)', s)
+        if m and state in ('desc', 'done'):
+            if scale['by_ear_set']:
+                fail(path, ln, 'tune_by_ear is set twice for [%d]' % (slot + 1))
+            v = m.group(1).strip().lower()
+            if v not in ('on', 'off'):
+                fail(path, ln, 'tune_by_ear must be on or off, not "%s"' % v)
+            scale['by_ear'] = 1 if v == 'on' else 0
+            scale['by_ear_set'] = True
             continue
         if state == 'desc':
             if not s and not bang:
@@ -247,11 +258,12 @@ def header(bank, text):
          '#define SP1_SCALES_DEFAULTS { { \\']
     for i, sc in enumerate(bank):
         if sc is None:
-            L.append('\t{ 0.0f, 0, 0, { 0 }, { 0.0f }, "" },  /* [%d] empty */ \\' % (i + 1))
+            L.append('\t{ 0.0f, 0, 0, 0, { 0 }, { 0.0f }, "" },  /* [%d] empty */ \\' % (i + 1))
             continue
         ws = ', '.join(str(w) for _, w in sc['degs'])
         vs = ', '.join(c_float(v) for v, _ in sc['degs'])
-        L.append('\t{ %s, %d, %d, \\' % (c_float(sc['period']), len(sc['degs']), sc['plaits']))
+        L.append('\t{ %s, %d, %d, %d, \\' % (c_float(sc['period']), len(sc['degs']),
+                                            sc['plaits'], sc['by_ear']))
         L.append('\t  { %s }, \\' % ws)
         L.append('\t  { %s }, \\' % vs)
         L.append('\t  %s },  /* [%d] */ \\' % (c_bytes(sc['name']), i + 1))

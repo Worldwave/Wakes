@@ -94,6 +94,11 @@ third_party/eurorack/
   chosen per output channel (M4c), and marbles/random/t_generator.cc takes
   its external-clock ramp from MIDI clock instead of its ramp extractor
   (M5b) -- the policy behind those is ours, in firmware/src/sp1_marbles.cc.
+  For #44, marbles/random/output_channel.{h,cc} keep one quantizer per
+  channel instead of six (generated copies, as above), and
+  firmware/src/plaits_ovr/marbles/random/quantizer.{h,cc} are modified
+  copies of Marbles' quantizer holding 64 degrees instead of 16 (64-bit
+  masks); they keep Emilie Gillet's MIT header.
   MIDI (M5a): firmware/src/sp1_midi.cc ports the monophonic note handling of
   Mutable Instruments Yarns from the same eurorack commit -- the mono branches
   of yarns/part.cc (Part::InternalNoteOn/Off, its legato modes and hold

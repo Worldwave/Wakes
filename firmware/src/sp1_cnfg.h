@@ -273,9 +273,10 @@ int  sp1_midi_reader_end(struct sp1_midi_reader *r, int *notes);
  *
  *   [3]
  *   plaits = 32            Wakes: Plaits plays the degrees of weight >= 32 (default 0, all)
+ *   tune_by_ear = off      Wakes: Plaits' root stays C (default on: Tune By Ear, #30)
  *   ! comment              Scala's comment lines
  *   name                   the description: the first other line (may be blank after a !)
- *   12                     how many pitches follow, the period included (1-16)
+ *   12                     how many pitches follow, the period included (1-64)
  *   100.0  16              cents (has a "."), or a ratio (3/2, 2); then a WEIGHT 0-255
  *   ...                    (Wakes: missing = 255; any other text after the pitch ignored)
  *   2/1                    the last pitch is the period
@@ -300,6 +301,7 @@ struct sp1_scales_reader {
 	uint8_t  state;
 	bool     bang;           /* a ! line came before the description                    */
 	bool     plaits_set;
+	bool     by_ear_set;
 	uint8_t  count;          /* pitches the count line promised                         */
 	uint8_t  got;
 	uint8_t  seen;           /* slots with a section, bit per slot                      */

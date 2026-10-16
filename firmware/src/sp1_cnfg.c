@@ -1255,16 +1255,16 @@ bool sp1_scl_pitch(const char *s, size_t n, float *volts)
 	return true;
 }
 
-/* `plaits = N` -> true, with *value set to the text after the =. */
-static bool sc_key(const char *text, const char **value)
+/* `<key> = value` -> true, with *value set to the text after the =. `key` lowercase. */
+static bool sc_key(const char *text, const char *key, const char **value)
 {
-	static const char key[] = "plaits";
-	for (size_t i = 0u; i < sizeof(key) - 1u; i++) {
+	const size_t k = strlen(key);
+	for (size_t i = 0u; i < k; i++) {
 		if (lower(text[i]) != key[i]) {
 			return false;
 		}
 	}
-	const char *s = text + sizeof(key) - 1u;
+	const char *s = text + k;
 	while (space(*s)) {
 		s++;
 	}
@@ -1355,6 +1355,7 @@ static void sc_header(struct sp1_scales_reader *r, int line, const char *name)
 	r->state = SC_DESC;
 	r->bang = false;
 	r->plaits_set = false;
+	r->by_ear_set = false;
 	r->got = 0u;
 	r->head_line = line;
 	r->slot = SC_ASIDE;
@@ -1386,6 +1387,7 @@ static void sc_header(struct sp1_scales_reader *r, int line, const char *name)
 	r->slot = v - 1;
 	r->at = r->problems;
 	memset(&r->bank->s[r->slot], 0, sizeof(r->bank->s[r->slot]));
+	r->bank->s[r->slot].by_ear = 1u;             /* Tune By Ear unless the scale says off */
 }
 
 static void sc_plaits(struct sp1_scales_reader *r, int line, const char *value)
@@ -1399,6 +1401,18 @@ static void sc_plaits(struct sp1_scales_reader *r, int line, const char *value)
 		r->bank->s[r->slot].plaits = (uint8_t)v;
 	}
 	r->plaits_set = true;
+}
+
+static void sc_by_ear(struct sp1_scales_reader *r, int line, const char *value)
+{
+	if (r->by_ear_set) {
+		sc_report(r, line, "tune_by_ear", "is set twice for this scale");
+	} else if (same(value, "on") || same(value, "off")) {
+		r->bank->s[r->slot].by_ear = same(value, "on") ? 1u : 0u;
+	} else {
+		sc_report(r, line, "tune_by_ear", "must be on or off");
+	}
+	r->by_ear_set = true;
 }
 
 static void sc_pitch(struct sp1_scales_reader *r, int line, const char *text)
@@ -1467,9 +1481,15 @@ static void sc_line(void *ctx, int line, const char *section, bool header, const
 		return;
 	}
 	const char *value;
-	if ((r->state == SC_DESC || r->state == SC_DONE) && sc_key(text, &value)) {
-		sc_plaits(r, line, value);
-		return;
+	if (r->state == SC_DESC || r->state == SC_DONE) {
+		if (sc_key(text, "plaits", &value)) {
+			sc_plaits(r, line, value);
+			return;
+		}
+		if (sc_key(text, "tune_by_ear", &value)) {
+			sc_by_ear(r, line, value);
+			return;
+		}
 	}
 	switch (r->state) {
 	case SC_DESC: {
@@ -1507,7 +1527,7 @@ static void sc_line(void *ctx, int line, const char *section, bool header, const
 			struct msg m = { r->why, sizeof(r->why), 0u };
 			msg_s(&m, "pitches: Wakes takes ");
 			msg_i(&m, SP1_SCALE_DEGREES);
-			msg_s(&m, " at most, the period included (Marbles' quantizer)");
+			msg_s(&m, " at most, the period included");
 			sc_report(r, line, text, r->why);
 			r->slot = SC_ASIDE;          /* the rest of this section is skipped */
 		} else {
