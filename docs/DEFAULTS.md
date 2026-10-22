@@ -153,7 +153,7 @@ A ROTC on MARBLES now leaves the drive alone, deliberately.
 | X SHIFT F4 | LENGTH `[I]` | — | — | — | the same control as t SHIFT F4 |
 | T1 | diversity `[N]` | identical / bump / tilt | **identical** | **identical** | |
 | SETTINGS T4 | range `[J]`, **X and Y** | 0–2 V / 0–5 V / ±5 V / INTELLIGENT | **INTELLIGENT** | **INTELLIGENT** | M4c; ONE control for both groups since M4e. Per CHANNEL, so X1–X3 and Y can each be at a different range at once |
-| `••`+FFWD/RWD | scale | 7 slots from `scales.cnfg` (#44), 6 filled by default | **the first filled slot** (major) | **the first filled slot** (major) | |
+| `••`+FFWD/RWD | scale | 7 slots from `scales.cnfg` (#44), all 7 filled by default | **the first filled slot** (major) | **the first filled slot** (major) | |
 
 ### Y section (SETTINGS page)
 

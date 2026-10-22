@@ -840,10 +840,15 @@ static void scales(void)
 		      (unsigned)chunks[k], bad, last_line, last_what);
 		CHECK(is_defaults(), "template, chunk %u: not the built-in bank", (unsigned)chunks[k]);
 	}
-	/* What the built-in bank is: Marbles' six, slot 7 empty, and its Plaits note sets. */
-	CHECK(s_filled == 6 && d.s[6].n == 0u, "built-in: %d scales", s_filled);
-	static const int plaits_notes[6] = { 7, 7, 5, 7, 7, 7 };
-	for (int i = 0; i < 6; i++) {
+	/* What the built-in bank is: Marbles' six, whole-tone in slot 7 (Adara), and their
+	 * Plaits note sets. */
+	CHECK(s_filled == 7, "built-in: %d scales", s_filled);
+	CHECK(d.s[6].n == 6u && d.s[6].plaits == 0u && d.s[6].by_ear == 1u &&
+	      strcmp(d.s[6].name, "whole-tone") == 0 &&
+	      fabsf(d.s[6].volts[3] - 0.5f) < 1e-6f && d.s[6].weight[5] == 255u,
+	      "slot 7: %s, %u degrees", d.s[6].name, d.s[6].n);
+	static const int plaits_notes[7] = { 7, 7, 5, 7, 7, 7, 6 };
+	for (int i = 0; i < 7; i++) {
 		int n = 0;
 		for (int k = 0; k < d.s[i].n; k++) {
 			n += d.s[i].weight[k] >= d.s[i].plaits;
@@ -998,7 +1003,7 @@ static void scales(void)
 	};
 	for (size_t i = 0u; i < sizeof(BAD) / sizeof(BAD[0]); i++) {
 		const int bad = read_scales(BAD[i], 0u);
-		CHECK(bad >= 1 && is_defaults() && s_filled == 6, "bad file %u: %d problems, %d "
+		CHECK(bad >= 1 && is_defaults() && s_filled == 7, "bad file %u: %d problems, %d "
 		      "scales", (unsigned)i, bad, s_filled);
 	}
 

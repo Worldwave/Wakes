@@ -191,6 +191,29 @@ int main(void)
 	struct sp1_prst a, b, d;
 	struct sp1_prst_report rep;
 
+	/* #44: the built-in bank fills all seven scale slots (whole-tone in [7]), so a scale
+	 * token naming an EMPTY slot can only be checked against a bank with a gap. First the
+	 * default bank: `free` (slot 7) is a scale like any other. Then slot 7 is emptied for
+	 * the rest of the run, which is what the "not included" checks below were written for. */
+	{
+		static char t[SP1_PRST_TEXT_MAX];
+		struct sp1_prst p;
+		sp1_prst_rip(&p, -1);
+		p.marbles.scale = 6;
+		p.plaits.scale = 6;
+		for (int k = 0; k < 4; k++) {
+			p.marbles.dest[k] = SP1_DEST_NONE;   /* no V/Oct: the interlock (M4b) */
+		}
+		const int n = sp1_prst_write(&p, t, sizeof(t));
+		sp1_prst_parse(t, (size_t)n, &a, &rep);
+		CHECK(rep.format_ok && rep.bad == 0 && a.marbles.scale == 6 && a.plaits.scale == 6,
+		      "slot 7 (whole-tone) should load from a preset: bad %d", rep.bad);
+		struct sp1_scale_bank bank;
+		sp1_scales_defaults(&bank);
+		memset(&bank.s[6], 0, sizeof(bank.s[6]));
+		sp1_scales_install(&bank);
+	}
+
 	/* ---------- 1. the defaults: one source, and the rip still gives them ---------- */
 	printf("1. ROTC defaults\n");
 	sp1_pui_init();

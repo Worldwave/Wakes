@@ -185,7 +185,8 @@ major                   the description: the scale's name in the log
 ### The built-in bank
 
 Slots 1–6 are Marbles' own (`marbles/settings.cc`, Emilie Gillet, MIT), written as Scala. Slot 7
-is empty.
+holds a whole-tone scale (Adara): six equal 200-cent steps, every weight 255, so STEPS keeps
+all six and Plaits plays all six; tune by ear on.
 
 | # | Glyph | Scale | Written as | Plaits plays |
 |---|---|---|---|---|
@@ -195,7 +196,7 @@ is empty.
 | 4 | `●●●●` | pelog | Marbles' cents: 153 · 315 · 552 · 705.96 · 848.04 · 1058.04 | all |
 | 5 | `○●●●` | bhairav | just ratios: 256/243 · 9/8 · 6/5 · 5/4 · 4/3 · 45/32 · 3/2 · 128/81 · 27/16 · 9/5 · 15/8 | weight ≥ 32 |
 | 6 | `○○●●` | shri | the same ratios, shri's weights | weight ≥ 32 |
-| 7 | `○○○●` | *(empty)* | yours | |
+| 7 | `○○○●` | whole-tone | cents: 200 · 400 · 600 · 800 · 1000, no weights (all 255) | all |
 
 Marbles stores its scales as 4-decimal voltages (a semitone is `0.0833`, Komal Re `0.0752`). The
 Scala form writes what those numbers stand for — 100 cents, 256/243 — so every degree moved by

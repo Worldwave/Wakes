@@ -214,8 +214,21 @@ int main(void)
 		}
 	}
 	printf("\n");
-	CHECK(sp1_mui_scale() == 5, "the free slot is off, so shri must be the top");
+	CHECK(sp1_mui_scale() == 6, "the built-in bank fills all 7 slots: whole-tone is the top");
 	CHECK(!sp1_mui_scale_step(1), "scale stepped past the last included one");
+	{
+		/* An empty slot is skipped (#44): a bank without shri (slot 6). */
+		struct sp1_scale_bank bank;
+		sp1_scales_defaults(&bank);
+		memset(&bank.s[5], 0, sizeof(bank.s[5]));
+		sp1_scales_install(&bank);
+		sp1_mui_scales_settle();             /* we were on slot 7: still filled */
+		CHECK(sp1_mui_scale() == 6 && sp1_mui_scale_step(-1) && sp1_mui_scale() == 4,
+		      "an empty slot was not skipped (got %d)", sp1_mui_scale());
+		CHECK(sp1_mui_scale_step(1) && sp1_mui_scale() == 6, "skipping up failed");
+		sp1_scales_defaults(&bank);
+		sp1_scales_install(&bank);
+	}
 
 	/* ---------- 4. X SHIFT F1-F3 are unbound ---------- */
 	printf("4. X SHIFT reserved faders\n");

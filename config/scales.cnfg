@@ -3,7 +3,7 @@
 ;  Wakes — SCALES
 ; =====================================================================================
 ;
-;  The scales MARBLES' X quantizer (•• + FFWD / RWD on the X page) and PLAITS' FREQUENCY
+;  The scales MARBLES' X STPS quantizer (•• + FFWD / RWD on the X page) and PLAITS' FREQ
 ;  quantizer (SETTINGS T2 / T3) choose from. Both modules use this one list.
 ;
 ;  Wakes reads and applies this .cnfg file every time it turns ON.
@@ -15,23 +15,25 @@
 ;  There are 7 scale slots, [1] to [7]. A slot that is not in this file is empty, and the
 ;  scale buttons skip it. A slot above [7] is dropped (the log says the file is overloaded).
 ;  Every slot has its own glyph, so slot 2 always flashes ●●○○ whatever scale is in it.
-;  Presets (PRST) remember the scale SLOT: change what is in a slot and a preset that used it
-;  plays the new scale.
+;  Presets (PRST) remember the scale SLOT: change what is in a slot and any preset that
+;  previously used that slot will play the new scale you've changed it to.
 ;
-; ---- a scale ----
-;  Under its numbered [slot], a scale is written in the Scala format (.scl), the format of
-;  the Scala scale archive and of Scale Workshop (https://sevish.com/scaleworkshop/): build
+; ---- scales ----
+;  Under a numbered [slot], a scale is written in the Scala format (.scl), the format of
+;  the Scala scale archive and of Scale Workshop (https://sevish.com/scaleworkshop/). Build
 ;  a scale there, export it as a Scala file (.scl), open that in a text editor and paste it
-;  under a numbered [slot] section here.
+;  under a numbered [slot] section here, in place of any existing scales.
+;  To go back to the default scales.cnfg, just move the existing one off the storage or
+;  delete it, and Wakes will create a new copy from defaults.
 ;
 ;  .scl format:
 ;    lines starting with '!' are Scala-format comments
 ;    the first other line is the scale's NAME (it can be empty)
 ;    the next line is how many PITCHES comprise the scale
-;    then, one pitch designation appears per line, the last one defining the period/octave.
+;    then, one pitch designation appears per line, with the last one defining period/octave.
 ;
-;  In .scl format, the root (1/1, 0 cents) is not written: every scale starts on the root.
-;  Where that root sits:
+;  In .scl format, the root (1/1, 0 cents) is not written: every scale starts on the root
+;  frequency, which is defined dynamically, based on the following factors:
 ;    MARBLES' X: at 0 V. Routed to V/Oct, X is added to FREQUENCY, so the root is
 ;      wherever FREQUENCY is set.
 ;    PLAITS' quantizer: on C, or on the note you tune by ear (see tune_by_ear below).
@@ -46,14 +48,14 @@
 ;  Instruments-derived features that let you play around with those scales.
 ;
 ;  Note weight: a whole number 0-255 after a pitch defines its weight.
-;    Weights are how Marbles' STEPS fader thins the scale out as it moves from its centre
-;    to 100%. Just past the centre every degree of the scale is in: a scale written on all
-;    12 semitones, like Marbles' major below, is chromatic there. Turning STEPS further up
+;    Weights are how Marbles' STPS fader thins the scale out as it moves from its centre
+;    to 100%. Just up from centre, every degree of the scale is in: a scale written on all
+;    12 semitones, like Marbles' major below, is chromatic there. Turning STPS further up
 ;    drops the low-weight notes first, leaving the notes that define the scale, then fewer,
-;    until only the root (always 255) remains. Below the centre STEPS does not quantize at
+;    until only the root (always 255) remains. Below the centre STPS does not quantize at
 ;    all: X glides smoothly between values. A pitch without a weight gets 255 (it is always
 ;    there). Any other text left in after a note's pitch definition is ignored.
-;    Important: Without note weights, Marbles cannot play around with which notes are 
+;    Important: Without note weights, Marbles cannot play around with which notes are
 ;    available on the scale. As you define scales, remember which intervals sound good, and
 ;    weight them to your taste.
 ;
@@ -83,7 +85,8 @@
 ;
 ;  Wakes' default scales.cnfg ships with slots [1]-[6] containing the original scales curated
 ;  for Mutable Instruments' Marbles (marbles/settings.cc, Emilie Gillet, MIT),
-;  rewritten as Scala. Note names in the comments assume the root is C.
+;  rewritten as Scala, and slot [7] with a whole-tone scale. Note names in the comments
+;  assume the root is C.
 
 [1]
 plaits = 32
@@ -201,17 +204,18 @@ shri
 15/8      4    ; Ni
 2/1
 
-; [7] is empty: yours. For example, remove the ; from these lines for a whole-tone scale:
-; [7]
-; ! six equal steps, every one always there
-; whole-tone
-; 6
-; 200.0
-; 400.0
-; 600.0
-; 800.0
-; 1000.0
-; 2/1
+
+[7]
+tune_by_ear = on
+! Whole tone. Six equal steps, Marbles note-elimination disabled.
+whole-tone
+6
+200.0
+400.0
+600.0
+800.0
+1000.0
+2/1
 
 ; =====================================================================================
 ;  THE SEVEN MODES (diatonic scales), ready to copy
@@ -219,16 +223,14 @@ shri
 ;
 ;  To use one: copy its lines, from "; plaits = 32" down to "; 2/1", into this file under a
 ;  [slot] line of your choice (a free slot, or one you are replacing), and remove the "; "
-;  at the start of each of those lines. Leave the "; ----" title line out.
+;  at the start of each of those lines. Edit the "; ----" title line out.
 ;
 ;  Each mode is cut out of the chromatic scale with weights, the way Marbles' major scale
 ;  is (Ionian below IS Marbles' major, note for note):
 ;    the mode's notes     root 255, 5th 192, 3rd 128, 7th 128, 2nd 96, 6th 96, 4th 64
 ;    the other 5 notes    the 3rd or 7th the mode does NOT use 24, the tritone 8, others 16
-;  So STEPS keeps the root, fifth, third and seventh longest, and plaits = 32 gives Plaits
-;  the mode's 7 notes. In Locrian the 5th is the diminished fifth, its defining note, so
-;  it takes the 5th's weight. Note names assume a root of C; with tune_by_ear on, each
-;  mode starts on whatever note you tune Plaits to.
+;  So STPS keeps the root, fifth, third and seventh longest, and plaits = 32 gives Plaits
+;  each mode's 7 notes.
 ;
 ; ---- Ionian (major): 1 2 3 4 5 6 7
 ; plaits = 32
@@ -355,3 +357,42 @@ shri
 ; 1000.0  128    ; Bb  (root C) -- 7th
 ; 1100.0   24    ; B   (root C) -- out, the other 7th
 ; 2/1
+;
+; ---- 31edo: Chromatic
+; plaits = 32
+; tune_by_ear = on
+; ! 31edo: Chromatic
+; 31edo
+; 31
+; !
+;    38.71    ; Superunison
+;    77.42    ; Augmented Unison
+;   116.13    ; Minor 2nd
+;   154.84    ; Neutral 2nd
+;   193.55    ; Major 2nd
+;   232.26    ; Supermajor 2nd
+;   270.97    ; Subminor 3rd
+;   309.68    ; Minor 3rd
+;   348.39    ; Neutral 3rd
+;   387.10    ; Major 3rd
+;   425.81    ; Supermajor 3rd
+;   464.52    ; Sub 4th
+;   503.23    ; Perfect 4th
+;   541.94    ; Super 4th
+;   580.65    ; Augmented 4th
+;   619.35    ; Diminished 5th
+;   658.06    ; Sub 5th
+;   696.77    ; Perfect 5th
+;   735.48    ; Super 5th
+;   774.19    ; Subminor 6th
+;   812.90    ; Minor 6th
+;   851.61    ; Neutral 6th
+;   890.32    ; Major 6th
+;   929.03    ; Supermajor 6th
+;   967.74    ; Subminor 7th
+;  1006.45    ; Minor 7th
+;  1045.16    ; Neutral 7th
+;  1083.87    ; Major 7th
+;  1122.58    ; Supermajor 7th
+;  1161.29    ; Sub-Octave
+;  2/1        ; Octave
