@@ -58,6 +58,11 @@
 ;    Important: Without note weights, Marbles cannot play around with which notes are
 ;    available on the scale. As you define scales, remember which intervals sound good, and
 ;    weight them to your taste.
+;    The period line (2/1 for the octave) never takes a weight: in Scala it marks where the
+;    scale ends and repeats, so it is the root again, one period up. A weight written there
+;    is ignored, for the same reason the root is never written and never weighted. The root
+;    is always 255 and never drops out: Marbles' quantizer always needs one note left to
+;    land on, even at the top of STPS.
 ;
 ;  plaits = N (written above the scale's name, under its [slot]): PLAITS' quantizer plays
 ;    the degrees with a weight of N or more. 0 (or leaving it out) = every degree.
@@ -221,7 +226,7 @@ whole-tone
 ;  THE SEVEN MODES (diatonic scales), ready to copy
 ; =====================================================================================
 ;
-;  To use one: copy its lines, from "; plaits = 32" down to "; 2/1", into this file under a
+;  To use one: copy its lines, from "; plaits" down to the "2/1" line, into this file under a
 ;  [slot] line of your choice (a free slot, or one you are replacing), and remove the "; "
 ;  at the start of each of those lines. Edit the "; ----" title line out.
 ;
@@ -359,7 +364,7 @@ whole-tone
 ; 2/1
 ;
 ; ---- 31edo: Chromatic
-; plaits = 32
+; plaits = 0
 ; tune_by_ear = on
 ; ! 31edo: Chromatic
 ; 31edo
@@ -396,3 +401,45 @@ whole-tone
 ;  1122.58    ; Supermajor 7th
 ;  1161.29    ; Sub-Octave
 ;  2/1        ; Octave
+;
+; ---- 31edo: Mothra[6]
+;  Six notes of 31edo, each 6 steps (232.26 cents, close to 8/7) above the last:
+;  root, supermajor 2nd, sub 4th, perfect 5th, supermajor 6th, sub-octave
+;  (steps 6 6 6 6 6 1). STPS keeps the 5th longest, then the 2nd, then the rest.
+; plaits = 32
+; tune_by_ear = on
+; ! 31edo Mothra[6]: generator 6 steps of 31 (232.26 cents), steps 6 6 6 6 6 1
+; 31edo-mothra6
+; 31
+; !
+;    38.71   16    ; Superunison      -- out
+;    77.42   16    ; Augmented Unison -- out
+;   116.13   16    ; Minor 2nd        -- out
+;   154.84   16    ; Neutral 2nd      -- out
+;   193.55   16    ; Major 2nd        -- out
+;   232.26  128    ; Supermajor 2nd   -- Mothra: 1 generator
+;   270.97   16    ; Subminor 3rd     -- out
+;   309.68   24    ; Minor 3rd        -- out, the other 3rd/7th
+;   348.39   16    ; Neutral 3rd      -- out
+;   387.10   24    ; Major 3rd        -- out, the other 3rd/7th
+;   425.81   16    ; Supermajor 3rd   -- out
+;   464.52   64    ; Sub 4th          -- Mothra: 2 generators
+;   503.23   16    ; Perfect 4th      -- out
+;   541.94   16    ; Super 4th        -- out
+;   580.65    8    ; Augmented 4th    -- out, tritone
+;   619.35    8    ; Diminished 5th   -- out, tritone
+;   658.06   16    ; Sub 5th          -- out
+;   696.77  192    ; Perfect 5th      -- Mothra: 3 generators
+;   735.48   16    ; Super 5th        -- out
+;   774.19   16    ; Subminor 6th     -- out
+;   812.90   16    ; Minor 6th        -- out
+;   851.61   16    ; Neutral 6th      -- out
+;   890.32   16    ; Major 6th        -- out
+;   929.03   96    ; Supermajor 6th   -- Mothra: 4 generators
+;   967.74   16    ; Subminor 7th     -- out
+;  1006.45   24    ; Minor 7th        -- out, the other 3rd/7th
+;  1045.16   16    ; Neutral 7th      -- out
+;  1083.87   24    ; Major 7th        -- out, the other 3rd/7th
+;  1122.58   16    ; Supermajor 7th   -- out
+;  1161.29   48    ; Sub-Octave       -- Mothra: 5 generators
+;  2/1             ; Octave

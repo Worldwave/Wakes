@@ -971,6 +971,49 @@ static void scales(void)
 		CHECK(same_w, "ionian's weights are not Marbles' major's");
 	}
 
+	/* The two 31-EDO blocks at the end of the library, uncommented the same way: the
+	 * chromatic one gives Plaits all 31 notes (plaits = 0), Mothra[6] its six (steps 0 6 12
+	 * 18 24 30, plaits = 32). */
+	{
+		static const char *const TITLE[2] = { "; ---- 31edo: Chromatic\n",
+						      "; ---- 31edo: Mothra[6]\n" };
+		static char t[8192];
+		int m = 0;
+		for (int b = 0; b < 2; b++) {
+			const char *p = strstr(SP1_SCALES_TEMPLATE, TITLE[b]);
+			CHECK(p != NULL, "the template has no \"%.*s\" block",
+			      (int)strlen(TITLE[b]) - 1, TITLE[b]);
+			if (p == NULL) {
+				continue;
+			}
+			p = strstr(p, "; plaits");
+			const char *end = strstr(p, "2/1");      /* the period line, any indent */
+			m += snprintf(t + m, sizeof(t) - (size_t)m, "[%d]\n", b + 1);
+			for (const char *l = p; l <= end; ) {
+				const char *nl = strchr(l, '\n');
+				m += snprintf(t + m, sizeof(t) - (size_t)m, "%.*s\n", (int)(nl - l - 2),
+					      l + 2);
+				l = nl + 1;
+			}
+		}
+		CHECK(read_scales(t, 0u) == 0 && s_filled == 2, "the 31-EDO blocks: %d problems "
+		      "(line %d: %s)", problems_seen, last_line, last_what);
+		const struct sp1_scale *c = &sbank.s[0], *mo = &sbank.s[1];
+		CHECK(c->n == 31u && c->plaits == 0u, "31edo chromatic: %u degrees, plaits %u", c->n,
+		      c->plaits);
+		int n = 0;
+		bool on_grid = mo->n == 31u && mo->plaits == 32u;
+		for (int k = 0; k < mo->n; k++) {
+			if (mo->weight[k] >= mo->plaits) {
+				on_grid = on_grid && k == 6 * n &&
+					  fabsf(mo->volts[k] * 31.0f - (float)k) < 1e-3f;
+				n++;
+			}
+		}
+		CHECK(on_grid && n == 6, "Mothra[6]: Plaits plays %d notes, not steps 0 6 12 18 24 30",
+		      n);
+	}
+
 	/* Overloaded (Adara): above [7] is dropped with a note, the rest loads. */
 	CHECK(read_scales("[1]\na\n1\n2/1\n[8]\nb\n1\n2/1\n[12]\nc\n2\n100.0\n2/1\n", 0u) == 0 &&
 	      s_dropped == 2 && s_filled == 1 && sbank.s[0].n == 1u && !is_defaults(),
