@@ -286,7 +286,11 @@ int  sp1_midi_reader_end(struct sp1_midi_reader *r, int *notes);
  *
  * ALL OR NOTHING, like engines.cnfg: any problem in any scale -> the built-in bank, every
  * problem named. The one exception (Adara): a slot above [7] is DROPPED with a note that the
- * file is overloaded, and the rest still loads. */
+ * file is overloaded, and the rest still loads.
+ *
+ * [scales_wiki] ends the scales (Adara, #44): NOTHING below it is read -- the scale library
+ * lives there uncommented, between copy markers, ready to paste above it. A [n] found below
+ * it is a note ("move it above"), never a problem; long lines there are not reported. */
 struct sp1_scales_reader {
 	struct sp1_cnfg_parser p;
 	sp1_cnfg_problem_fn problem;
@@ -306,6 +310,8 @@ struct sp1_scales_reader {
 	uint8_t  got;
 	uint8_t  seen;           /* slots with a section, bit per slot                      */
 	bool     loose;          /* a line outside any slot has been reported               */
+	bool     wiki;           /* below [scales_wiki]: nothing more is read (#44)         */
+	int      wiki_notes;     /* slots found below it, reported as notes                 */
 	char     what[SP1_CNFG_LINE_MAX + 8];
 	char     why[112];
 	int      problems;

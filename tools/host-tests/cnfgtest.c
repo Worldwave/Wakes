@@ -756,7 +756,7 @@ static void midi(void)
 /* ---------------------------------------------------------------- scales.cnfg (#44) */
 
 static struct sp1_scale_bank sbank;
-static int s_filled, s_dropped;
+static int s_filled, s_dropped, s_wiki;
 
 static int read_scales(const char *text, size_t chunk)
 {
@@ -773,10 +773,30 @@ static int read_scales(const char *text, size_t chunk)
 		sp1_scales_feed(&r, text + i, (i + chunk <= n) ? chunk : n - i);
 	}
 	const int bad = sp1_scales_end(&r, &s_filled, &s_dropped);
-	/* Problems + the notes for dropped slots are everything the reader reported. */
-	CHECK(bad + s_dropped == problems_seen, "scales reader counted %d problems + %d notes, "
-	      "reported %d", bad, s_dropped, problems_seen);
+	s_wiki = r.wiki_notes;
+	/* Problems + the notes (dropped slots, slots below [scales_wiki]) are everything the
+	 * reader reported. */
+	CHECK(bad + s_dropped + s_wiki == problems_seen, "scales reader counted %d problems + "
+	      "%d + %d notes, reported %d", bad, s_dropped, s_wiki, problems_seen);
 	return bad;
+}
+
+/* What a user does with the library (#44): copy the lines between the markers under the
+ * block titled `title`, and paste them under a [slot] line. Appends "[slot]\n" + those lines
+ * to t at m; returns the new length, or -1 if the template has no such block. */
+static int copy_block(char *t, int m, size_t size, int slot, const char *title)
+{
+	const char *p = strstr(SP1_SCALES_TEMPLATE, title);
+	const char *from = p != NULL ? strstr(p, "copy from the line below") : NULL;
+	if (from == NULL) {
+		return -1;
+	}
+	from = strchr(from, '\n') + 1;
+	const char *to = strstr(from, "\n; ^^^^");
+	if (to == NULL) {
+		return -1;
+	}
+	return m + snprintf(t + m, size - (size_t)m, "[%d]\n%.*s\n", slot, (int)(to - from), from);
 }
 
 static bool same_scale(const struct sp1_scale *a, const struct sp1_scale *b)
@@ -890,6 +910,28 @@ static void scales(void)
 	      sbank.s[2].plaits == 100u && sbank.s[2].n == 3u &&
 	      sbank.s[2].weight[1] == 255u && sbank.s[2].weight[2] == 200u,
 	      "weights, plaits, comments: %d problems (%s)", problems_seen, last_what);
+	/* [scales_wiki] (#44): nothing below it is read -- scales, keys, garbage, broken headers
+	 * and long lines alike -- and a slot down there is a note, not a problem. */
+	{
+		static char t[2048];
+		int m = snprintf(t, sizeof(t), "[2]\nmine\n2\n350.0\n2/1\n\n[Scales_Wiki]\n"
+				 "plaits = 999\nnot a scale at all\n[oops\n[3]\nbad\n0\n");
+		for (int i = 0; i < 200; i++) {            /* a 200-byte line */
+			t[m++] = 'x';
+		}
+		snprintf(t + m, sizeof(t) - (size_t)m, "\n[1]\nmajor-ish\n1\n2/1\n");
+		CHECK(read_scales(t, 5u) == 0 && s_filled == 1 && sbank.s[1].n == 2u &&
+		      sbank.s[0].n == 0u && sbank.s[2].n == 0u && s_wiki == 2,
+		      "[scales_wiki]: %d problems, %d scales, %d notes (line %d: %s)",
+		      problems_seen - s_wiki, s_filled, s_wiki, last_line, last_what);
+	}
+	/* Problems above [scales_wiki] still count. */
+	CHECK(read_scales("[1]\na\n2\nC#\n2/1\n[scales_wiki]\n", 0u) == 1 && is_defaults(),
+	      "a problem above [scales_wiki] was not counted");
+	/* The template's library is not read: the built-in bank is exactly slots 1-7. */
+	CHECK(strstr(SP1_SCALES_TEMPLATE, "\n[scales_wiki]\n") != NULL,
+	      "the template has no [scales_wiki] line");
+
 	/* An empty [n] is an empty slot, not a problem. */
 	CHECK(read_scales("[5]\n[6]\nx\n1\n2/1\n", 0u) == 0 && s_filled == 1 && sbank.s[5].n == 1u,
 	      "an empty section: %d problems", problems_seen);
@@ -931,19 +973,18 @@ static void scales(void)
 			{ 0, 2, 4, 6, 7, 9, 11 }, { 0, 2, 4, 5, 7, 9, 10 }, { 0, 2, 3, 5, 7, 8, 10 },
 			{ 0, 1, 3, 5, 6, 8, 10 },
 		};
+		static const char *const TITLE[7] = { "; ---- Ionian", "; ---- Dorian",
+						      "; ---- Phrygian", "; ---- Lydian",
+						      "; ---- Mixolydian", "; ---- Aeolian",
+						      "; ---- Locrian" };
 		static char t[8192];
 		int m = 0;
 		int found = 0;
-		const char *p = SP1_SCALES_TEMPLATE;
-		while ((p = strstr(p, "\n; plaits = 32\n; tune_by_ear")) != NULL && found < 7) {
-			p++;
-			m += snprintf(t + m, sizeof(t) - (size_t)m, "[%d]\n", ++found);
-			const char *end = strstr(p, "; 2/1\n");
-			for (const char *l = p; l <= end; ) {
-				const char *nl = strchr(l, '\n');
-				m += snprintf(t + m, sizeof(t) - (size_t)m, "%.*s\n", (int)(nl - l - 2),
-					      l + 2);            /* without the "; " */
-				l = nl + 1;
+		for (int i = 0; i < 7; i++) {
+			const int k = copy_block(t, m, sizeof(t), i + 1, TITLE[i]);
+			if (k > 0) {
+				m = k;
+				found++;
 			}
 		}
 		CHECK(found == 7, "the template has %d mode blocks, expected 7", found);
@@ -975,26 +1016,14 @@ static void scales(void)
 	 * chromatic one gives Plaits all 31 notes (plaits = 0), Mothra[6] its six (steps 0 6 12
 	 * 18 24 30, plaits = 32). */
 	{
-		static const char *const TITLE[2] = { "; ---- 31edo: Chromatic\n",
-						      "; ---- 31edo: Mothra[6]\n" };
+		static const char *const TITLE[2] = { "; ---- 31edo: Chromatic",
+						      "; ---- 31edo: Mothra[6]" };
 		static char t[8192];
 		int m = 0;
 		for (int b = 0; b < 2; b++) {
-			const char *p = strstr(SP1_SCALES_TEMPLATE, TITLE[b]);
-			CHECK(p != NULL, "the template has no \"%.*s\" block",
-			      (int)strlen(TITLE[b]) - 1, TITLE[b]);
-			if (p == NULL) {
-				continue;
-			}
-			p = strstr(p, "; plaits");
-			const char *end = strstr(p, "2/1");      /* the period line, any indent */
-			m += snprintf(t + m, sizeof(t) - (size_t)m, "[%d]\n", b + 1);
-			for (const char *l = p; l <= end; ) {
-				const char *nl = strchr(l, '\n');
-				m += snprintf(t + m, sizeof(t) - (size_t)m, "%.*s\n", (int)(nl - l - 2),
-					      l + 2);
-				l = nl + 1;
-			}
+			const int k = copy_block(t, m, sizeof(t), b + 1, TITLE[b]);
+			CHECK(k > 0, "the template has no \"%s\" block", TITLE[b]);
+			m = k > 0 ? k : m;
 		}
 		CHECK(read_scales(t, 0u) == 0 && s_filled == 2, "the 31-EDO blocks: %d problems "
 		      "(line %d: %s)", problems_seen, last_line, last_what);

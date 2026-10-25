@@ -1156,7 +1156,11 @@ static void sc_report(struct sp1_scales_reader *r, int line, const char *what, c
 
 static void sc_problem(void *ctx, int line, const char *what, const char *why)
 {
-	sc_report(ctx, line, what, why);
+	struct sp1_scales_reader *r = ctx;
+	if (r->wiki) {
+		return;              /* below [scales_wiki] nothing is read, long lines included */
+	}
+	sc_report(r, line, what, why);
 }
 
 /* "[n]" in r->what. */
@@ -1363,6 +1367,20 @@ static void sc_header(struct sp1_scales_reader *r, int line, const char *name)
 		return;                                  /* the parser reported it */
 	}
 	int v;
+	/* [scales_wiki]: the scale library. Nothing below it is read (Adara, #44), so its
+	 * examples need no "; " in front; a slot down there is ignored with a note. */
+	if (r->wiki) {
+		if (parse_uint(name, 9999, &v)) {
+			r->wiki_notes++;
+			r->problem(r->ctx, line, name, "is below [scales_wiki], which Wakes does not "
+				   "read: move it above [scales_wiki] to use it");
+		}
+		return;
+	}
+	if (strcmp(name, "scales_wiki") == 0) {
+		r->wiki = true;
+		return;
+	}
 	if (!parse_uint(name, 9999, &v) || v < 1) {
 		sc_report(r, line, name, "is not a scale slot ([1] to [7]): its scale is ignored");
 		return;

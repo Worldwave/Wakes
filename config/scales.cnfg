@@ -223,223 +223,250 @@ whole-tone
 2/1
 
 ; =====================================================================================
-;  THE SEVEN MODES (diatonic scales), ready to copy
+;  THE SCALE LIBRARY: Wakes stops reading this file at the [scales_wiki] line below
 ; =====================================================================================
 ;
-;  To use one: copy its lines, from "; plaits" down to the "2/1" line, into this file under a
-;  [slot] line of your choice (a free slot, or one you are replacing), and remove the "; "
-;  at the start of each of those lines. Edit the "; ----" title line out.
+;  Everything under [scales_wiki] is a library of example scales. Wakes never reads it,
+;  so nothing there needs a ";" in front, and you can keep, edit or delete it as you like.
+;  Keep your own scales ABOVE the [scales_wiki] line: a slot below it is ignored (the log
+;  says so).
 ;
-;  Each mode is cut out of the chromatic scale with weights, the way Marbles' major scale
-;  is (Ionian below IS Marbles' major, note for note):
+;  To use one: copy the lines BETWEEN its two markers -- from the line below "vvvv copy
+;  from the line below vvvv" down to the line above "^^^^ copy down to the line above
+;  ^^^^" -- and paste them above [scales_wiki], under a slot line of your choice ([7] for
+;  example, replacing the scale that was there). The title and description lines above
+;  each block are for reading, not copying.
+;
+;  The seven modes are each cut out of the chromatic scale with weights, the way Marbles'
+;  major scale is (Ionian below IS Marbles' major, note for note):
 ;    the mode's notes     root 255, 5th 192, 3rd 128, 7th 128, 2nd 96, 6th 96, 4th 64
 ;    the other 5 notes    the 3rd or 7th the mode does NOT use 24, the tritone 8, others 16
 ;  So STPS keeps the root, fifth, third and seventh longest, and plaits = 32 gives Plaits
 ;  each mode's 7 notes.
-;
+
+[scales_wiki]
+
 ; ---- Ionian (major): 1 2 3 4 5 6 7
-; plaits = 32
-; tune_by_ear = on
-; ionian
-; 12
-;  100.0   16    ; C#  (root C) -- out
-;  200.0   96    ; D   (root C) -- 2nd
-;  300.0   24    ; D#  (root C) -- out, the other 3rd
-;  400.0  128    ; E   (root C) -- 3rd
-;  500.0   64    ; F   (root C) -- 4th
-;  600.0    8    ; F#  (root C) -- out, tritone
-;  700.0  192    ; G   (root C) -- 5th
-;  800.0   16    ; G#  (root C) -- out
-;  900.0   96    ; A   (root C) -- 6th
-; 1000.0   24    ; A#  (root C) -- out, the other 7th
-; 1100.0  128    ; B   (root C) -- 7th
-; 2/1
-;
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+ionian
+12
+ 100.0   16    ; C#  (root C) -- out
+ 200.0   96    ; D   (root C) -- 2nd
+ 300.0   24    ; D#  (root C) -- out, the other 3rd
+ 400.0  128    ; E   (root C) -- 3rd
+ 500.0   64    ; F   (root C) -- 4th
+ 600.0    8    ; F#  (root C) -- out, tritone
+ 700.0  192    ; G   (root C) -- 5th
+ 800.0   16    ; G#  (root C) -- out
+ 900.0   96    ; A   (root C) -- 6th
+1000.0   24    ; A#  (root C) -- out, the other 7th
+1100.0  128    ; B   (root C) -- 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 ; ---- Dorian: 1 2 b3 4 5 6 b7
-; plaits = 32
-; tune_by_ear = on
-; dorian
-; 12
-;  100.0   16    ; C#  (root C) -- out
-;  200.0   96    ; D   (root C) -- 2nd
-;  300.0  128    ; Eb  (root C) -- 3rd
-;  400.0   24    ; E   (root C) -- out, the other 3rd
-;  500.0   64    ; F   (root C) -- 4th
-;  600.0    8    ; F#  (root C) -- out, tritone
-;  700.0  192    ; G   (root C) -- 5th
-;  800.0   16    ; G#  (root C) -- out
-;  900.0   96    ; A   (root C) -- 6th
-; 1000.0  128    ; Bb  (root C) -- 7th
-; 1100.0   24    ; B   (root C) -- out, the other 7th
-; 2/1
-;
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+dorian
+12
+ 100.0   16    ; C#  (root C) -- out
+ 200.0   96    ; D   (root C) -- 2nd
+ 300.0  128    ; Eb  (root C) -- 3rd
+ 400.0   24    ; E   (root C) -- out, the other 3rd
+ 500.0   64    ; F   (root C) -- 4th
+ 600.0    8    ; F#  (root C) -- out, tritone
+ 700.0  192    ; G   (root C) -- 5th
+ 800.0   16    ; G#  (root C) -- out
+ 900.0   96    ; A   (root C) -- 6th
+1000.0  128    ; Bb  (root C) -- 7th
+1100.0   24    ; B   (root C) -- out, the other 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 ; ---- Phrygian: 1 b2 b3 4 5 b6 b7
-; plaits = 32
-; tune_by_ear = on
-; phrygian
-; 12
-;  100.0   96    ; Db  (root C) -- 2nd
-;  200.0   16    ; D   (root C) -- out
-;  300.0  128    ; Eb  (root C) -- 3rd
-;  400.0   24    ; E   (root C) -- out, the other 3rd
-;  500.0   64    ; F   (root C) -- 4th
-;  600.0    8    ; F#  (root C) -- out, tritone
-;  700.0  192    ; G   (root C) -- 5th
-;  800.0   96    ; Ab  (root C) -- 6th
-;  900.0   16    ; A   (root C) -- out
-; 1000.0  128    ; Bb  (root C) -- 7th
-; 1100.0   24    ; B   (root C) -- out, the other 7th
-; 2/1
-;
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+phrygian
+12
+ 100.0   96    ; Db  (root C) -- 2nd
+ 200.0   16    ; D   (root C) -- out
+ 300.0  128    ; Eb  (root C) -- 3rd
+ 400.0   24    ; E   (root C) -- out, the other 3rd
+ 500.0   64    ; F   (root C) -- 4th
+ 600.0    8    ; F#  (root C) -- out, tritone
+ 700.0  192    ; G   (root C) -- 5th
+ 800.0   96    ; Ab  (root C) -- 6th
+ 900.0   16    ; A   (root C) -- out
+1000.0  128    ; Bb  (root C) -- 7th
+1100.0   24    ; B   (root C) -- out, the other 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 ; ---- Lydian: 1 2 3 #4 5 6 7
-; plaits = 32
-; tune_by_ear = on
-; lydian
-; 12
-;  100.0   16    ; C#  (root C) -- out
-;  200.0   96    ; D   (root C) -- 2nd
-;  300.0   24    ; D#  (root C) -- out, the other 3rd
-;  400.0  128    ; E   (root C) -- 3rd
-;  500.0   16    ; F   (root C) -- out
-;  600.0   64    ; F#  (root C) -- 4th (#4)
-;  700.0  192    ; G   (root C) -- 5th
-;  800.0   16    ; G#  (root C) -- out
-;  900.0   96    ; A   (root C) -- 6th
-; 1000.0   24    ; A#  (root C) -- out, the other 7th
-; 1100.0  128    ; B   (root C) -- 7th
-; 2/1
-;
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+lydian
+12
+ 100.0   16    ; C#  (root C) -- out
+ 200.0   96    ; D   (root C) -- 2nd
+ 300.0   24    ; D#  (root C) -- out, the other 3rd
+ 400.0  128    ; E   (root C) -- 3rd
+ 500.0   16    ; F   (root C) -- out
+ 600.0   64    ; F#  (root C) -- 4th (#4)
+ 700.0  192    ; G   (root C) -- 5th
+ 800.0   16    ; G#  (root C) -- out
+ 900.0   96    ; A   (root C) -- 6th
+1000.0   24    ; A#  (root C) -- out, the other 7th
+1100.0  128    ; B   (root C) -- 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 ; ---- Mixolydian: 1 2 3 4 5 6 b7
-; plaits = 32
-; tune_by_ear = on
-; mixolydian
-; 12
-;  100.0   16    ; C#  (root C) -- out
-;  200.0   96    ; D   (root C) -- 2nd
-;  300.0   24    ; D#  (root C) -- out, the other 3rd
-;  400.0  128    ; E   (root C) -- 3rd
-;  500.0   64    ; F   (root C) -- 4th
-;  600.0    8    ; F#  (root C) -- out, tritone
-;  700.0  192    ; G   (root C) -- 5th
-;  800.0   16    ; G#  (root C) -- out
-;  900.0   96    ; A   (root C) -- 6th
-; 1000.0  128    ; Bb  (root C) -- 7th
-; 1100.0   24    ; B   (root C) -- out, the other 7th
-; 2/1
-;
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+mixolydian
+12
+ 100.0   16    ; C#  (root C) -- out
+ 200.0   96    ; D   (root C) -- 2nd
+ 300.0   24    ; D#  (root C) -- out, the other 3rd
+ 400.0  128    ; E   (root C) -- 3rd
+ 500.0   64    ; F   (root C) -- 4th
+ 600.0    8    ; F#  (root C) -- out, tritone
+ 700.0  192    ; G   (root C) -- 5th
+ 800.0   16    ; G#  (root C) -- out
+ 900.0   96    ; A   (root C) -- 6th
+1000.0  128    ; Bb  (root C) -- 7th
+1100.0   24    ; B   (root C) -- out, the other 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 ; ---- Aeolian (natural minor): 1 2 b3 4 5 b6 b7
-; plaits = 32
-; tune_by_ear = on
-; aeolian
-; 12
-;  100.0   16    ; C#  (root C) -- out
-;  200.0   96    ; D   (root C) -- 2nd
-;  300.0  128    ; Eb  (root C) -- 3rd
-;  400.0   24    ; E   (root C) -- out, the other 3rd
-;  500.0   64    ; F   (root C) -- 4th
-;  600.0    8    ; F#  (root C) -- out, tritone
-;  700.0  192    ; G   (root C) -- 5th
-;  800.0   96    ; Ab  (root C) -- 6th
-;  900.0   16    ; A   (root C) -- out
-; 1000.0  128    ; Bb  (root C) -- 7th
-; 1100.0   24    ; B   (root C) -- out, the other 7th
-; 2/1
-;
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+aeolian
+12
+ 100.0   16    ; C#  (root C) -- out
+ 200.0   96    ; D   (root C) -- 2nd
+ 300.0  128    ; Eb  (root C) -- 3rd
+ 400.0   24    ; E   (root C) -- out, the other 3rd
+ 500.0   64    ; F   (root C) -- 4th
+ 600.0    8    ; F#  (root C) -- out, tritone
+ 700.0  192    ; G   (root C) -- 5th
+ 800.0   96    ; Ab  (root C) -- 6th
+ 900.0   16    ; A   (root C) -- out
+1000.0  128    ; Bb  (root C) -- 7th
+1100.0   24    ; B   (root C) -- out, the other 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 ; ---- Locrian: 1 b2 b3 4 b5 b6 b7
-; plaits = 32
-; tune_by_ear = on
-; locrian
-; 12
-;  100.0   96    ; Db  (root C) -- 2nd
-;  200.0   16    ; D   (root C) -- out
-;  300.0  128    ; Eb  (root C) -- 3rd
-;  400.0   24    ; E   (root C) -- out, the other 3rd
-;  500.0   64    ; F   (root C) -- 4th
-;  600.0  192    ; Gb  (root C) -- 5th (b5)
-;  700.0   16    ; G   (root C) -- out
-;  800.0   96    ; Ab  (root C) -- 6th
-;  900.0   16    ; A   (root C) -- out
-; 1000.0  128    ; Bb  (root C) -- 7th
-; 1100.0   24    ; B   (root C) -- out, the other 7th
-; 2/1
-;
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+locrian
+12
+ 100.0   96    ; Db  (root C) -- 2nd
+ 200.0   16    ; D   (root C) -- out
+ 300.0  128    ; Eb  (root C) -- 3rd
+ 400.0   24    ; E   (root C) -- out, the other 3rd
+ 500.0   64    ; F   (root C) -- 4th
+ 600.0  192    ; Gb  (root C) -- 5th (b5)
+ 700.0   16    ; G   (root C) -- out
+ 800.0   96    ; Ab  (root C) -- 6th
+ 900.0   16    ; A   (root C) -- out
+1000.0  128    ; Bb  (root C) -- 7th
+1100.0   24    ; B   (root C) -- out, the other 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 ; ---- 31edo: Chromatic
-; plaits = 0
-; tune_by_ear = on
-; ! 31edo: Chromatic
-; 31edo
-; 31
-; !
-;    38.71    ; Superunison
-;    77.42    ; Augmented Unison
-;   116.13    ; Minor 2nd
-;   154.84    ; Neutral 2nd
-;   193.55    ; Major 2nd
-;   232.26    ; Supermajor 2nd
-;   270.97    ; Subminor 3rd
-;   309.68    ; Minor 3rd
-;   348.39    ; Neutral 3rd
-;   387.10    ; Major 3rd
-;   425.81    ; Supermajor 3rd
-;   464.52    ; Sub 4th
-;   503.23    ; Perfect 4th
-;   541.94    ; Super 4th
-;   580.65    ; Augmented 4th
-;   619.35    ; Diminished 5th
-;   658.06    ; Sub 5th
-;   696.77    ; Perfect 5th
-;   735.48    ; Super 5th
-;   774.19    ; Subminor 6th
-;   812.90    ; Minor 6th
-;   851.61    ; Neutral 6th
-;   890.32    ; Major 6th
-;   929.03    ; Supermajor 6th
-;   967.74    ; Subminor 7th
-;  1006.45    ; Minor 7th
-;  1045.16    ; Neutral 7th
-;  1083.87    ; Major 7th
-;  1122.58    ; Supermajor 7th
-;  1161.29    ; Sub-Octave
-;  2/1        ; Octave
-;
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 0
+tune_by_ear = on
+! 31edo: Chromatic
+31edo
+31
+!
+   38.71    ; Superunison
+   77.42    ; Augmented Unison
+  116.13    ; Minor 2nd
+  154.84    ; Neutral 2nd
+  193.55    ; Major 2nd
+  232.26    ; Supermajor 2nd
+  270.97    ; Subminor 3rd
+  309.68    ; Minor 3rd
+  348.39    ; Neutral 3rd
+  387.10    ; Major 3rd
+  425.81    ; Supermajor 3rd
+  464.52    ; Sub 4th
+  503.23    ; Perfect 4th
+  541.94    ; Super 4th
+  580.65    ; Augmented 4th
+  619.35    ; Diminished 5th
+  658.06    ; Sub 5th
+  696.77    ; Perfect 5th
+  735.48    ; Super 5th
+  774.19    ; Subminor 6th
+  812.90    ; Minor 6th
+  851.61    ; Neutral 6th
+  890.32    ; Major 6th
+  929.03    ; Supermajor 6th
+  967.74    ; Subminor 7th
+ 1006.45    ; Minor 7th
+ 1045.16    ; Neutral 7th
+ 1083.87    ; Major 7th
+ 1122.58    ; Supermajor 7th
+ 1161.29    ; Sub-Octave
+ 2/1        ; Octave
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 ; ---- 31edo: Mothra[6]
 ;  Six notes of 31edo, each 6 steps (232.26 cents, close to 8/7) above the last:
 ;  root, supermajor 2nd, sub 4th, perfect 5th, supermajor 6th, sub-octave
 ;  (steps 6 6 6 6 6 1). STPS keeps the 5th longest, then the 2nd, then the rest.
-; plaits = 32
-; tune_by_ear = on
-; ! 31edo Mothra[6]: generator 6 steps of 31 (232.26 cents), steps 6 6 6 6 6 1
-; 31edo-mothra6
-; 31
-; !
-;    38.71   16    ; Superunison      -- out
-;    77.42   16    ; Augmented Unison -- out
-;   116.13   16    ; Minor 2nd        -- out
-;   154.84   16    ; Neutral 2nd      -- out
-;   193.55   16    ; Major 2nd        -- out
-;   232.26  128    ; Supermajor 2nd   -- Mothra: 1 generator
-;   270.97   16    ; Subminor 3rd     -- out
-;   309.68   24    ; Minor 3rd        -- out, the other 3rd/7th
-;   348.39   16    ; Neutral 3rd      -- out
-;   387.10   24    ; Major 3rd        -- out, the other 3rd/7th
-;   425.81   16    ; Supermajor 3rd   -- out
-;   464.52   64    ; Sub 4th          -- Mothra: 2 generators
-;   503.23   16    ; Perfect 4th      -- out
-;   541.94   16    ; Super 4th        -- out
-;   580.65    8    ; Augmented 4th    -- out, tritone
-;   619.35    8    ; Diminished 5th   -- out, tritone
-;   658.06   16    ; Sub 5th          -- out
-;   696.77  192    ; Perfect 5th      -- Mothra: 3 generators
-;   735.48   16    ; Super 5th        -- out
-;   774.19   16    ; Subminor 6th     -- out
-;   812.90   16    ; Minor 6th        -- out
-;   851.61   16    ; Neutral 6th      -- out
-;   890.32   16    ; Major 6th        -- out
-;   929.03   96    ; Supermajor 6th   -- Mothra: 4 generators
-;   967.74   16    ; Subminor 7th     -- out
-;  1006.45   24    ; Minor 7th        -- out, the other 3rd/7th
-;  1045.16   16    ; Neutral 7th      -- out
-;  1083.87   24    ; Major 7th        -- out, the other 3rd/7th
-;  1122.58   16    ; Supermajor 7th   -- out
-;  1161.29   48    ; Sub-Octave       -- Mothra: 5 generators
-;  2/1             ; Octave
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+! 31edo Mothra[6]: generator 6 steps of 31 (232.26 cents), steps 6 6 6 6 6 1
+31edo-mothra6
+31
+!
+   38.71   16    ; Superunison      -- out
+   77.42   16    ; Augmented Unison -- out
+  116.13   16    ; Minor 2nd        -- out
+  154.84   16    ; Neutral 2nd      -- out
+  193.55   16    ; Major 2nd        -- out
+  232.26  128    ; Supermajor 2nd   -- Mothra: 1 generator
+  270.97   16    ; Subminor 3rd     -- out
+  309.68   24    ; Minor 3rd        -- out, the other 3rd/7th
+  348.39   16    ; Neutral 3rd      -- out
+  387.10   24    ; Major 3rd        -- out, the other 3rd/7th
+  425.81   16    ; Supermajor 3rd   -- out
+  464.52   64    ; Sub 4th          -- Mothra: 2 generators
+  503.23   16    ; Perfect 4th      -- out
+  541.94   16    ; Super 4th        -- out
+  580.65    8    ; Augmented 4th    -- out, tritone
+  619.35    8    ; Diminished 5th   -- out, tritone
+  658.06   16    ; Sub 5th          -- out
+  696.77  192    ; Perfect 5th      -- Mothra: 3 generators
+  735.48   16    ; Super 5th        -- out
+  774.19   16    ; Subminor 6th     -- out
+  812.90   16    ; Minor 6th        -- out
+  851.61   16    ; Neutral 6th      -- out
+  890.32   16    ; Major 6th        -- out
+  929.03   96    ; Supermajor 6th   -- Mothra: 4 generators
+  967.74   16    ; Subminor 7th     -- out
+ 1006.45   24    ; Minor 7th        -- out, the other 3rd/7th
+ 1045.16   16    ; Neutral 7th      -- out
+ 1083.87   24    ; Major 7th        -- out, the other 3rd/7th
+ 1122.58   16    ; Supermajor 7th   -- out
+ 1161.29   48    ; Sub-Octave       -- Mothra: 5 generators
+ 2/1             ; Octave
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^

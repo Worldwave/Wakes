@@ -37,12 +37,15 @@ NAME_MAX = 24             # SP1_SCALE_NAME_MAX, the NUL included
 LINE_MAX = 160            # SP1_CNFG_LINE_MAX: the device ignores longer lines
 
 
-def fail(path, line, msg):
+def _fail(path, line, msg):
     where = '%s:%d' % (path, line) if line else path
     sys.stderr.write('\n%s: error: %s\n\n'
                      'The built-in scales are checked at build time. See the comments\n'
                      'in config/scales.cnfg.\n' % (where, msg))
     sys.exit(1)
+
+
+fail = _fail
 
 
 def f32(x):
@@ -83,18 +86,63 @@ def name_cut(text):
     return b[:n]
 
 
+WIKI = re.compile(r'(?i)\[\s*scales_wiki\s*\]')
+COPY_FROM = re.compile(r';\s*v{4,}')         # "; vvvv ... copy from the line below"
+COPY_TO = re.compile(r';\s*\^{4,}')          # "; ^^^^ ... copy down to the line above"
+
+
 def parse(path):
+    """The bank above [scales_wiki], and a check of every example below it."""
     with open(path, encoding='utf-8-sig') as f:
         text = f.read()
     if not text.lstrip().startswith(';'):
         fail(path, 1, 'the file must start with a comment naming its format '
                       '("; Format: scl blocks ...")')
+    lines = list(enumerate(text.splitlines(), 1))
+    wiki = next((i for i, (_, raw) in enumerate(lines) if WIKI.fullmatch(raw.strip())), None)
+    main = lines if wiki is None else lines[:wiki]
+    bank = parse_bank(main, path)
+    if not any(bank):
+        fail(path, 0, 'the default bank has no scale')
+    if wiki is not None:
+        check_examples(lines[wiki + 1:], path)
+    return bank, text
+
+
+def check_examples(lines, path):
+    """Every block between a "; vvvv" and a "; ^^^^" line below [scales_wiki] must load as a
+    scale when pasted under a slot -- the file tells users to do exactly that."""
+    start = None
+    for i, (ln, raw) in enumerate(lines):
+        s = raw.strip()
+        if COPY_FROM.match(s):
+            if start is not None:
+                fail(path, ln, 'a "copy from" marker before the previous block ended')
+            start = i + 1
+        elif COPY_TO.match(s):
+            if start is None:
+                fail(path, ln, 'a "copy to" marker without a "copy from" above it')
+            block = lines[start:i]
+            first = block[0][0] if block else ln
+            bank = parse_bank([(first, '[1]')] + block, path,
+                              'scale library example at line %d: ' % first)
+            if bank[0] is None:
+                fail(path, first, 'the scale library example at line %d is empty' % first)
+            start = None
+    if start is not None:
+        fail(path, lines[start - 1][0], 'a "copy from" marker with no "copy to" below it')
+
+
+def parse_bank(lines, path, label=''):
+    """(line number, text) pairs -> the seven slots. `label` prefixes every error."""
+    def fail(path, line, msg):
+        _fail(path, line, label + msg)
     bank = [None] * SLOTS
     slot = None              # the section's slot; None before the first
     state = None             # 'desc', 'count', 'pitch', 'done'
     scale = None
     bang = False
-    for ln, raw in enumerate(text.splitlines(), 1):
+    for ln, raw in lines:
         if len(raw.encode('utf-8')) > LINE_MAX:
             fail(path, ln, 'line is over %d bytes: the device would ignore it' % LINE_MAX)
         s = raw.strip()
@@ -174,7 +222,7 @@ def parse(path):
             scale['p'].append((v, w, ln))
             if len(scale['p']) == scale['count']:
                 state = 'done'
-                finish(path, slot, scale)
+                finish(path, slot, scale, fail)
         else:                                   # done
             if s:
                 fail(path, ln, '"%s" comes after the last pitch of [%d]' % (s, slot + 1))
@@ -183,12 +231,10 @@ def parse(path):
     for i, sc in enumerate(bank):
         if sc is not None and not sc['has']:
             bank[i] = None                      # [n] with nothing in it: an empty slot
-    if not any(bank):
-        fail(path, 0, 'the default bank has no scale')
-    return bank, text
+    return bank
 
 
-def finish(path, slot, sc):
+def finish(path, slot, sc, fail):
     period, _, pl = sc['p'][-1]
     if not period > 0:
         fail(path, pl, 'the period of [%d] must be above the root' % (slot + 1))

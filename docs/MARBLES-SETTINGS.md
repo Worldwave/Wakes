@@ -176,6 +176,11 @@ major                   the description: the scale's name in the log
   built-in scales, every problem named in the log (`CNFG scales.cnfg line N: …`). The one
   exception (Adara): a slot above `[7]` is **dropped** and the log says the file is
   **overloaded**; the rest loads.
+- **`[scales_wiki]` ends the scales.** Wakes reads nothing below that line, so the file's
+  library of examples (the seven modes, 31-EDO chromatic, 31-EDO Mothra[6]) sits there
+  uncommented, each between a "copy from the line below" and a "copy down to the line above"
+  marker, ready to paste under a slot above it. A `[n]` found below it is ignored with a note
+  in the log. The build checks that every example loads when pasted.
 - **PRST stores the slot** (its tokens `major` … `free` mean slots 1–7, unchanged so every saved
   preset still loads). Change what a slot holds and the presets that used it play the new scale.
   A preset on a slot that is now empty: Marbles takes the first filled slot, Plaits' quantizer off.
