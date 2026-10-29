@@ -15,6 +15,9 @@ The development of Wakes is unaffiliated with Teenage Engineering or Mutable Ins
 
 **CRITICAL:** Flash custom firmware on the SP-1 at your own risk. SP-1s are abandonware, they do not have manufacturer support. There is no way to go back to the base firmware once you've flashed it away.
 
+If you'd like to support the Worldwave project, or just thank me in a helpful way for something that I
+did, I would be grateful to receive your support through [Ko-Fi](https://ko-fi.com/Worldwave)! 🙏🏻💜
+
 ## 📖 Manual
 
 **[Wakes – Manual (PDF)](docs/Wakes%20-%20Manual.pdf)**: The manual details the layout of each page, with every control and how to use them, in an aesthetically pleasing and readable format. Once you've installed Wakes on your SP-1 using the Flashing section below, start here.
@@ -40,14 +43,15 @@ because that's where the bootloader lives.
 
 ## Configuration
 
-Wakes keeps its settings as `.cnfg` files on its own drive, in `WAKES/CNFG/`: the engine stack
-(`engines.cnfg`), MIDI (`midi.cnfg`), USB audio (`audio.cnfg`) and logging (`logs.cnfg`). Plug the
-SP-1 into a computer while it's in STANDBY (OFF, with USB plugged in), edit a file in a text editor,
-eject, and turn Wakes ON: it reads them at every ON. Each file explains its own settings. Delete a
-file to reset it; Wakes writes a fresh copy with the defaults at the next ON. No fork or build needed.
+Wakes keeps its settings as `.cnfg` files on its own drive, in `WAKES/CNFG/`: You can customize your
+engine stack (`engines.cnfg`), MIDI handling (`midi.cnfg`), USB audio settings (`audio.cnfg`) and
+logging (`logs.cnfg`). Plug the SP-1 into a computer while it's in STANDBY (OFF, with USB plugged in),
+edit a file in a text editor, eject, and turn it ON to apply. Each file contains a detailed guide on
+how to use it. Delete a file to reset it to defaults; Wakes writes a fresh copy with the defaults at
+the next ON. No fork or build needed.
 
-The files in [`config/`](config/) are the defaults built into the firmware, not your device's
-settings. Edit them only to build Wakes with different defaults ([`config/README.md`](config/README.md)).
+The files in this repository's [`config/`](config/) are the defaults built into the firmware, not
+your device's settings. Edit them only to build Wakes with different defaults ([`config/README.md`](config/README.md)).
 
 ## Building
 
