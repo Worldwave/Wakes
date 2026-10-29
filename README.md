@@ -15,8 +15,9 @@ The development of Wakes is unaffiliated with Teenage Engineering or Mutable Ins
 
 **CRITICAL:** Flash custom firmware on the SP-1 at your own risk. SP-1s are abandonware, they do not have manufacturer support. There is no way to go back to the base firmware once you've flashed it away.
 
-If you'd like to support the Worldwave project, or just thank me in a helpful way for something that I
-did, I would be grateful to receive your support through [Ko-Fi](https://ko-fi.com/Worldwave)! 🙏🏻💜
+Wakes is a work of love by **Worldwave | Adara Barami**. If you'd like to support the Worldwave project, 
+or just thank me in a helpful way for something that I did, you could donate to my **[Ko-Fi](https://ko-fi.com/Worldwave)**!
+Thanks for your consideration 🙏🏻💜
 
 ## 📖 Manual
 
