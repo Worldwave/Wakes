@@ -29,14 +29,15 @@ Thanks for your consideration 🙏🏻💜
 
 ## Flashing
 
-1. Wakes features new storage protocols for the SP-1. If you've never used Wakes before, you need to format your storage partition. 
-   To do that, **Download the latest Fresh bin [`wakes-sp1-fresh.bin`](https://github.com/Worldwave/Wakes/releases/latest/download/wakes-sp1-fresh.bin)**.
-2. If you've used Wakes before, and want to avoid touching your storage, **Download the latest regular bin [`wakes-sp1.bin`](https://github.com/Worldwave/Wakes/releases/latest/download/wakes-sp1.bin)**.
-3. Older Wakes versions and release notes are available through the repo's [releases page](https://github.com/Worldwave/Wakes/releases).
-4. Open <https://solderless.engineering>. Hold down **T1+T4**. Keep them held while connecting the SP-1 over USB-C.
-5. Follow solderless.engineering's instructions on how to connect to your SP-1 to flash it.
-6. Select the `.bin` in Solderless Engineering's "firmware utility" page, flash it, and once done, you can unplug.
-7. The first time you turn Wakes ON after flashing a `fresh` bin, it will perform a short format of the eMMC card. Give it a moment.
+1. Wakes features new storage protocols for the SP-1. If you've never used Wakes before, or are updating from previous versions below v0.9.0, you need to
+   format your storage partition. use the `fresh` bin. **Download the latest Fresh bin [`wakes-sp1-fresh.bin`](https://github.com/Worldwave/Wakes/releases/latest/download/wakes-sp1-fresh.bin) here**.
+3. v0.9.0 introduces breaking changes, so it is not recommended to update using the normal wakes-sp1.bin, however you can still **Download the latest
+   regular bin [`wakes-sp1.bin`](https://github.com/Worldwave/Wakes/releases/latest/download/wakes-sp1.bin) here**.
+4. Older Wakes versions and release notes are available through the repo's [releases page](https://github.com/Worldwave/Wakes/releases).
+5. Open <https://solderless.engineering>. Hold down **T1+T4**. Keep them held while connecting the SP-1 over USB-C.
+6. Follow solderless.engineering's instructions on how to connect to your SP-1 to flash it.
+7. Select the `.bin` in Solderless Engineering's "firmware utility" page, flash it, and once done, you can unplug.
+8. The first time you turn Wakes ON after flashing a `fresh` bin, it will perform a short format of the eMMC card. Give it a moment.
 
 The T1+T4 recovery trigger in step 4 lives in Teenage Engineering's bootloader, not in Wakes, so it
 works with whatever firmware is installed. Wakes never writes below the flash memory's `0x20000` (and neither should your CFW's),
