@@ -21,6 +21,7 @@ cannot read keeps its default and is named in the log (`WAKES/LOGS/`).
 | `engines.cnfg` | which Plaits engine sits in each of the 24 slots, and what every engine does |
 | `midi.cnfg` | MIDI over USB: channel, note priority, legato, portamento, which CC moves which parameter |
 | `audio.cnfg` | USB audio out: its level (parked or on VOL) and the speaker while a host records |
+| `scales.cnfg` | the 7 scales Marbles' X and Plaits' FREQUENCY quantize to, in the Scala (.scl) format |
 | `logs.cnfg` | the log Wakes writes to its drive, and what goes in it |
 
 ## When to edit these

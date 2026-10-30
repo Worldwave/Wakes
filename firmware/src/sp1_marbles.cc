@@ -4,8 +4,9 @@
 // Marbles, Emilie Gillet, MIT), vendored in third_party/eurorack/marbles. What this
 // file does is what marbles/marbles.cc's Process() does for the module, minus every
 // input: no CV reader, no clock inputs, no self-patching detector, no scale recorder.
-// The y-divider ratios below are copied from marbles.cc; the preset scales from
-// marbles/settings.cc (sp1_marbles_scales.inc). Attributed in NOTICE.
+// The y-divider ratios below are copied from marbles.cc. The scales are the bank's
+// (sp1_scales.h, #44): config/scales.cnfg ships Marbles' presets from marbles/settings.cc,
+// written as Scala. Attributed in NOTICE.
 //
 // Deliberately includes NO Zephyr headers: the DSP layer stays framework-agnostic.
 
@@ -14,6 +15,7 @@
  * same reason -- the destination list is UI vocabulary that the DSP glue has to act on. */
 #include "sp1_marbles_ui.h"
 #include "sp1_synth.h"          // SP1_SYNTH_BLOCK: one Marbles sample per Plaits block (#32)
+#include "sp1_scales.h"         // the seven scale slots (#44)
 
 #include <atomic>
 #include <cmath>
@@ -23,42 +25,6 @@
 #include "marbles/random/t_generator.h"
 #include "marbles/random/x_y_generator.h"
 
-namespace marbles {
-#include "sp1_marbles_scales.inc"
-
-// ---- the seventh scale: Adara's slot (M4a) ----
-// sp1_marbles_scales.inc is verbatim from marbles/settings.cc and stays that way, so
-// the free slot lives here. Chromatic, every degree equally likely -- safe and useful
-// as it stands, and marked OFF in docs/MARBLES-SETTINGS.md until it is replaced. The
-// format: base_interval in volts (1.0 = an octave at 1 V/oct), how many degrees, then
-// each degree as { volts above the root, weight 0-255 }. Weight is how often the STEPS
-// quantizer picks that degree, NOT a level: 255 = always available, 0 = never. One
-// semitone = 1/12 V = 0.0833333f.
-const Scale sp1_free_scale = {
-  1.0f,
-  12,
-  {
-    { 0.0000f, 255 },  // C
-    { 0.0833f, 255 },  // C#
-    { 0.1667f, 255 },  // D
-    { 0.2500f, 255 },  // D#
-    { 0.3333f, 255 },  // E
-    { 0.4167f, 255 },  // F
-    { 0.5000f, 255 },  // F#
-    { 0.5833f, 255 },  // G
-    { 0.6667f, 255 },  // G#
-    { 0.7500f, 255 },  // A
-    { 0.8333f, 255 },  // A#
-    { 0.9167f, 255 },  // B
-  }
-};
-
-const Scale* const sp1_scales[SP1_MARBLES_SCALES] = {
-  &preset_scales[0], &preset_scales[1], &preset_scales[2],
-  &preset_scales[3], &preset_scales[4], &preset_scales[5],
-  &sp1_free_scale,
-};
-}
 
 namespace {
 
@@ -111,7 +77,11 @@ float frame_ramp[kN];
 // scale) only walks the three X channels, so M4 left Y's quantizer holding Marbles'
 // empty default scale -- invisible only because Y STEPS defaults below its centre,
 // where Y uses the lag processor and never quantizes.
+//
+// #44: the scales come from the bank (scales.cnfg), which the ON job can replace, so a slot
+// can hold another scale than it did: `loaded_gen` reloads on sp1_scales_gen() too.
 int loaded_scale = -1;                   // -1 = nothing loaded yet
+uint32_t loaded_gen;
 
 // Deferred re-seed (M4d): main records, the audio thread performs. See sp1_marbles.h.
 volatile uint32_t reseed_val;
@@ -121,24 +91,43 @@ uint32_t reseed_seen;                    // audio thread
 // ---- the scale Plaits' FREQUENCY quantizes to (MAIN thread only, M4b) ----
 // Its own Quantizer instance, so it shares no state with the four the audio thread uses.
 //
-// `scale_level` picks how selective the quantizer is, per scale. marbles::Quantizer takes
-// an `amount` that chooses a weight threshold from {0, 16, 32, 64, 128, 192, 255} (level 1
-// .. 7; level 0 is no quantization at all), and a scale's own weights decide which of its
-// degrees survive. Level 3 (weight >= 32) is what yields the note set each scale's NAME
-// means -- verified against the tables:
+// Each scale says which of its degrees Plaits plays: those of weight >= its `plaits` value
+// (scales.cnfg, #44). That is what yields the note set each scale's NAME means -- weight
+// >= 32 on Marbles' scales:
 //     major       7  C  D  E  F  G  A  B
 //     minor       7  C  D  Eb F  G  Ab Bb
 //     pentatonic  5  C  D  F  G  A
 //     bhairav     7  and shri 7, both their own seven-degree ragas
-// Pelog and the free slot are the exceptions: their degrees are already exactly the scale,
-// so they take level 1 (every degree) -- at level 3 pelog would lose two of its seven.
-// ⚠️ Level 1 on major/minor/bhairav/shri would admit all twelve degrees, i.e. quantize to
-// a chromatic scale and make four of the six scales sound identical. Do not "simplify"
-// this to one constant.
-const int scale_level[SP1_MARBLES_SCALES] = { 3, 3, 3, 1, 3, 3, 1 };
-const uint8_t scale_threshold[8] = { 0, 0, 16, 32, 64, 128, 192, 255 };  // by level
+// and 0 (every degree) on pelog, whose seven degrees ARE the scale.
+// ⚠️ Every degree of major/minor/bhairav/shri would be a chromatic scale and make four of
+// the six sound identical -- the reason the value is per scale.
+//
+// The quantizer is loaded with ONLY those degrees and run at its least selective level
+// (every degree it holds). Until #44 it held the whole scale and was run at the Marbles
+// level whose threshold matched (3 = weight >= 32, 1 = all): the same notes, but the levels
+// only offer 0/16/32/64/128/192/255, and a file can now ask for any weight.
 marbles::Quantizer plaits_quantizer;
 int plaits_scale = -1;
+uint32_t plaits_gen;
+marbles::Scale plaits_degrees;          // what plaits_quantizer holds
+
+// A bank scale as Marbles' Scale: the degrees of weight >= `min` (0 = all), weights kept.
+// The root is weight 255, so there is always one.
+static_assert(SP1_SCALE_DEGREES == marbles::kMaxDegrees,
+              "the bank and Marbles' quantizer hold the same number of degrees "
+              "(src/plaits_ovr/marbles/random/quantizer.h)");
+void ToMarbles(const sp1_scale& s, uint8_t min, marbles::Scale* out) {
+  out->base_interval = s.period;
+  int n = 0;
+  for (int i = 0; i < s.n && i < marbles::kMaxDegrees; ++i) {
+    if (s.weight[i] >= min) {
+      out->degree[n].voltage = s.volts[i];
+      out->degree[n].weight = s.weight[i];
+      ++n;
+    }
+  }
+  out->num_degrees = n;
+}
 
 // ---- main -> audio hand-off (same scheme as sp1_synth) ----
 sp1_marbles_params buf[2];
@@ -269,17 +258,24 @@ void InitGenerators() {
 // Audio thread. Put scale `s` in slot 0 of all four channels if it is not there
 // already. Quantizer::Init is a table recompute -- no allocation, ~a thousand cycles
 // for four channels -- and only runs when the selection changes.
+// #44: also when the bank changed (a new scales.cnfg at ON). An empty slot -- only between
+// an install and main moving the selection off it -- plays the first filled one.
 void LoadScaleIfNeeded(int s) {
-  if (s < 0 || s >= SP1_MARBLES_SCALES) {
-    s = 0;
-  }
-  if (s == loaded_scale) {
+  const uint32_t gen = sp1_scales_gen();
+  if (s == loaded_scale && gen == loaded_gen) {
     return;
   }
+  const sp1_scale* sc = sp1_scale_at(s);
+  if (sc == nullptr) {
+    sc = sp1_scale_at(sp1_scale_first());
+  }
+  static marbles::Scale m;               // 520 B at 64 degrees: off the audio stack
+  ToMarbles(*sc, 0u, &m);
   for (int ch = 0; ch < 4; ++ch) {
-    xy_generator.LoadScale(ch, 0, *marbles::sp1_scales[s]);
+    xy_generator.LoadScale(ch, 0, m);
   }
   loaded_scale = s;
+  loaded_gen = gen;
 }
 }  // namespace
 
@@ -707,50 +703,68 @@ extern "C" void sp1_marbles_reseed(uint32_t seed) {
   reseed_req = reseed_req + 1u;          // main thread is the only writer
 }
 
+// Load the slot's Plaits degrees; false (quantizer off) if the slot is empty.
+static bool PlaitsLoad(int s) {
+  const sp1_scale* sc = sp1_scale_at(s);
+  plaits_gen = sp1_scales_gen();
+  if (sc == nullptr) {
+    plaits_scale = -1;
+    return false;
+  }
+  ToMarbles(*sc, sc->plaits, &plaits_degrees);
+  plaits_quantizer.Init(plaits_degrees);
+  plaits_scale = s;
+  return true;
+}
+
+// The bank changed since the quantizer was loaded (#44): the same slot, its new contents.
+static bool PlaitsCurrent() {
+  if (plaits_scale < 0) {
+    return false;
+  }
+  return plaits_gen == sp1_scales_gen() || PlaitsLoad(plaits_scale);
+}
+
 extern "C" void sp1_marbles_plaits_scale(int s) {
   if (s < 0 || s >= SP1_MARBLES_SCALES) {
     plaits_scale = -1;
     return;
   }
-  if (s == plaits_scale) {
+  if (s == plaits_scale && plaits_gen == sp1_scales_gen()) {
     return;
   }
-  plaits_quantizer.Init(*marbles::sp1_scales[s]);
-  plaits_scale = s;
+  (void)PlaitsLoad(s);
 }
 
 extern "C" float sp1_marbles_plaits_quantize(float semitones) {
-  if (plaits_scale < 0) {
+  if (!PlaitsCurrent()) {
     return semitones;
   }
   // Marbles' quantizer works in VOLTS at 1 V/octave, Plaits' note is in semitones.
   // `hysteresis` true, unlike the X/Y channels: this is a fader under a finger, and
-  // without it a note parked on a boundary flickers between two degrees.
-  const float amount =
-      static_cast<float>(scale_level[plaits_scale]) / 7.0f;   // -> that level exactly
-  return plaits_quantizer.Process(semitones * (1.0f / 12.0f), amount, true) * 12.0f;
+  // without it a note parked on a boundary flickers between two degrees. Amount 1/7 =
+  // level 1, every degree the quantizer holds (see plaits_quantizer).
+  return plaits_quantizer.Process(semitones * (1.0f / 12.0f), 1.0f / 7.0f, true) * 12.0f;
 }
 
 extern "C" int sp1_marbles_plaits_degrees(float* semitones, int max) {
-  if (plaits_scale < 0 || max <= 0) {
+  if (max <= 0 || !PlaitsCurrent()) {
     return 0;
   }
-  const marbles::Scale& sc = *marbles::sp1_scales[plaits_scale];
-  const uint8_t t = scale_threshold[scale_level[plaits_scale]];
   int n = 0;
-  for (int i = 0; i < sc.num_degrees && n < max; ++i) {
-    if (sc.degree[i].weight >= t) {
-      semitones[n++] = sc.degree[i].voltage * 12.0f;
-    }
+  for (int i = 0; i < plaits_degrees.num_degrees && n < max; ++i) {
+    semitones[n++] = plaits_degrees.degree[i].voltage * 12.0f;
   }
   return n;
 }
 
+extern "C" float sp1_marbles_plaits_period(void) {
+  return PlaitsCurrent() ? plaits_degrees.base_interval * 12.0f : 12.0f;
+}
+
 extern "C" const char* sp1_marbles_scale_name(int s) {
-  static const char* const names[SP1_MARBLES_SCALES] = {
-    "major", "minor", "pentatonic", "pelog", "bhairav", "shri", "free slot",
-  };
-  return (s >= 0 && s < SP1_MARBLES_SCALES) ? names[s] : "?";
+  const char* n = sp1_scale_name(s);
+  return n[0] != '\0' ? n : (sp1_scale_filled(s) ? "(no name)" : "(empty slot)");
 }
 
 // The generators take the sample rate as a parameter; only the external-clock code

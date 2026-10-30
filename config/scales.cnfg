@@ -1,0 +1,472 @@
+; Format: scl blocks (Scala .scl scales, one per [slot])
+; =====================================================================================
+;  Wakes — SCALES
+; =====================================================================================
+;
+;  The scales MARBLES' X STPS quantizer (•• + FFWD / RWD on the X page) and PLAITS' FREQ
+;  quantizer (SETTINGS T2 / T3) choose from. Both modules use this one list.
+;
+;  Wakes reads and applies this .cnfg file every time it turns ON.
+;
+;  Lines starting with ; or # are comments. Delete this file to get the default back:
+;  Wakes writes it again at the next ON.
+;
+; ---- slots ----
+;  There are 7 scale slots, [1] to [7]. A slot that is not in this file is empty, and the
+;  scale buttons skip it. A slot above [7] is dropped (the log says the file is overloaded).
+;  Every slot has its own glyph, so slot 2 always flashes ●●○○ whatever scale is in it.
+;  Presets (PRST) remember the scale SLOT: change what is in a slot and any preset that
+;  previously used that slot will play the new scale you've changed it to.
+;
+; ---- scales ----
+;  Under a numbered [slot], a scale is written in the Scala format (.scl), the format of
+;  the Scala scale archive and of Scale Workshop (https://sevish.com/scaleworkshop/). Build
+;  a scale there, export it as a Scala file (.scl), open that in a text editor and paste it
+;  under a numbered [slot] section here, in place of any existing scales.
+;  To go back to the default scales.cnfg, just move the existing one off the storage or
+;  delete it, and Wakes will create a new copy from defaults.
+;
+;  .scl format:
+;    lines starting with '!' are Scala-format comments
+;    the first other line is the scale's NAME (it can be empty)
+;    the next line is how many PITCHES comprise the scale
+;    then, one pitch designation appears per line, with the last one defining period/octave.
+;
+;  In .scl format, the root (1/1, 0 cents) is not written: every scale starts on the root
+;  frequency, which is defined dynamically, based on the following factors:
+;    MARBLES' X: at 0 V. Routed to V/Oct, X is added to FREQUENCY, so the root is
+;      wherever FREQUENCY is set.
+;    PLAITS' quantizer: on C, or on the note you tune by ear (see tune_by_ear below).
+;  Pitches can be defined in CENTS or as RATIOS of the root. A pitch definition containing
+;  a "." is in CENTS (100.0 is a semitone); without one it is a RATIO (3/2, or 2 for 2/1).
+;  Write them in any order; each one must be above the root and below the period. Wakes
+;  takes 64 pitches at most, with the period included: enough for 31-EDO or 53-EDO.
+;
+; ---- Wakes' extras (other Scala programs ignore these) ----
+;
+;  You can define scales pretty simply using ratios and cents, but Wakes offers Mutable
+;  Instruments-derived features that let you play around with those scales.
+;
+;  Note weight: a whole number 0-255 after a pitch defines its weight.
+;    Weights are how Marbles' STPS fader thins the scale out as it moves from its centre
+;    to 100%. Just up from centre, every degree of the scale is in: a scale written on all
+;    12 semitones, like Marbles' major below, is chromatic there. Turning STPS further up
+;    drops the low-weight notes first, leaving the notes that define the scale, then fewer,
+;    until only the root (always 255) remains. Below the centre STPS does not quantize at
+;    all: X glides smoothly between values. A pitch without a weight gets 255 (it is always
+;    there). Any other text left in after a note's pitch definition is ignored.
+;    Important: Without note weights, Marbles cannot play around with which notes are
+;    available on the scale. As you define scales, remember which intervals sound good, and
+;    weight them to your taste.
+;    The period line (2/1 for the octave) never takes a weight: in Scala it marks where the
+;    scale ends and repeats, so it is the root again, one period up. A weight written there
+;    is ignored, for the same reason the root is never written and never weighted. The root
+;    is always 255 and never drops out: Marbles' quantizer always needs one note left to
+;    land on, even at the top of STPS.
+;
+;  plaits = N (written above the scale's name, under its [slot]): PLAITS' quantizer plays
+;    the degrees with a weight of N or more. 0 (or leaving it out) = every degree.
+;    Marbles' scales below use 32 (pelog: 0). In the major scale, this makes Plaits'
+;    quantizer select the 7 notes of the major scale, not all 12 of its scale degrees,
+;    which would just be the chromatic scale.
+;    It helps to understand that, for example, if you wanted to use diatonic scales (musical
+;    modes), you would start with the chromatic definition Scala block (100.0, 200.0, etc.),
+;    and then set plaits = 32 and use the note weights to bring out the 7 actual intervals
+;    of the diatonic scale you are trying to create. The seven modes at the end of this
+;    file are written exactly that way.
+;
+;  tune_by_ear = on / off (written above the scale's name, under its [slot]): Tune By Ear,
+;    for PLAITS' quantizer. On (or leaving it out): tune FREQUENCY by ear with the quantizer
+;    off (TRIG to listen), then turn the quantizer on (SETTINGS T3): the note FREQUENCY was
+;    playing becomes the scale's root, between semitones too. Stepping to another scale
+;    keeps that root; turning the quantizer off and on again takes a new one. Off: the
+;    scale stays on C, for scales whose notes belong to fixed pitches. Presets save the
+;    root with the scale.
+;
+; ---- if something is wrong ----
+;  The log (WAKES/LOGS/) names every line Wakes cannot read. If ANY scale in this file has a
+;  problem, Wakes ignores the file and uses the default scales instead.
+;  Turn on "scales" in logs.cnfg to see which scales were loaded at every ON.
+;
+;  Wakes' default scales.cnfg ships with slots [1]-[6] containing the original scales curated
+;  for Mutable Instruments' Marbles (marbles/settings.cc, Emilie Gillet, MIT),
+;  rewritten as Scala, and slot [7] with a whole-tone scale. Note names in the comments
+;  assume the root is C.
+
+[1]
+plaits = 32
+tune_by_ear = on
+! Marbles' major scale. Note names assume a root of C.
+major
+12
+!
+ 100.0   16    ; C#  (root C)
+ 200.0   96    ; D   (root C)
+ 300.0   24    ; D#  (root C)
+ 400.0  128    ; E   (root C)
+ 500.0   64    ; F   (root C)
+ 600.0    8    ; F#  (root C)
+ 700.0  192    ; G   (root C)
+ 800.0   16    ; G#  (root C)
+ 900.0   96    ; A   (root C)
+1000.0   24    ; A#  (root C)
+1100.0  128    ; B   (root C)
+2/1
+
+[2]
+plaits = 32
+tune_by_ear = on
+! Marbles' minor scale. Note names assume a root of C.
+minor
+12
+!
+ 100.0   16    ; C#  (root C)
+ 200.0   96    ; D   (root C)
+ 300.0  128    ; Eb  (root C)
+ 400.0    8    ; E   (root C)
+ 500.0   64    ; F   (root C)
+ 600.0    4    ; F#  (root C)
+ 700.0  192    ; G   (root C)
+ 800.0   96    ; G#  (root C)
+ 900.0   16    ; A   (root C)
+1000.0  128    ; Bb  (root C)
+1100.0   16    ; B   (root C)
+2/1
+
+[3]
+plaits = 32
+tune_by_ear = on
+! Marbles' pentatonic scale. Note names assume a root of C.
+pentatonic
+12
+!
+ 100.0    4    ; C#  (root C)
+ 200.0   96    ; D   (root C)
+ 300.0    4    ; Eb  (root C)
+ 400.0    4    ; E   (root C)
+ 500.0  140    ; F   (root C)
+ 600.0    4    ; F#  (root C)
+ 700.0  192    ; G   (root C)
+ 800.0    4    ; G#  (root C)
+ 900.0   96    ; A   (root C)
+1000.0    4    ; Bb  (root C)
+1100.0    4    ; B   (root C)
+2/1
+
+[4]
+plaits = 0
+tune_by_ear = off
+! Pelog: seven degrees, all of them the scale. Note names assume a root of C
+! (+ / - = a little sharp / flat of that note).
+pelog
+7
+!
+ 153.0  128    ; Db+ (root C)
+ 315.0   32    ; Eb- (root C)
+ 552.0    8    ; F#- (root C)
+ 705.96 192    ; G   (root C)
+ 848.04  64    ; Ab  (root C)
+1058.04  16    ; Bb+ (root C)
+2/1
+
+[5]
+plaits = 32
+tune_by_ear = off
+! Raag Bhairav That, just intonation. Swara names, relative to Sa (the root).
+bhairav
+12
+!
+256/243 128    ; Komal Re
+9/8       4    ; Re
+6/5       4    ; Komal Ga
+5/4     128    ; Ga
+4/3      64    ; Ma
+45/32     4    ; Tivre Ma
+3/2     192    ; Pa
+128/81   64    ; Komal Dha
+27/16     4    ; Dha
+9/5       4    ; Komal Ni
+15/8     64    ; Ni
+2/1
+
+[6]
+plaits = 32
+tune_by_ear = off
+! Raag Shri, just intonation. Swara names, relative to Sa (the root).
+shri
+12
+!
+256/243   4    ; Komal Re
+9/8     128    ; Re
+6/5      64    ; Komal Ga
+5/4       4    ; Ga
+4/3     128    ; Ma
+45/32     4    ; Tivre Ma
+3/2     192    ; Pa
+128/81    4    ; Komal Dha
+27/16    64    ; Dha
+9/5     128    ; Komal Ni
+15/8      4    ; Ni
+2/1
+
+
+[7]
+tune_by_ear = on
+! Whole tone. Six equal steps, Marbles note-elimination disabled.
+whole-tone
+6
+200.0
+400.0
+600.0
+800.0
+1000.0
+2/1
+
+; =====================================================================================
+;  THE SCALE LIBRARY: Wakes stops reading this file at the [scales_wiki] line below
+; =====================================================================================
+;
+;  Everything under [scales_wiki] is a library of example scales. Wakes never reads it,
+;  so nothing there needs a ";" in front, and you can keep, edit or delete it as you like.
+;  Keep your own scales ABOVE the [scales_wiki] line: a slot below it is ignored (the log
+;  says so).
+;
+;  To use one: copy the lines BETWEEN its two markers -- from the line below "vvvv copy
+;  from the line below vvvv" down to the line above "^^^^ copy down to the line above
+;  ^^^^" -- and paste them above [scales_wiki], under a slot line of your choice ([7] for
+;  example, replacing the scale that was there). The title and description lines above
+;  each block are for reading, not copying.
+;
+;  The seven modes are each cut out of the chromatic scale with weights, the way Marbles'
+;  major scale is (Ionian below IS Marbles' major, note for note):
+;    the mode's notes     root 255, 5th 192, 3rd 128, 7th 128, 2nd 96, 6th 96, 4th 64
+;    the other 5 notes    the 3rd or 7th the mode does NOT use 24, the tritone 8, others 16
+;  So STPS keeps the root, fifth, third and seventh longest, and plaits = 32 gives Plaits
+;  each mode's 7 notes.
+
+[scales_wiki]
+
+; ---- Ionian (major): 1 2 3 4 5 6 7
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+ionian
+12
+ 100.0   16    ; C#  (root C) -- out
+ 200.0   96    ; D   (root C) -- 2nd
+ 300.0   24    ; D#  (root C) -- out, the other 3rd
+ 400.0  128    ; E   (root C) -- 3rd
+ 500.0   64    ; F   (root C) -- 4th
+ 600.0    8    ; F#  (root C) -- out, tritone
+ 700.0  192    ; G   (root C) -- 5th
+ 800.0   16    ; G#  (root C) -- out
+ 900.0   96    ; A   (root C) -- 6th
+1000.0   24    ; A#  (root C) -- out, the other 7th
+1100.0  128    ; B   (root C) -- 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+; ---- Dorian: 1 2 b3 4 5 6 b7
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+dorian
+12
+ 100.0   16    ; C#  (root C) -- out
+ 200.0   96    ; D   (root C) -- 2nd
+ 300.0  128    ; Eb  (root C) -- 3rd
+ 400.0   24    ; E   (root C) -- out, the other 3rd
+ 500.0   64    ; F   (root C) -- 4th
+ 600.0    8    ; F#  (root C) -- out, tritone
+ 700.0  192    ; G   (root C) -- 5th
+ 800.0   16    ; G#  (root C) -- out
+ 900.0   96    ; A   (root C) -- 6th
+1000.0  128    ; Bb  (root C) -- 7th
+1100.0   24    ; B   (root C) -- out, the other 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+; ---- Phrygian: 1 b2 b3 4 5 b6 b7
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+phrygian
+12
+ 100.0   96    ; Db  (root C) -- 2nd
+ 200.0   16    ; D   (root C) -- out
+ 300.0  128    ; Eb  (root C) -- 3rd
+ 400.0   24    ; E   (root C) -- out, the other 3rd
+ 500.0   64    ; F   (root C) -- 4th
+ 600.0    8    ; F#  (root C) -- out, tritone
+ 700.0  192    ; G   (root C) -- 5th
+ 800.0   96    ; Ab  (root C) -- 6th
+ 900.0   16    ; A   (root C) -- out
+1000.0  128    ; Bb  (root C) -- 7th
+1100.0   24    ; B   (root C) -- out, the other 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+; ---- Lydian: 1 2 3 #4 5 6 7
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+lydian
+12
+ 100.0   16    ; C#  (root C) -- out
+ 200.0   96    ; D   (root C) -- 2nd
+ 300.0   24    ; D#  (root C) -- out, the other 3rd
+ 400.0  128    ; E   (root C) -- 3rd
+ 500.0   16    ; F   (root C) -- out
+ 600.0   64    ; F#  (root C) -- 4th (#4)
+ 700.0  192    ; G   (root C) -- 5th
+ 800.0   16    ; G#  (root C) -- out
+ 900.0   96    ; A   (root C) -- 6th
+1000.0   24    ; A#  (root C) -- out, the other 7th
+1100.0  128    ; B   (root C) -- 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+; ---- Mixolydian: 1 2 3 4 5 6 b7
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+mixolydian
+12
+ 100.0   16    ; C#  (root C) -- out
+ 200.0   96    ; D   (root C) -- 2nd
+ 300.0   24    ; D#  (root C) -- out, the other 3rd
+ 400.0  128    ; E   (root C) -- 3rd
+ 500.0   64    ; F   (root C) -- 4th
+ 600.0    8    ; F#  (root C) -- out, tritone
+ 700.0  192    ; G   (root C) -- 5th
+ 800.0   16    ; G#  (root C) -- out
+ 900.0   96    ; A   (root C) -- 6th
+1000.0  128    ; Bb  (root C) -- 7th
+1100.0   24    ; B   (root C) -- out, the other 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+; ---- Aeolian (natural minor): 1 2 b3 4 5 b6 b7
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+aeolian
+12
+ 100.0   16    ; C#  (root C) -- out
+ 200.0   96    ; D   (root C) -- 2nd
+ 300.0  128    ; Eb  (root C) -- 3rd
+ 400.0   24    ; E   (root C) -- out, the other 3rd
+ 500.0   64    ; F   (root C) -- 4th
+ 600.0    8    ; F#  (root C) -- out, tritone
+ 700.0  192    ; G   (root C) -- 5th
+ 800.0   96    ; Ab  (root C) -- 6th
+ 900.0   16    ; A   (root C) -- out
+1000.0  128    ; Bb  (root C) -- 7th
+1100.0   24    ; B   (root C) -- out, the other 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+; ---- Locrian: 1 b2 b3 4 b5 b6 b7
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+locrian
+12
+ 100.0   96    ; Db  (root C) -- 2nd
+ 200.0   16    ; D   (root C) -- out
+ 300.0  128    ; Eb  (root C) -- 3rd
+ 400.0   24    ; E   (root C) -- out, the other 3rd
+ 500.0   64    ; F   (root C) -- 4th
+ 600.0  192    ; Gb  (root C) -- 5th (b5)
+ 700.0   16    ; G   (root C) -- out
+ 800.0   96    ; Ab  (root C) -- 6th
+ 900.0   16    ; A   (root C) -- out
+1000.0  128    ; Bb  (root C) -- 7th
+1100.0   24    ; B   (root C) -- out, the other 7th
+2/1
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+; ---- 31edo: Chromatic
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 0
+tune_by_ear = on
+! 31edo: Chromatic
+31edo
+31
+!
+   38.71    ; Superunison
+   77.42    ; Augmented Unison
+  116.13    ; Minor 2nd
+  154.84    ; Neutral 2nd
+  193.55    ; Major 2nd
+  232.26    ; Supermajor 2nd
+  270.97    ; Subminor 3rd
+  309.68    ; Minor 3rd
+  348.39    ; Neutral 3rd
+  387.10    ; Major 3rd
+  425.81    ; Supermajor 3rd
+  464.52    ; Sub 4th
+  503.23    ; Perfect 4th
+  541.94    ; Super 4th
+  580.65    ; Augmented 4th
+  619.35    ; Diminished 5th
+  658.06    ; Sub 5th
+  696.77    ; Perfect 5th
+  735.48    ; Super 5th
+  774.19    ; Subminor 6th
+  812.90    ; Minor 6th
+  851.61    ; Neutral 6th
+  890.32    ; Major 6th
+  929.03    ; Supermajor 6th
+  967.74    ; Subminor 7th
+ 1006.45    ; Minor 7th
+ 1045.16    ; Neutral 7th
+ 1083.87    ; Major 7th
+ 1122.58    ; Supermajor 7th
+ 1161.29    ; Sub-Octave
+ 2/1        ; Octave
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+; ---- 31edo: Mothra[6]
+;  Six notes of 31edo, each 6 steps (232.26 cents, close to 8/7) above the last:
+;  root, supermajor 2nd, sub 4th, perfect 5th, supermajor 6th, sub-octave
+;  (steps 6 6 6 6 6 1). STPS keeps the 5th longest, then the 2nd, then the rest.
+; vvvvvvvvvvvvvvvvvvvvvvvvvvvv  copy from the line below  vvvvvvvvvvvvvvvvvvvvvvvvvvvv
+plaits = 32
+tune_by_ear = on
+! 31edo Mothra[6]: generator 6 steps of 31 (232.26 cents), steps 6 6 6 6 6 1
+31edo-mothra6
+31
+!
+   38.71   16    ; Superunison      -- out
+   77.42   16    ; Augmented Unison -- out
+  116.13   16    ; Minor 2nd        -- out
+  154.84   16    ; Neutral 2nd      -- out
+  193.55   16    ; Major 2nd        -- out
+  232.26  128    ; Supermajor 2nd   -- Mothra: 1 generator
+  270.97   16    ; Subminor 3rd     -- out
+  309.68   24    ; Minor 3rd        -- out, the other 3rd/7th
+  348.39   16    ; Neutral 3rd      -- out
+  387.10   24    ; Major 3rd        -- out, the other 3rd/7th
+  425.81   16    ; Supermajor 3rd   -- out
+  464.52   64    ; Sub 4th          -- Mothra: 2 generators
+  503.23   16    ; Perfect 4th      -- out
+  541.94   16    ; Super 4th        -- out
+  580.65    8    ; Augmented 4th    -- out, tritone
+  619.35    8    ; Diminished 5th   -- out, tritone
+  658.06   16    ; Sub 5th          -- out
+  696.77  192    ; Perfect 5th      -- Mothra: 3 generators
+  735.48   16    ; Super 5th        -- out
+  774.19   16    ; Subminor 6th     -- out
+  812.90   16    ; Minor 6th        -- out
+  851.61   16    ; Neutral 6th      -- out
+  890.32   16    ; Major 6th        -- out
+  929.03   96    ; Supermajor 6th   -- Mothra: 4 generators
+  967.74   16    ; Subminor 7th     -- out
+ 1006.45   24    ; Minor 7th        -- out, the other 3rd/7th
+ 1045.16   16    ; Neutral 7th      -- out
+ 1083.87   24    ; Major 7th        -- out, the other 3rd/7th
+ 1122.58   16    ; Supermajor 7th   -- out
+ 1161.29   48    ; Sub-Octave       -- Mothra: 5 generators
+ 2/1             ; Octave
+; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  copy down to the line above  ^^^^^^^^^^^^^^^^^^^^^^^^^^

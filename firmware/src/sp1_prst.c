@@ -19,6 +19,7 @@ struct sp1_prst_field {
 	const struct sp1_prst_choice *ch;     /* the tokens, for SP1_PRST_K_CHOICE  */
 	uint8_t n_ch;
 	uint16_t off;                         /* into struct sp1_prst               */
+	uint8_t since;                        /* the format that added it (#30)     */
 };
 #include "sp1_prst_gen.h"
 
@@ -123,6 +124,12 @@ int sp1_prst_write(const struct sp1_prst *p, char *buf, size_t size)
 			const int k = (int)(v * 10000.0f + 0.5f);
 			n = snprintf(buf + at, size - at, "%s = %d.%04d\n", f->key, k / 10000,
 				     k % 10000);
+		} else if (f->kind == SP1_PRST_K_NOTE) {
+			float v = *pos_at(q, f);
+			v = isfinite(v) ? (v < 0.0f ? 0.0f : (v > 127.0f ? 127.0f : v)) : 0.0f;
+			const long k = (long)(v * 10000.0f + 0.5f);
+			n = snprintf(buf + at, size - at, "%s = %ld.%04ld\n", f->key, k / 10000L,
+				     k % 10000L);
 		} else if (f->kind == SP1_PRST_K_ENGINE) {
 			n = snprintf(buf + at, size - at, "%s = %s\n", f->key,
 				     sp1_pui_slot_name(*int_at(q, f)));
@@ -153,7 +160,7 @@ int sp1_prst_write(const struct sp1_prst *p, char *buf, size_t size)
 /* A fader value: a plain decimal number in 0..1 -- digits, at most one point, nothing else.
  * No sign, no exponent, no "nan" or "inf": anything strtof would accept beyond that is a
  * value no Wakes ever wrote, so it is treated as corrupt rather than guessed at. */
-static bool parse_pos(struct span s, float *out)
+static bool parse_num(struct span s, float max, float *out)
 {
 	int i = 0, idig = 0, fdig = 0;
 	uint32_t ip = 0u, fnum = 0u, fden = 1u;
@@ -179,11 +186,16 @@ static bool parse_pos(struct span s, float *out)
 		return false;
 	}
 	const float v = (float)ip + (float)fnum / (float)fden;
-	if (!(v >= 0.0f && v <= 1.0f)) {
+	if (!(v >= 0.0f && v <= max)) {
 		return false;
 	}
 	*out = v;
 	return true;
+}
+
+static bool parse_pos(struct span s, float *out)
+{
+	return parse_num(s, 1.0f, out);
 }
 
 static bool check_ok(uint8_t check, int v)
@@ -282,9 +294,12 @@ void sp1_prst_parse(const char *text, size_t len, struct sp1_prst *out,
 		}
 	}
 
-	/* ---- a format this firmware does not know: the whole slot is the defaults ---- */
+	/* ---- a format this firmware does not know: the whole slot is the defaults ----
+	 * An OLDER format is known when the only change since was fields added
+	 * (tools/gen_prst.py, readable_formats): format 1 is read, its slots get the newer
+	 * fields' defaults (#30: the Tune By Ear root on C). */
 	rep->format = have_fmt ? parse_format(fmt) : -1;
-	if (rep->format != SP1_PRST_FORMAT) {
+	if (!(SP1_PRST_READABLE(rep->format))) {
 		sp1_prst_rip(out, -1);
 		rep->defaulted = SP1_PRST_NFIELDS;
 		return;
@@ -317,11 +332,20 @@ void sp1_prst_parse(const char *text, size_t len, struct sp1_prst *out,
 			continue;
 		}
 		if (!have[i]) {
-			rep->defaulted++;
+			/* A field newer than the file's format is not missing: it did not exist. */
+			if (f->since <= rep->format) {
+				rep->defaulted++;
+			}
 			continue;
 		}
 		bool ok;
-		if (f->kind == SP1_PRST_K_POS) {
+		if (f->kind == SP1_PRST_K_NOTE) {
+			float v;
+			ok = parse_num(val[i], 127.0f, &v);
+			if (ok) {
+				*pos_at(out, f) = v;
+			}
+		} else if (f->kind == SP1_PRST_K_POS) {
 			float v;
 			ok = parse_pos(val[i], &v);
 			if (ok) {

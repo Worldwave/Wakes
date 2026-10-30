@@ -88,6 +88,21 @@ add_custom_command(
 add_custom_target(sp1_logs_gen DEPENDS ${SP1_LOGS_H})
 add_dependencies(app sp1_logs_gen)
 
+# ---- the scales: config/scales.cnfg -> sp1_scales_gen.h (#44) ----
+# The built-in scale bank (Scala blocks, one per slot) the drive's WAKES/CNFG/scales.cnfg
+# replaces, and the file's text for the drive. A bad default fails the build, naming the line.
+set(SP1_SCALES_CNFG ${CMAKE_CURRENT_SOURCE_DIR}/../config/scales.cnfg)
+set(SP1_SCALES_GEN  ${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_scales.py)
+set(SP1_SCALES_H    ${CMAKE_CURRENT_BINARY_DIR}/sp1_generated/sp1_scales_gen.h)
+add_custom_command(
+	OUTPUT  ${SP1_SCALES_H}
+	COMMAND ${Python3_EXECUTABLE} ${SP1_SCALES_GEN} ${SP1_SCALES_CNFG} ${SP1_SCALES_H}
+	DEPENDS ${SP1_SCALES_CNFG} ${SP1_SCALES_GEN}
+	COMMENT "Generating the scale bank from config/scales.cnfg"
+)
+add_custom_target(sp1_scales_gen DEPENDS ${SP1_SCALES_H})
+add_dependencies(app sp1_scales_gen)
+
 # ---- PRST (M6, #50): the slot file's field table, from tools/gen_prst.py ----
 # No user input: the field list lives in the script. It also holds the format versions, and
 # FAILS the build if the field list changed without a new version (Adara, #50).
@@ -346,6 +361,21 @@ if(CONFIG_SP1_PLAITS)
 	sp1_plaits_override(marbles/random/t_generator.h
 		"  inline void set_model(TGeneratorModel model) {"
 		"  // wakes-sp1 (M4): PLAY starts the clock on a beat.\n  inline void set_master_phase(float phase) {\n    master_phase_ = phase;\n  }\n\n  inline void set_model(TGeneratorModel model) {")
+	# #44: scales.cnfg scales of up to 64 degrees (31-EDO, 53-EDO): the quantizer's degree
+	# arrays and active-degree masks, upstream 16 / uint16_t. Whole-file replacements, as
+	# three passages in the .cc and two in the .h are past one override per file.
+	sp1_plaits_replace(marbles/random/quantizer.h)
+	sp1_plaits_replace(marbles/random/quantizer.cc)
+	# #44: ONE quantizer per output channel, upstream six (one per stored scale). Wakes loads
+	# the selected scale into slot 0 and never selects another (sp1_marbles.cc,
+	# LoadScaleIfNeeded), so the other five were dead weight: 20 quantizers of ~0.4 KB each
+	# at 64 degrees.
+	sp1_plaits_override(marbles/random/output_channel.h
+		"  Quantizer quantizer_[6];"
+		"  Quantizer quantizer_[1];  // wakes-sp1 (#44): upstream 6, Wakes uses slot 0 only")
+	sp1_plaits_override(marbles/random/output_channel.cc
+		"  for (int i = 0; i < 6; ++i) {"
+		"  for (int i = 0; i < 1; ++i) {  // wakes-sp1 (#44): one quantizer (output_channel.h)")
 
 	# ⚠️ Remove any generated file that is no longer an override (issue #22). SP1_OVR is
 	# FIRST on the include path, so a stale copy left by an earlier configure -- voice.h
@@ -437,7 +467,7 @@ if(CONFIG_SP1_PLAITS)
 	)
 	# A Zephyr library declared from the APPLICATION is not linked on its own.
 	target_link_libraries(app PRIVATE sp1_plaits)
-	target_sources(app PRIVATE src/sp1_marbles_ui.c src/sp1_prst.c)
+	target_sources(app PRIVATE src/sp1_marbles_ui.c src/sp1_prst.c src/sp1_scales.c)
 	target_include_directories(app PRIVATE src)
 
 	# ---- M5a: USB-MIDI in (the MIDI script is generated above, with the engines) ----

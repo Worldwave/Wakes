@@ -17,7 +17,7 @@
  * Sections and keys from ONE table, tools/gen_prst.py (generated into sp1_prst_gen.h):
  *
  *     [wakes]
- *     format = 1
+ *     format = 2
  *     [plaits]
  *     engine = virtual analog
  *     timbre = 0.5000
@@ -43,6 +43,14 @@
  * that was LOADED (Adara: what a rip on that engine gives).
  * A format version this firmware does not know, or none at all, loads the WHOLE slot from
  * defaults: a newer format's keys could mean something else here.
+ *
+ * ---- format 2 (#30) and older files ----
+ * Format 2 adds `quantizer_root` to [plaits]: Tune By Ear's root, in semitones (MIDI
+ * numbering, 0..127, four decimals). An OLDER format is read when the only change since was
+ * fields added -- tools/gen_prst.py checks that from the fingerprints and generates
+ * SP1_PRST_READABLE -- so a format-1 slot (v0.8.0 - v0.8.2) loads in full, its root on C, and
+ * the root does not count as defaulted. Firmware older than format 2 loads a format-2 slot
+ * as defaults (it does not know the version).
  */
 #ifndef SP1_PRST_H
 #define SP1_PRST_H

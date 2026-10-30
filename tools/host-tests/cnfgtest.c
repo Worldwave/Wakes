@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #define SP1_CNFG_TEMPLATES
 #include "sp1_cnfg.h"
@@ -11,6 +12,7 @@
 #include "sp1_logs_gen.h"
 #include "sp1_engines_gen.h"
 #include "sp1_audio_gen.h"
+#include "sp1_scales_gen.h"
 
 static int fails;
 #define CHECK(cond, ...) do { if (!(cond)) { printf("  FAIL: "); \
@@ -134,7 +136,7 @@ static void reader(void)
 
 	char b[48];
 	CHECK(strcmp(sp1_logs_describe(SP1_LOG_ALL, b, sizeof(b)),
-		     "performance controls midi usb storage") == 0, "describe all: %s", b);
+		     "performance controls midi usb storage scales") == 0, "describe all: %s", b);
 	CHECK(strcmp(sp1_logs_describe(0u, b, sizeof(b)), "none") == 0, "describe none: %s", b);
 }
 
@@ -157,7 +159,10 @@ static void categories(void)
 		{ "[+00:01:02.345] UAC open=1\n", SP1_LOG_USB },
 		{ "[+00:01:02.345] STORE volume ok\n", SP1_LOG_STORAGE },
 		{ "[+00:01:02.345] LOG 60 s: 12 flushes\n", SP1_LOG_STORAGE },
+		{ "[+00:01:02.345] SCALES 1: major -- 12 degrees\n", SP1_LOG_SCALES },
+		{ "[+00:01:02.345] SCALE 2: minor\n", SP1_LOG_CONTROLS },  /* the selection */
 		/* Always written. */
+		{ "[+00:01:02.345] CNFG scales.cnfg is OVERLOADED: 1 scale\n", 0u },
 		{ "[+00:01:02.345] PWR  shutdown suppressed\n", 0u },
 		{ "[+00:01:02.345] BOOT on battery\n", 0u },
 		{ "[+00:01:02.345] CNFG logs.cnfg line 3: x -- y\n", 0u },
@@ -748,6 +753,350 @@ static void midi(void)
 	}
 }
 
+/* ---------------------------------------------------------------- scales.cnfg (#44) */
+
+static struct sp1_scale_bank sbank;
+static int s_filled, s_dropped, s_wiki;
+
+static int read_scales(const char *text, size_t chunk)
+{
+	struct sp1_scales_reader r;
+	problems_seen = 0;
+	last_line = 0;
+	last_what[0] = '\0';
+	sp1_scales_begin(&r, &sbank, problem, NULL);
+	const size_t n = strlen(text);
+	if (chunk == 0u) {
+		chunk = n ? n : 1u;
+	}
+	for (size_t i = 0u; i < n; i += chunk) {
+		sp1_scales_feed(&r, text + i, (i + chunk <= n) ? chunk : n - i);
+	}
+	const int bad = sp1_scales_end(&r, &s_filled, &s_dropped);
+	s_wiki = r.wiki_notes;
+	/* Problems + the notes (dropped slots, slots below [scales_wiki]) are everything the
+	 * reader reported. */
+	CHECK(bad + s_dropped + s_wiki == problems_seen, "scales reader counted %d problems + "
+	      "%d + %d notes, reported %d", bad, s_dropped, s_wiki, problems_seen);
+	return bad;
+}
+
+/* What a user does with the library (#44): copy the lines between the markers under the
+ * block titled `title`, and paste them under a [slot] line. Appends "[slot]\n" + those lines
+ * to t at m; returns the new length, or -1 if the template has no such block. */
+static int copy_block(char *t, int m, size_t size, int slot, const char *title)
+{
+	const char *p = strstr(SP1_SCALES_TEMPLATE, title);
+	const char *from = p != NULL ? strstr(p, "copy from the line below") : NULL;
+	if (from == NULL) {
+		return -1;
+	}
+	from = strchr(from, '\n') + 1;
+	const char *to = strstr(from, "\n; ^^^^");
+	if (to == NULL) {
+		return -1;
+	}
+	return m + snprintf(t + m, size - (size_t)m, "[%d]\n%.*s\n", slot, (int)(to - from), from);
+}
+
+static bool same_scale(const struct sp1_scale *a, const struct sp1_scale *b)
+{
+	if (a->n != b->n || a->plaits != b->plaits || strcmp(a->name, b->name) != 0 ||
+	    fabsf(a->period - b->period) > 1e-6f) {
+		return false;
+	}
+	for (int i = 0; i < a->n; i++) {
+		if (a->weight[i] != b->weight[i] || fabsf(a->volts[i] - b->volts[i]) > 1e-6f) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool is_defaults(void)
+{
+	struct sp1_scale_bank d;
+	sp1_scales_defaults(&d);
+	for (int i = 0; i < SP1_SCALE_SLOTS; i++) {
+		if (!same_scale(&sbank.s[i], &d.s[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static void scales(void)
+{
+	printf("[7] scales.cnfg\n");
+	struct sp1_scale_bank d;
+	sp1_scales_defaults(&d);
+
+	/* Scala's pitch syntax. */
+	static const struct {
+		const char *s;
+		bool ok;
+		float cents;
+	} P[] = {
+		{ "100.0", true, 100.0f }, { "100.", true, 100.0f },  { ".5", true, 0.5f },
+		{ "-5.0", true, -5.0f },   { "1200.000", true, 1200.0f }, { "3/2", true, 701.955f },
+		{ "2", true, 1200.0f },    { "2/1", true, 1200.0f },  { "81/80", true, 21.506f },
+		{ "0/1", false, 0 },       { "3/0", false, 0 },       { "-3/2", false, 0 },
+		{ "1.2.3", false, 0 },     { "abc", false, 0 },       { ".", false, 0 },
+		{ "3/2/1", false, 0 },     { "", false, 0 },          { "99999999999/2", false, 0 },
+	};
+	for (size_t i = 0u; i < sizeof(P) / sizeof(P[0]); i++) {
+		float v = -1.0f;
+		const bool ok = sp1_scl_pitch(P[i].s, strlen(P[i].s), &v);
+		CHECK(ok == P[i].ok && (!ok || fabsf(v * 1200.0f - P[i].cents) < 0.005f),
+		      "pitch \"%s\": %d, %.4f cents", P[i].s, ok, (double)(v * 1200.0f));
+	}
+
+	/* The template the firmware writes when the file is missing reads back as exactly the
+	 * built-in bank, with no problem, whatever chunk size the drive hands over. */
+	const size_t chunks[] = { 0u, 1u, 7u, 128u };
+	for (size_t k = 0u; k < sizeof(chunks) / sizeof(chunks[0]); k++) {
+		const int bad = read_scales(SP1_SCALES_TEMPLATE, chunks[k]);
+		CHECK(bad == 0 && s_dropped == 0, "template, chunk %u: %d problems (line %d: %s)",
+		      (unsigned)chunks[k], bad, last_line, last_what);
+		CHECK(is_defaults(), "template, chunk %u: not the built-in bank", (unsigned)chunks[k]);
+	}
+	/* What the built-in bank is: Marbles' six, whole-tone in slot 7 (Adara), and their
+	 * Plaits note sets. */
+	CHECK(s_filled == 7, "built-in: %d scales", s_filled);
+	CHECK(d.s[6].n == 6u && d.s[6].plaits == 0u && d.s[6].by_ear == 1u &&
+	      strcmp(d.s[6].name, "whole-tone") == 0 &&
+	      fabsf(d.s[6].volts[3] - 0.5f) < 1e-6f && d.s[6].weight[5] == 255u,
+	      "slot 7: %s, %u degrees", d.s[6].name, d.s[6].n);
+	static const int plaits_notes[7] = { 7, 7, 5, 7, 7, 7, 6 };
+	for (int i = 0; i < 7; i++) {
+		int n = 0;
+		for (int k = 0; k < d.s[i].n; k++) {
+			n += d.s[i].weight[k] >= d.s[i].plaits;
+		}
+		CHECK(n == plaits_notes[i], "%s: Plaits plays %d, expected %d", d.s[i].name, n,
+		      plaits_notes[i]);
+		CHECK(d.s[i].period == 1.0f && d.s[i].weight[0] == 255u && d.s[i].volts[0] == 0.0f,
+		      "%s: root/period", d.s[i].name);
+	}
+	/* Within 0.12 cents of Marbles' own 4-decimal tables (marbles/settings.cc). */
+	static const float bhairav[12] = { 0.0f, 0.0752f, 0.1699f, 0.2630f, 0.3219f, 0.4150f,
+					   0.4918f, 0.5850f, 0.6601f, 0.7549f, 0.8479f, 0.9069f };
+	for (int k = 0; k < 12; k++) {
+		CHECK(fabsf(d.s[4].volts[k] - bhairav[k]) * 1200.0f < 0.12f, "bhairav %d: %.5f", k,
+		      (double)d.s[4].volts[k]);
+	}
+
+	/* A Scale Workshop export pasted as it is, CRLF and a BOM included, unsorted, a ratio
+	 * period of 3/1, no weights. */
+	CHECK(read_scales("\xEF\xBB\xBF[2]\r\n! tritave.scl\r\n!\r\nBohlen-Pierce\r\n 3\r\n!\r\n"
+			  " 9/5\r\n 7/5\r\n 3/1\r\n", 1u) == 0 && s_filled == 1 &&
+	      sbank.s[0].n == 0u && sbank.s[1].n == 3u &&
+	      strcmp(sbank.s[1].name, "Bohlen-Pierce") == 0 &&
+	      fabsf(sbank.s[1].period - log2f(3.0f)) < 1e-6f &&
+	      fabsf(sbank.s[1].volts[1] - log2f(1.4f)) < 1e-6f &&
+	      fabsf(sbank.s[1].volts[2] - log2f(1.8f)) < 1e-6f &&
+	      sbank.s[1].weight[1] == 255u && sbank.s[1].weight[2] == 255u &&
+	      sbank.s[1].plaits == 0u, "Scale Workshop paste: %d problems (line %d: %s)",
+	      problems_seen, last_line, last_what);
+	/* An empty description is a blank line once the .scl has begun with a ! line. */
+	CHECK(read_scales("[1]\n!\n\n2\n150.0 16\n2/1\n", 0u) == 0 && sbank.s[0].n == 2u &&
+	      sbank.s[0].name[0] == '\0' && sbank.s[0].weight[1] == 16u,
+	      "an empty description: %d problems (%s)", problems_seen, last_what);
+	/* Blank lines straight after [n] are spacing; weights and plaits; text after a pitch. */
+	CHECK(read_scales("[3]\n\nplaits = 100\nmine\n3\n700.0 200 ; G\n400.0 an E\n2/1\n"
+			  "plaits = 7\n", 0u) == 1 && is_defaults(),
+	      "plaits twice: the whole file set aside");
+	CHECK(read_scales("[3]\n\nplaits = 100\nmine\n3\n700.0 200 ; G\n400.0 an E\n2/1\n", 0u) == 0 &&
+	      sbank.s[2].plaits == 100u && sbank.s[2].n == 3u &&
+	      sbank.s[2].weight[1] == 255u && sbank.s[2].weight[2] == 200u,
+	      "weights, plaits, comments: %d problems (%s)", problems_seen, last_what);
+	/* [scales_wiki] (#44): nothing below it is read -- scales, keys, garbage, broken headers
+	 * and long lines alike -- and a slot down there is a note, not a problem. */
+	{
+		static char t[2048];
+		int m = snprintf(t, sizeof(t), "[2]\nmine\n2\n350.0\n2/1\n\n[Scales_Wiki]\n"
+				 "plaits = 999\nnot a scale at all\n[oops\n[3]\nbad\n0\n");
+		for (int i = 0; i < 200; i++) {            /* a 200-byte line */
+			t[m++] = 'x';
+		}
+		snprintf(t + m, sizeof(t) - (size_t)m, "\n[1]\nmajor-ish\n1\n2/1\n");
+		CHECK(read_scales(t, 5u) == 0 && s_filled == 1 && sbank.s[1].n == 2u &&
+		      sbank.s[0].n == 0u && sbank.s[2].n == 0u && s_wiki == 2,
+		      "[scales_wiki]: %d problems, %d scales, %d notes (line %d: %s)",
+		      problems_seen - s_wiki, s_filled, s_wiki, last_line, last_what);
+	}
+	/* Problems above [scales_wiki] still count. */
+	CHECK(read_scales("[1]\na\n2\nC#\n2/1\n[scales_wiki]\n", 0u) == 1 && is_defaults(),
+	      "a problem above [scales_wiki] was not counted");
+	/* The template's library is not read: the built-in bank is exactly slots 1-7. */
+	CHECK(strstr(SP1_SCALES_TEMPLATE, "\n[scales_wiki]\n") != NULL,
+	      "the template has no [scales_wiki] line");
+
+	/* An empty [n] is an empty slot, not a problem. */
+	CHECK(read_scales("[5]\n[6]\nx\n1\n2/1\n", 0u) == 0 && s_filled == 1 && sbank.s[5].n == 1u,
+	      "an empty section: %d problems", problems_seen);
+
+	/* Tune By Ear (#30): on unless the scale says off, before or after the pitches. */
+	CHECK(read_scales("[1]\na\n1\n2/1\n[2]\ntune_by_ear = OFF\nb\n1\n2/1\n"
+			  "[3]\nc\n1\n2/1\ntune_by_ear = off\n", 0u) == 0 &&
+	      sbank.s[0].by_ear == 1u && sbank.s[1].by_ear == 0u && sbank.s[2].by_ear == 0u,
+	      "tune_by_ear: %d problems (%s)", problems_seen, last_what);
+	CHECK(d.s[0].by_ear == 1u && d.s[2].by_ear == 1u && d.s[3].by_ear == 0u &&
+	      d.s[5].by_ear == 0u, "built-in tune_by_ear: modes on, pelog and the raags off");
+
+	/* 64 pitches (#44, Adara: 31-EDO and beyond): 53-EDO fills 53 degrees; 64 is the most. */
+	{
+		static char t[4096];
+		static const int EDO[3] = { 31, 53, 64 };
+		for (int e = 0; e < 3; e++) {
+			const int edo = EDO[e];
+			int m = snprintf(t, sizeof(t), "[2]\n%d-EDO\n%d\n", edo, edo);
+			for (int k = 1; k < edo; k++) {
+				m += snprintf(t + m, sizeof(t) - (size_t)m, "%.4f\n",
+					      1200.0 * k / edo);
+			}
+			snprintf(t + m, sizeof(t) - (size_t)m, "2/1\n");
+			CHECK(read_scales(t, 13u) == 0 && sbank.s[1].n == (uint8_t)edo &&
+			      fabsf(sbank.s[1].volts[edo - 1] - (float)(edo - 1) / (float)edo) < 1e-5f,
+			      "%d-EDO: %d problems (%s), %u degrees", edo, problems_seen, last_what,
+			      sbank.s[1].n);
+		}
+	}
+
+	/* The seven modes at the end of the template, uncommented and put in a slot each, as
+	 * the file tells users to: each loads, and plaits = 32 gives exactly its 7 notes. */
+	{
+		static const char *const MODE[7] = { "ionian", "dorian", "phrygian", "lydian",
+						     "mixolydian", "aeolian", "locrian" };
+		static const int NOTES[7][7] = {
+			{ 0, 2, 4, 5, 7, 9, 11 }, { 0, 2, 3, 5, 7, 9, 10 }, { 0, 1, 3, 5, 7, 8, 10 },
+			{ 0, 2, 4, 6, 7, 9, 11 }, { 0, 2, 4, 5, 7, 9, 10 }, { 0, 2, 3, 5, 7, 8, 10 },
+			{ 0, 1, 3, 5, 6, 8, 10 },
+		};
+		static const char *const TITLE[7] = { "; ---- Ionian", "; ---- Dorian",
+						      "; ---- Phrygian", "; ---- Lydian",
+						      "; ---- Mixolydian", "; ---- Aeolian",
+						      "; ---- Locrian" };
+		static char t[8192];
+		int m = 0;
+		int found = 0;
+		for (int i = 0; i < 7; i++) {
+			const int k = copy_block(t, m, sizeof(t), i + 1, TITLE[i]);
+			if (k > 0) {
+				m = k;
+				found++;
+			}
+		}
+		CHECK(found == 7, "the template has %d mode blocks, expected 7", found);
+		CHECK(read_scales(t, 0u) == 0 && s_filled == 7, "the modes: %d problems (line %d: "
+		      "%s)", problems_seen, last_line, last_what);
+		for (int i = 0; i < 7 && found == 7; i++) {
+			const struct sp1_scale *s = &sbank.s[i];
+			int n = 0;
+			bool ok = strcmp(s->name, MODE[i]) == 0 && s->n == 12u && s->plaits == 32u &&
+				  s->by_ear == 1u;
+			for (int k = 0; k < s->n; k++) {
+				if (s->weight[k] >= s->plaits) {
+					ok = ok && n < 7 &&
+					     fabsf(s->volts[k] * 12.0f - (float)NOTES[i][n]) < 1e-4f;
+					n++;
+				}
+			}
+			CHECK(ok && n == 7, "mode %s: %d notes for Plaits", MODE[i], n);
+		}
+		/* Ionian is Marbles' major, weight for weight. */
+		bool same_w = true;
+		for (int k = 0; k < 12; k++) {
+			same_w = same_w && sbank.s[0].weight[k] == d.s[0].weight[k];
+		}
+		CHECK(same_w, "ionian's weights are not Marbles' major's");
+	}
+
+	/* The two 31-EDO blocks at the end of the library, uncommented the same way: the
+	 * chromatic one gives Plaits all 31 notes (plaits = 0), Mothra[6] its six (steps 0 6 12
+	 * 18 24 30, plaits = 32). */
+	{
+		static const char *const TITLE[2] = { "; ---- 31edo: Chromatic",
+						      "; ---- 31edo: Mothra[6]" };
+		static char t[8192];
+		int m = 0;
+		for (int b = 0; b < 2; b++) {
+			const int k = copy_block(t, m, sizeof(t), b + 1, TITLE[b]);
+			CHECK(k > 0, "the template has no \"%s\" block", TITLE[b]);
+			m = k > 0 ? k : m;
+		}
+		CHECK(read_scales(t, 0u) == 0 && s_filled == 2, "the 31-EDO blocks: %d problems "
+		      "(line %d: %s)", problems_seen, last_line, last_what);
+		const struct sp1_scale *c = &sbank.s[0], *mo = &sbank.s[1];
+		CHECK(c->n == 31u && c->plaits == 0u, "31edo chromatic: %u degrees, plaits %u", c->n,
+		      c->plaits);
+		int n = 0;
+		bool on_grid = mo->n == 31u && mo->plaits == 32u;
+		for (int k = 0; k < mo->n; k++) {
+			if (mo->weight[k] >= mo->plaits) {
+				on_grid = on_grid && k == 6 * n &&
+					  fabsf(mo->volts[k] * 31.0f - (float)k) < 1e-3f;
+				n++;
+			}
+		}
+		CHECK(on_grid && n == 6, "Mothra[6]: Plaits plays %d notes, not steps 0 6 12 18 24 30",
+		      n);
+	}
+
+	/* Overloaded (Adara): above [7] is dropped with a note, the rest loads. */
+	CHECK(read_scales("[1]\na\n1\n2/1\n[8]\nb\n1\n2/1\n[12]\nc\n2\n100.0\n2/1\n", 0u) == 0 &&
+	      s_dropped == 2 && s_filled == 1 && sbank.s[0].n == 1u && !is_defaults(),
+	      "overloaded: %d problems, %d dropped", problems_seen, s_dropped);
+
+	/* Every problem sets the WHOLE file aside: the built-in bank. */
+	static const char *const BAD[] = {
+		"[1]\na\n65\n",                                   /* > 64 pitches            */
+		"[1]\ntune_by_ear = maybe\na\n1\n2/1\n",          /* not on / off            */
+		"[1]\ntune_by_ear = on\ntune_by_ear = off\na\n1\n2/1\n",   /* twice           */
+		"[1]\na\n0\n",                                    /* no period               */
+		"[1]\na\ntwelve\n100.0\n2/1\n",                   /* count is not a number   */
+		"[1]\na\n2\n100.0\n",                             /* ends early              */
+		"[1]\na\n2\n100.0\n2/1\n300.0\n",                 /* after the last pitch    */
+		"[1]\na\n2\n1300.0\n2/1\n",                       /* above the period        */
+		"[1]\na\n2\n1200.0\n2/1\n",                       /* on the period           */
+		"[1]\na\n2\n-100.0\n2/1\n",                       /* below the root          */
+		"[1]\na\n3\n100.0\n100.0\n2/1\n",                 /* the same pitch twice    */
+		"[1]\na\n2\n100.0 256\n2/1\n",                    /* weight above 255        */
+		"[1]\na\n2\nC#\n2/1\n",                           /* not a pitch             */
+		"[1]\na\n1\n-1200.0\n",                           /* period below the root   */
+		"[1]\nplaits = 300\na\n1\n2/1\n",                 /* plaits above 255        */
+		"[1]\na\n1\n2/1\n[1]\nb\n1\n2/1\n",               /* a slot twice            */
+		"[0]\na\n1\n2/1\n",                               /* slot 0                  */
+		"[major]\na\n1\n2/1\n",                           /* not a slot              */
+		"a\n1\n2/1\n[1]\nb\n1\n2/1\n",                    /* before any slot         */
+		"[1]\n[2]\n",                                     /* no scale at all         */
+		"",                                               /* nothing                 */
+		"[1\na\n1\n2/1\n",                                /* a broken header         */
+	};
+	for (size_t i = 0u; i < sizeof(BAD) / sizeof(BAD[0]); i++) {
+		const int bad = read_scales(BAD[i], 0u);
+		CHECK(bad >= 1 && is_defaults() && s_filled == 7, "bad file %u: %d problems, %d "
+		      "scales", (unsigned)i, bad, s_filled);
+	}
+
+	/* The bank itself: an empty one is refused, a slot's contents change with an install,
+	 * and every install moves the generation on. */
+	struct sp1_scale_bank b;
+	memset(&b, 0, sizeof(b));
+	const uint32_t g0 = sp1_scales_gen();
+	sp1_scales_install(&b);
+	CHECK(sp1_scales_gen() == g0 + 1u && sp1_scale_filled(0) && sp1_scale_first() == 0 &&
+	      strcmp(sp1_scale_name(0), "major") == 0, "an empty bank installs the built-in one");
+	CHECK(read_scales("[4]\nmine\n2\n350.0\n2/1\n", 0u) == 0, "a one-scale file");
+	sp1_scales_install(&sbank);
+	CHECK(!sp1_scale_filled(0) && sp1_scale_first() == 3 && sp1_scale_at(3)->n == 2u &&
+	      strcmp(sp1_scale_name(3), "mine") == 0 && sp1_scale_name(0)[0] == '\0' &&
+	      sp1_scale_at(7) == NULL && sp1_scale_at(-1) == NULL, "installed: slot 4 only");
+	sp1_scales_defaults(&b);
+	sp1_scales_install(&b);
+	CHECK(sp1_scales_gen() == g0 + 3u && sp1_scale_first() == 0, "back to the built-in bank");
+}
+
 int main(void)
 {
 	reader();
@@ -756,6 +1105,7 @@ int main(void)
 	engines();
 	audio();
 	midi();
+	scales();
 	printf(fails ? "cnfgtest: %d FAILED\n" : "cnfgtest: all passed\n", fails);
 	return fails ? 1 : 0;
 }

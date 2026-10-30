@@ -95,9 +95,11 @@ So the combination space is exactly: **`••` + one button**, on either ladder
 - **LEVEL below 5 % is DISCONNECTED**, which is not the same as zero: disconnected means TRIG
   plucks the note through the LPG, connected means the VCA is held open by LEVEL — the drone.
 - **OCTAVE range** is Plaits' own eleven modes, `plaits/ui.cc`, with one change: 0 = the full
-  range with **no centre detent** (Plaits' LFO range is gone, #18), 1–8 = one octave each
-  ±7 semitones, 9 = octaves quantized, 10 = the full 96-semitone range with the C4 detent (the
-  default).
+  range with **no centre detent** (Plaits' LFO range is gone, #18), 1–8 = two octaves around
+  each octave's C, **root an octave down at the bottom, an octave up at the top** (Plaits:
+  ±7 semitones; #44 — with a scale on, one of *its* periods either side of *its* root, so
+  both ends are roots whatever the scale), 9 = octaves quantized, 10 = the full
+  96-semitone range with the C4 detent (the default).
 - Every layer keeps its own four values, and a fader that does not match the value it is
   showing **catches up** rather than jumping (Plaits' own `PotController` behaviour).
 - ⚠️ **Only BASE is ever seeded from the physical faders**, and only on the first ON after boot.
@@ -171,8 +173,15 @@ Tap `••` to get back to the base page first.
 Restricts the notes F1 can select to one of the seven scales Marbles' X quantizer offers
 (`docs/MARBLES-SETTINGS.md` has the table, the glyphs and the exact note sets). Plaits keeps
 its **own** index into that table, so the two modules can be in different scales. `○○○○` = off,
-first in the ring, and only *included* scales are reachable. No wrap.
+first in the ring, and only *filled* slots are reachable (`scales.cnfg`, #44). No wrap.
 
+- **Tune By Ear (#30).** Turning the quantizer ON (T3 from `○○○○`) takes the note F1 was
+  playing as the scale's **root** — any pitch, between semitones too. Tune F1 by ear with the
+  quantizer off (TRIG to check), then turn it on. Stepping between scales keeps the root;
+  off and on again takes a new one. A scale with `tune_by_ear = off` in `scales.cnfg` (pelog
+  and the ragas by default) stays on C. A preset saves the root with the scale
+  (`quantizer_root`, PRST format 2); a preset saved before it (format 1) loads on C. The
+  log's `QUANTIZE` line names the root.
 - **It composes with the OCTAVE range rather than replacing it.** The range decides the span
   F1 covers; the scale decides which notes inside that span exist.
 - **Three of the scales are microtonal** — pelog, bhairav and shri put their degrees at

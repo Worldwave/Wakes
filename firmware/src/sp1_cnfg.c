@@ -7,6 +7,7 @@
 #include "sp1_engines_gen.h"
 #include "sp1_audio_gen.h"
 
+#include <math.h>
 #include <string.h>
 
 _Static_assert(SP1_ENGINE_SLOTS == SP1_CNFG_SLOTS, "engines.cnfg has 24 slots");
@@ -61,6 +62,25 @@ void sp1_cnfg_begin(struct sp1_cnfg_parser *p, sp1_cnfg_entry_fn entry,
 	p->ctx = ctx;
 }
 
+void sp1_cnfg_begin_lines(struct sp1_cnfg_parser *p, sp1_cnfg_line_fn raw,
+			  sp1_cnfg_problem_fn problem, void *ctx)
+{
+	sp1_cnfg_begin(p, NULL, problem, ctx);
+	p->raw = raw;
+}
+
+/* An inline comment: ; or # at the start or after whitespace (Python's configparser, which
+ * checks the ini defaults at build time, reads them the same way). */
+static void cut_comment(char *val)
+{
+	for (char *c = val; *c != '\0'; c++) {
+		if ((*c == ';' || *c == '#') && (c == val || space(c[-1]))) {
+			*c = '\0';
+			break;
+		}
+	}
+}
+
 static void line_done(struct sp1_cnfg_parser *p)
 {
 	p->line++;
@@ -80,7 +100,13 @@ static void line_done(struct sp1_cnfg_parser *p)
 		s += 3;
 	}
 	s = trim(s);
-	if (*s == '\0' || *s == ';' || *s == '#') {
+	if (*s == ';' || *s == '#') {
+		return;
+	}
+	if (*s == '\0') {
+		if (p->raw != NULL) {
+			p->raw(p->ctx, p->line, p->section, false, s);
+		}
 		return;
 	}
 	if (*s == '[') {
@@ -89,6 +115,9 @@ static void line_done(struct sp1_cnfg_parser *p)
 			p->section[0] = '\0';
 			p->problem(p->ctx, p->line, s, "a section name needs a closing ]: the "
 				   "settings under it are ignored");
+			if (p->raw != NULL) {
+				p->raw(p->ctx, p->line, p->section, true, p->section);
+			}
 			return;
 		}
 		*end = '\0';
@@ -97,10 +126,21 @@ static void line_done(struct sp1_cnfg_parser *p)
 			p->section[0] = '\0';
 			p->problem(p->ctx, p->line, name, "is not a section: the settings under it "
 				   "are ignored");
+			if (p->raw != NULL) {
+				p->raw(p->ctx, p->line, p->section, true, p->section);
+			}
 			return;
 		}
 		strcpy(p->section, name);
 		lower_str(p->section);
+		if (p->raw != NULL) {
+			p->raw(p->ctx, p->line, p->section, true, p->section);
+		}
+		return;
+	}
+	if (p->raw != NULL) {
+		cut_comment(s);
+		p->raw(p->ctx, p->line, p->section, false, trim(s));
 		return;
 	}
 	char *eq = strchr(s, '=');
@@ -111,14 +151,7 @@ static void line_done(struct sp1_cnfg_parser *p)
 	*eq = '\0';
 	char *key = trim(s);
 	char *val = eq + 1;
-	/* An inline comment: ; or # at the start of the value or after whitespace (Python's
-	 * configparser, which checks the defaults at build time, reads them the same way). */
-	for (char *c = val; *c != '\0'; c++) {
-		if ((*c == ';' || *c == '#') && (c == val || space(c[-1]))) {
-			*c = '\0';
-			break;
-		}
-	}
+	cut_comment(val);
 	val = trim(val);
 	if (*key == '\0') {
 		p->problem(p->ctx, p->line, "(nothing before the =)", "a setting needs a name: "
@@ -162,6 +195,7 @@ static const struct {
 	{ "midi",        SP1_LOG_MIDI },
 	{ "usb",         SP1_LOG_USB },
 	{ "storage",     SP1_LOG_STORAGE },
+	{ "scales",      SP1_LOG_SCALES },
 };
 #define SEEN_ENABLED 0x80u
 
@@ -434,6 +468,7 @@ static const struct {
 	{ "SPEAKER", SP1_LOG_USB },
 	{ "STORE", SP1_LOG_STORAGE },       { "EMMC", SP1_LOG_STORAGE },
 	{ "PRST", SP1_LOG_STORAGE },        { "LOG", SP1_LOG_STORAGE },
+	{ "SCALES", SP1_LOG_SCALES },
 };
 
 uint8_t sp1_log_category(const char *line, size_t n)
@@ -1104,3 +1139,471 @@ int sp1_midi_reader_end(struct sp1_midi_reader *r, int *notes)
 	}
 	return r->problems;
 }
+
+/* ---------------------------------------------------------------- scales.cnfg (#44) */
+
+#if defined(CONFIG_SP1_PLAITS)
+
+enum { SC_DESC = 0, SC_COUNT, SC_PITCH, SC_DONE };
+#define SC_NONE  (-1)            /* before the first [slot]                          */
+#define SC_ASIDE (-2)            /* a section that is not a usable slot: skipped     */
+
+static void sc_report(struct sp1_scales_reader *r, int line, const char *what, const char *why)
+{
+	r->problems++;
+	r->problem(r->ctx, line, what, why);
+}
+
+static void sc_problem(void *ctx, int line, const char *what, const char *why)
+{
+	struct sp1_scales_reader *r = ctx;
+	if (r->wiki) {
+		return;              /* below [scales_wiki] nothing is read, long lines included */
+	}
+	sc_report(r, line, what, why);
+}
+
+/* "[n]" in r->what. */
+static const char *sc_head(struct sp1_scales_reader *r, int slot)
+{
+	struct msg m = { r->what, sizeof(r->what), 0u };
+	msg_s(&m, "[");
+	msg_i(&m, slot + 1);
+	msg_s(&m, "]");
+	return r->what;
+}
+
+/* A run of digits, at most 2^31 - 1 (Scala: "at least 2147483647" must be supported). */
+static bool sc_digits(const char *s, size_t n, uint32_t *out)
+{
+	uint32_t v = 0u;
+	if (n == 0u) {
+		return false;
+	}
+	for (size_t i = 0u; i < n; i++) {
+		if (s[i] < '0' || s[i] > '9') {
+			return false;
+		}
+		if (v > (0x7FFFFFFFu - 9u) / 10u) {
+			return false;
+		}
+		v = v * 10u + (uint32_t)(s[i] - '0');
+	}
+	*out = v;
+	return true;
+}
+
+bool sp1_scl_pitch(const char *s, size_t n, float *volts)
+{
+	bool dot = false;
+	for (size_t i = 0u; i < n; i++) {
+		dot = dot || s[i] == '.';
+	}
+	if (dot) {
+		/* Cents: [+|-]digits.digits, either side may be empty but not both. */
+		size_t i = 0u;
+		bool neg = false;
+		if (i < n && (s[i] == '-' || s[i] == '+')) {
+			neg = s[i] == '-';
+			i++;
+		}
+		uint32_t ip = 0u, fp = 0u, fd = 1u;
+		int digits = 0;
+		bool after = false;
+		for (; i < n; i++) {
+			if (s[i] == '.') {
+				if (after) {
+					return false;
+				}
+				after = true;
+				continue;
+			}
+			if (s[i] < '0' || s[i] > '9') {
+				return false;
+			}
+			digits++;
+			const uint32_t d = (uint32_t)(s[i] - '0');
+			if (!after) {
+				if (ip > 10000000u) {
+					return false;                /* far past any period */
+				}
+				ip = ip * 10u + d;
+			} else if (fd < 10000000u) {
+				fp = fp * 10u + d;               /* digits past 1e-7 cents dropped */
+				fd *= 10u;
+			}
+		}
+		if (digits == 0) {
+			return false;
+		}
+		const float c = (float)ip + (float)fp / (float)fd;
+		*volts = (neg ? -c : c) / 1200.0f;
+		return true;
+	}
+	/* A ratio: a/b, or a alone (= a/1). */
+	size_t k = 0u;
+	while (k < n && s[k] != '/') {
+		k++;
+	}
+	uint32_t a, b = 1u;
+	if (!sc_digits(s, k, &a)) {
+		return false;
+	}
+	if (k < n && !sc_digits(s + k + 1u, n - k - 1u, &b)) {
+		return false;
+	}
+	if (a == 0u || b == 0u) {
+		return false;                            /* "meaningless" (Scala) */
+	}
+	*volts = log2f((float)a / (float)b);
+	return true;
+}
+
+/* `<key> = value` -> true, with *value set to the text after the =. `key` lowercase. */
+static bool sc_key(const char *text, const char *key, const char **value)
+{
+	const size_t k = strlen(key);
+	for (size_t i = 0u; i < k; i++) {
+		if (lower(text[i]) != key[i]) {
+			return false;
+		}
+	}
+	const char *s = text + k;
+	while (space(*s)) {
+		s++;
+	}
+	if (*s != '=') {
+		return false;
+	}
+	s++;
+	while (space(*s)) {
+		s++;
+	}
+	*value = s;
+	return true;
+}
+
+/* The section before a new one (or the end of the file): a scale left half-written. A
+ * section with no scale in it at all is an empty slot, not a problem. */
+static void sc_close(struct sp1_scales_reader *r, int line)
+{
+	if (r->slot < 0) {
+		return;
+	}
+	struct msg m = { r->why, sizeof(r->why), 0u };
+	switch (r->state) {
+	case SC_COUNT:
+		msg_s(&m, "has a scale name but no pitch count after it");
+		break;
+	case SC_PITCH:
+		msg_s(&m, "ends early: its count says ");
+		msg_i(&m, r->count);
+		msg_s(&m, " pitches, only ");
+		msg_i(&m, r->got);
+		msg_s(&m, " are here");
+		break;
+	default:
+		return;                                  /* nothing yet, or complete */
+	}
+	sc_report(r, line, sc_head(r, r->slot), r->why);
+}
+
+/* The last pitch is in: check the scale and put it in its slot. */
+static void sc_finish(struct sp1_scales_reader *r)
+{
+	const int n = r->count;
+	const float period = r->pitch[n - 1];
+	const int before = r->problems;
+	if (!(period > 0.0f)) {
+		sc_report(r, r->pl[n - 1], sc_head(r, r->slot), "its last pitch is the period, and "
+			  "it must be above the root (2/1 for an octave)");
+		return;
+	}
+	/* Rising order, weights and lines along (Scala does not say pitches must be sorted). */
+	for (int i = 1; i < n - 1; i++) {
+		for (int j = i; j > 0 && r->pitch[j] < r->pitch[j - 1]; j--) {
+			const float  t = r->pitch[j]; r->pitch[j] = r->pitch[j - 1]; r->pitch[j - 1] = t;
+			const uint8_t w = r->pw[j];   r->pw[j] = r->pw[j - 1];       r->pw[j - 1] = w;
+			const int    l = r->pl[j];    r->pl[j] = r->pl[j - 1];       r->pl[j - 1] = l;
+		}
+	}
+	for (int i = 0; i < n - 1; i++) {
+		if (!(r->pitch[i] > 0.0f)) {
+			sc_report(r, r->pl[i], sc_head(r, r->slot), "has a pitch at or below the root "
+				  "(every pitch is above 1/1, which is not written)");
+		} else if (!(r->pitch[i] < period)) {
+			sc_report(r, r->pl[i], sc_head(r, r->slot), "has a pitch at or above the period "
+				  "(the last pitch)");
+		} else if (i > 0 && r->pitch[i] == r->pitch[i - 1]) {
+			sc_report(r, r->pl[i], sc_head(r, r->slot), "has the same pitch twice");
+		}
+	}
+	if (r->problems != before) {
+		return;
+	}
+	struct sp1_scale *s = &r->bank->s[r->slot];
+	s->period = period;
+	s->n = (uint8_t)n;                   /* the root, plus every pitch but the period */
+	s->volts[0] = 0.0f;
+	s->weight[0] = 255u;
+	for (int i = 0; i < n - 1; i++) {
+		s->volts[i + 1] = r->pitch[i];
+		s->weight[i + 1] = r->pw[i];
+	}
+	r->filled++;
+}
+
+static void sc_header(struct sp1_scales_reader *r, int line, const char *name)
+{
+	sc_close(r, line);
+	r->state = SC_DESC;
+	r->bang = false;
+	r->plaits_set = false;
+	r->by_ear_set = false;
+	r->got = 0u;
+	r->head_line = line;
+	r->slot = SC_ASIDE;
+	if (name[0] == '\0') {
+		return;                                  /* the parser reported it */
+	}
+	int v;
+	/* [scales_wiki]: the scale library. Nothing below it is read (Adara, #44), so its
+	 * examples need no "; " in front; a slot down there is ignored with a note. */
+	if (r->wiki) {
+		if (parse_uint(name, 9999, &v)) {
+			r->wiki_notes++;
+			r->problem(r->ctx, line, name, "is below [scales_wiki], which Wakes does not "
+				   "read: move it above [scales_wiki] to use it");
+		}
+		return;
+	}
+	if (strcmp(name, "scales_wiki") == 0) {
+		r->wiki = true;
+		return;
+	}
+	if (!parse_uint(name, 9999, &v) || v < 1) {
+		sc_report(r, line, name, "is not a scale slot ([1] to [7]): its scale is ignored");
+		return;
+	}
+	if (v > SP1_SCALE_SLOTS) {
+		/* Adara (#44): the scales above 7 are dropped, the rest still loads. A note, not
+		 * a problem. */
+		r->dropped++;
+		struct msg m = { r->what, sizeof(r->what), 0u };
+		msg_s(&m, "[");
+		msg_i(&m, v);
+		msg_s(&m, "]");
+		r->problem(r->ctx, line, r->what, "Wakes has 7 scale slots: this scale is dropped "
+			   "(scales.cnfg is overloaded)");
+		return;
+	}
+	if (r->seen & (1u << (v - 1))) {
+		sc_report(r, line, sc_head(r, v - 1), "is there twice");
+		return;
+	}
+	r->seen |= (uint8_t)(1u << (v - 1));
+	r->slot = v - 1;
+	r->at = r->problems;
+	memset(&r->bank->s[r->slot], 0, sizeof(r->bank->s[r->slot]));
+	r->bank->s[r->slot].by_ear = 1u;             /* Tune By Ear unless the scale says off */
+}
+
+static void sc_plaits(struct sp1_scales_reader *r, int line, const char *value)
+{
+	int v;
+	if (r->plaits_set) {
+		sc_report(r, line, "plaits", "is set twice for this scale");
+	} else if (!parse_uint(value, 255, &v)) {
+		sc_report(r, line, "plaits", "must be a weight, 0-255");
+	} else {
+		r->bank->s[r->slot].plaits = (uint8_t)v;
+	}
+	r->plaits_set = true;
+}
+
+static void sc_by_ear(struct sp1_scales_reader *r, int line, const char *value)
+{
+	if (r->by_ear_set) {
+		sc_report(r, line, "tune_by_ear", "is set twice for this scale");
+	} else if (same(value, "on") || same(value, "off")) {
+		r->bank->s[r->slot].by_ear = same(value, "on") ? 1u : 0u;
+	} else {
+		sc_report(r, line, "tune_by_ear", "must be on or off");
+	}
+	r->by_ear_set = true;
+}
+
+static void sc_pitch(struct sp1_scales_reader *r, int line, const char *text)
+{
+	size_t k = 0u;
+	while (text[k] != '\0' && !space(text[k])) {
+		k++;
+	}
+	float v;
+	if (!sp1_scl_pitch(text, k, &v)) {
+		sc_report(r, line, text, "is not a pitch: cents with a \".\" (100.0) or a ratio "
+			  "(3/2)");
+		r->got++;                                /* keep counting: one problem, not N */
+		r->state = r->got == r->count ? SC_DONE : SC_PITCH;
+		return;
+	}
+	/* What follows: a weight if it is a whole number, otherwise a comment (Scala ignores
+	 * anything after the pitch). */
+	const char *rest = text + k;
+	while (space(*rest)) {
+		rest++;
+	}
+	int w = 255;
+	bool digits = rest[0] != '\0';
+	for (const char *c = rest; *c != '\0'; c++) {
+		digits = digits && *c >= '0' && *c <= '9';
+	}
+	if (digits && !parse_uint(rest, 255, &w)) {
+		sc_report(r, line, text, "has a weight above 255 (weights are 0-255)");
+		w = 255;
+	}
+	r->pitch[r->got] = v;
+	r->pw[r->got] = (uint8_t)w;
+	r->pl[r->got] = line;
+	r->got++;
+	if (r->got == r->count) {
+		r->state = SC_DONE;
+		if (r->problems == r->at) {          /* nothing wrong in THIS scale */
+			sc_finish(r);
+		}
+	}
+}
+
+static void sc_line(void *ctx, int line, const char *section, bool header, const char *text)
+{
+	struct sp1_scales_reader *r = ctx;
+	(void)section;
+	if (header) {
+		sc_header(r, line, text);
+		return;
+	}
+	if (text[0] == '!') {                        /* Scala's comment lines */
+		if (r->slot >= 0 && r->state == SC_DESC) {
+			r->bang = true;
+		}
+		return;
+	}
+	if (r->slot == SC_ASIDE) {
+		return;
+	}
+	if (r->slot == SC_NONE) {
+		if (text[0] != '\0' && !r->loose) {
+			r->loose = true;
+			sc_report(r, line, text, "is not under a scale slot ([1] to [7])");
+		}
+		return;
+	}
+	const char *value;
+	if (r->state == SC_DESC || r->state == SC_DONE) {
+		if (sc_key(text, "plaits", &value)) {
+			sc_plaits(r, line, value);
+			return;
+		}
+		if (sc_key(text, "tune_by_ear", &value)) {
+			sc_by_ear(r, line, value);
+			return;
+		}
+	}
+	switch (r->state) {
+	case SC_DESC: {
+		/* The description: the first line after the comments -- an EMPTY one too, once a
+		 * pasted .scl has begun (Scala: "if there is no description, there should be an
+		 * empty line"). Blank lines straight after [n] are just spacing. */
+		if (text[0] == '\0' && !r->bang) {
+			return;
+		}
+		char *name = r->bank->s[r->slot].name;
+		size_t n = strlen(text);
+		if (n > SP1_SCALE_NAME_MAX - 1u) {
+			n = SP1_SCALE_NAME_MAX - 1u;
+			while (n > 0u && ((unsigned char)text[n] & 0xC0u) == 0x80u) {
+				n--;                             /* never cut a UTF-8 character */
+			}
+		}
+		memcpy(name, text, n);
+		name[n] = '\0';
+		r->state = SC_COUNT;
+		return;
+	}
+	case SC_COUNT: {
+		if (text[0] == '\0') {
+			return;
+		}
+		int c;
+		if (!parse_uint(text, 9999, &c)) {
+			sc_report(r, line, text, "should be the number of pitches in the scale");
+			r->slot = SC_ASIDE;          /* the rest of this section is skipped */
+		} else if (c < 1) {
+			sc_report(r, line, text, "pitches: a scale needs at least its period (2/1)");
+			r->slot = SC_ASIDE;          /* the rest of this section is skipped */
+		} else if (c > SP1_SCALE_DEGREES) {
+			struct msg m = { r->why, sizeof(r->why), 0u };
+			msg_s(&m, "pitches: Wakes takes ");
+			msg_i(&m, SP1_SCALE_DEGREES);
+			msg_s(&m, " at most, the period included");
+			sc_report(r, line, text, r->why);
+			r->slot = SC_ASIDE;          /* the rest of this section is skipped */
+		} else {
+			r->count = (uint8_t)c;
+			r->got = 0u;
+			r->state = SC_PITCH;
+		}
+		return;
+	}
+	case SC_PITCH:
+		if (text[0] != '\0') {
+			sc_pitch(r, line, text);
+		}
+		return;
+	default:                                     /* SC_DONE */
+		if (text[0] != '\0') {
+			sc_report(r, line, text, "comes after the scale's last pitch (is the count "
+				  "right?)");
+		}
+		return;
+	}
+}
+
+void sp1_scales_begin(struct sp1_scales_reader *r, struct sp1_scale_bank *out,
+		      sp1_cnfg_problem_fn problem, void *ctx)
+{
+	memset(r, 0, sizeof(*r));
+	memset(out, 0, sizeof(*out));
+	r->bank = out;
+	r->problem = problem;
+	r->ctx = ctx;
+	r->slot = SC_NONE;
+	sp1_cnfg_begin_lines(&r->p, sc_line, sc_problem, r);
+}
+
+void sp1_scales_feed(struct sp1_scales_reader *r, const char *text, size_t n)
+{
+	sp1_cnfg_feed(&r->p, text, n);
+}
+
+int sp1_scales_end(struct sp1_scales_reader *r, int *filled, int *dropped)
+{
+	sp1_cnfg_end(&r->p);
+	sc_close(r, r->p.line);
+	if (r->problems == 0 && r->filled == 0) {
+		sc_report(r, r->p.line, "(the whole file)", "has no scale: Marbles' X needs one "
+			  "to quantize to");
+	}
+	if (r->problems != 0) {
+		sp1_scales_defaults(r->bank);
+	}
+	int n = 0;
+	for (int i = 0; i < SP1_SCALE_SLOTS; i++) {
+		n += r->bank->s[i].n != 0u;
+	}
+	*filled = n;
+	*dropped = r->dropped;
+	return r->problems;
+}
+
+#endif /* CONFIG_SP1_PLAITS */

@@ -120,6 +120,10 @@ static int      oct_q = 4;                /* hysteresis state, octave mode 9    
 static int      deg_q;                    /* ... and for its degree sweep (M4b)  */
 static int      scale = SP1_PUI_SCALE_OFF;
 static bool     level_was;
+/* Tune By Ear (#30): the last note FREQUENCY played with the quantizer off, and the root it
+ * became when the quantizer went on. Semitones (MIDI note numbers, fractions allowed). */
+static float    free_note = 60.0f;
+static float    by_ear_root;
 
 /* The MIDI destination behind each fader of each layer, for pickup shared / takeover
  * (sp1_midi.h): there the CC moves the stored value itself, as a second hand on the fader. */
@@ -136,6 +140,12 @@ static const int8_t midi_dest[SP1_PUI_LAYERS][4] = {
 static float clamp01(float x)
 {
 	return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x);
+}
+
+/* The note nearest `target` that is a root: root + k * period (#44). */
+static float nearest_root(float target, float root, float period)
+{
+	return root + period * roundf((target - root) / period);
 }
 
 /* ---- engines, listed or not (#50) ---- */
@@ -488,10 +498,24 @@ void sp1_pui_params(struct sp1_synth_params *p)
 
 	/* ---- FREQUENCY: Plaits' range modes, plaits/ui.cc ----
 	 *  0      full range, free    60 + 48t              (NO detent -- Wakes, issue #18)
-	 *  1..8   one octave, +-7 st  12*oct + 7t           (detent: the octave's C)
+	 *  1..8   two octaves         12*oct + 12t          (detent: the octave's C)
 	 *  9      quantized octaves   53 + 14*fine + 12(q-4) (F1 is a switch: no detent)
 	 *  10     full range (dflt)   60 + 48t              (detent: C4 = MIDI 60)
 	 * where t = 2*F1 - 1.
+	 *
+	 * Modes 1-8 were Plaits' +-7 semitones until #44 (Adara): now one PERIOD either side of
+	 * the root, so both ends of F1 are the root an octave down / up -- and with a scale on,
+	 * the root of THAT scale (tuned by ear or C) one of ITS periods down / up, so the ends
+	 * land on roots whatever the scale (a 3/1 tritave included). The centre is the scale's
+	 * root nearest the octave's C.
+	 *
+	 * ---- Tune By Ear (#30, Adara) ----
+	 * Turning the quantizer ON (off -> a scale, SETTINGS T3) takes the note FREQUENCY was
+	 * playing just before as the scale's ROOT (`by_ear_root`, any pitch, not only a
+	 * semitone): tune F1 by ear, check it with TRIG, then switch the scale on. Every scale
+	 * with `tune_by_ear = on` (scales.cnfg) is then quantized around that root; a scale with
+	 * it off keeps C. Stepping between scales keeps the root; turning the quantizer off and
+	 * on again takes a new one.
 	 *
 	 * ⚠️ Mode 0 is NOT Plaits' mode 0 (the LFO range, -48.37 + 60t). Adara removed it in
 	 * issue #18: at the bottom of OCTV it was easy to land in by accident and left the
@@ -508,14 +532,18 @@ void sp1_pui_params(struct sp1_synth_params *p)
 	const int oct = sp1_pui_octave_mode();
 	/* The scale, if one is selected (M4b). Fetched once: it also decides what mode 9
 	 * means. `degrees` is empty when no scale is on. */
-	float degrees[16];
-	const int n_deg = quantize ? sp1_marbles_plaits_degrees(degrees, 16) : 0;
+	static float degrees[SP1_SCALE_DEGREES];   /* 256 B: off main's stack (main only) */
+	const int n_deg = quantize ? sp1_marbles_plaits_degrees(degrees, SP1_SCALE_DEGREES) : 0;
 	/* MIDI's FREQUENCY CC (M5a). Mode 9 makes F1 a switch, so there the CC moves the
 	 * position BEFORE it is quantized and steps like the fader does; everywhere else the
 	 * audio thread adds it, smoothed, at freq_per_travel semitones per unit of travel. */
 	const float f1 = (oct == 9)
 		? clamp01(b[0] + sp1_midi_offset(SP1_MIDI_D_FREQUENCY)) : b[0];
-	p->freq_per_travel = oct == 9 ? 0.0f : ((oct == 0 || oct == 10) ? 96.0f : 14.0f);
+	/* The root and the period the notes are placed around: the scale's (Tune By Ear), or
+	 * C and the octave with no scale. */
+	const float period = n_deg > 0 ? sp1_marbles_plaits_period() : 12.0f;
+	const float root = n_deg > 0 ? sp1_pui_scale_root() : 0.0f;
+	p->freq_per_travel = oct == 9 ? 0.0f : ((oct == 0 || oct == 10) ? 96.0f : 2.0f * period);
 	float note;
 	if (oct == 9 && n_deg > 0) {
 		/* ---- mode 9 with a scale: sweep SCALE DEGREES across the nine octaves ----
@@ -523,14 +551,17 @@ void sp1_pui_params(struct sp1_synth_params *p)
 		 * would be a no-op (an octave is degree 0 of every scale), so the mode
 		 * becomes what it should be: F1 steps through every degree of the scale, in
 		 * order, across the same nine octaves. Seven degrees gives 63 steps, about
-		 * 59 fader counts each. Same asymmetric hysteresis as the octave version. */
+		 * 59 fader counts each. Same asymmetric hysteresis as the octave version.
+		 * #44: nine PERIODS -- a scales.cnfg scale may repeat at 3/1, not 2/1. */
 		const int steps = 9 * n_deg;
 		const float v = f1 * (float)steps - 0.5f;
 		const float h = v > (float)deg_q ? -0.01f : 0.01f;
 		int q = (int)(v + h + 0.5f);
 		q = q < 0 ? 0 : (q > steps - 1 ? steps - 1 : q);
 		deg_q = q;
-		note = 60.0f + 12.0f * (float)(q / n_deg - 4) + degrees[q % n_deg];
+		/* Centred on the scale's root nearest C4 (C4 itself unless tuned by ear). */
+		note = nearest_root(60.0f, root, period) + period * (float)(q / n_deg - 4) +
+		       degrees[q % n_deg];
 	} else if (oct == 9) {
 		/* stmlib HysteresisQuantizer2(9 steps, 0.01, asymmetric) */
 		const float v = f1 * 9.0f - 0.5f;
@@ -544,12 +575,18 @@ void sp1_pui_params(struct sp1_synth_params *p)
 			? 2.0f * clamp01(b[0]) - 1.0f
 			: 2.0f * detent(b[0], sp1_midi_active() ? DETENT_FREQ_MIDI
 							       : DETENT_FREQ) - 1.0f;
-		note = (oct == 0 || oct == 10) ? 60.0f + t * 48.0f : t * 7.0f + (float)oct * 12.0f;
+		note = (oct == 0 || oct == 10)
+			? 60.0f + t * 48.0f
+			: nearest_root(12.0f * (float)oct, root, period) + t * period;
 		if (n_deg > 0) {
 			/* Modes 0-8 and 10: the range decides the SPAN, the scale decides
-			 * which notes inside it exist. They compose (Adara). */
-			note = sp1_marbles_plaits_quantize(note);
+			 * which notes inside it exist. They compose (Adara). The quantizer's
+			 * root is 0 V = C; Tune By Ear shifts the scale onto `root`. */
+			note = sp1_marbles_plaits_quantize(note - root) + root;
 		}
+	}
+	if (!quantize) {
+		free_note = note;          /* what Tune By Ear takes when the scale goes on */
 	}
 	p->note = note;
 	/* ---- and ask the audio thread to HOLD it between TRIGs (M4e, Adara) ----
@@ -624,10 +661,39 @@ int  sp1_pui_slot(void)                 { return slot; }
 uint8_t sp1_pui_engine_centre(void)     { return centre_of(eslot()); }
 int  sp1_pui_scale(void)                { return scale; }
 
+/* `by_ear`: an off -> on change takes the root from FREQUENCY (Tune By Ear, #30). */
+static void set_scale(int s, bool by_ear)
+{
+	const int was = scale;
+	scale = sp1_scale_filled(s) ? s : SP1_PUI_SCALE_OFF;   /* an empty slot (#44): off */
+	if (by_ear && was == SP1_PUI_SCALE_OFF && scale != SP1_PUI_SCALE_OFF) {
+		by_ear_root = free_note;
+	}
+	sp1_marbles_plaits_scale(scale);
+}
+
 void sp1_pui_set_scale(int s)
 {
-	scale = (s >= 0 && s < SP1_MARBLES_SCALES) ? s : SP1_PUI_SCALE_OFF;
-	sp1_marbles_plaits_scale(scale);
+	set_scale(s, true);
+}
+
+bool sp1_pui_scales_settle(void)
+{
+	const int was = scale;
+	set_scale(scale, false);           /* reloads the slot's new contents, or turns off */
+	return scale != was;
+}
+
+float sp1_pui_scale_root(void)
+{
+	const struct sp1_scale *s = sp1_scale_at(scale);
+	return (s != NULL && s->by_ear) ? by_ear_root : 0.0f;
+}
+
+bool sp1_pui_scale_by_ear(void)
+{
+	const struct sp1_scale *s = sp1_scale_at(scale);
+	return s != NULL && s->by_ear;
 }
 
 void sp1_pui_set_octave_max(void)
@@ -687,6 +753,7 @@ void sp1_pui_rip_patch(int s, struct sp1_pui_patch *p)
 		p->v[SP1_PUI_SETTINGS][i] = kSettings[i];
 	}
 	p->scale = SP1_PUI_SCALE_OFF;                        /* quantizer off   */
+	p->root = 0.0f;                                      /* Tune By Ear: C  */
 }
 
 void sp1_pui_get(struct sp1_pui_patch *p)
@@ -698,6 +765,7 @@ void sp1_pui_get(struct sp1_pui_patch *p)
 		}
 	}
 	p->scale = scale;
+	p->root = by_ear_root;
 }
 
 void sp1_pui_put(const struct sp1_pui_patch *p)
@@ -709,7 +777,10 @@ void sp1_pui_put(const struct sp1_pui_patch *p)
 			stored[l][i] = isfinite(x) ? clamp01(x) : 0.0f;
 		}
 	}
-	sp1_pui_set_scale(p->scale);       /* anything unknown -> off */
+	/* Anything unknown -> off. A preset is not a turn-on by ear: it brings its own root
+	 * (PRST format 2, #30; a format-1 preset's is C). */
+	by_ear_root = (isfinite(p->root) && p->root >= 0.0f && p->root <= 127.0f) ? p->root : 0.0f;
+	set_scale(p->scale, false);
 	base_seeded = true;
 	pickup_all();
 }

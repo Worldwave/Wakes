@@ -16,6 +16,7 @@ const char *sp1_marbles_model_name(int m) { (void)m; return "?"; }
 void  sp1_marbles_plaits_scale(int s) { (void)s; }
 float sp1_marbles_plaits_quantize(float st) { return st; }
 int   sp1_marbles_plaits_degrees(float *st, int max) { (void)st; (void)max; return 0; }
+float sp1_marbles_plaits_period(void) { return 12.0f; }
 const char *sp1_marbles_scale_name(int s) { (void)s; return "?"; }
 
 static int fails;
@@ -47,6 +48,8 @@ static int diff(const struct sp1_prst *a, const struct sp1_prst *b, const char *
 		}
 	}
 	D(a->plaits.scale != b->plaits.scale, "quantizer %d vs %d", a->plaits.scale, b->plaits.scale);
+	D(fabsf(a->plaits.root - b->plaits.root) > 0.00005f, "quantizer root %.4f vs %.4f",
+	  a->plaits.root, b->plaits.root);
 	D(a->out_mode != b->out_mode, "output %d vs %d", a->out_mode, b->out_mode);
 	D(a->burst_div != b->burst_div, "burst %d vs %d", a->burst_div, b->burst_div);
 	D(a->drive != b->drive, "drive %d vs %d", a->drive, b->drive);
@@ -89,6 +92,7 @@ static void unusual(struct sp1_prst *p)
 	p->plaits.v[SP1_PUI_BASE][0] = 1.0f;                    /* both ends survive */
 	p->plaits.v[SP1_PUI_BASE][1] = 0.0f;
 	p->plaits.scale = 3;                                    /* pelog */
+	p->plaits.root = 61.3712f;                              /* C#4 +37 cents (#30) */
 	p->out_mode = SP1_OUT_RING;
 	p->burst_div = 7;
 	p->drive = 4;
@@ -119,6 +123,7 @@ static void unusual(struct sp1_prst *p)
  * its range, every choice one the firmware can hold. */
 static bool safe(const struct sp1_prst *p)
 {
+	if (!(p->plaits.root >= 0.0f && p->plaits.root <= 127.0f)) { return false; }
 	for (int l = 0; l < SP1_PUI_LAYERS; l++) {
 		for (int i = 0; i < 4; i++) {
 			const float v = p->plaits.v[l][i];
@@ -185,6 +190,29 @@ int main(void)
 {
 	struct sp1_prst a, b, d;
 	struct sp1_prst_report rep;
+
+	/* #44: the built-in bank fills all seven scale slots (whole-tone in [7]), so a scale
+	 * token naming an EMPTY slot can only be checked against a bank with a gap. First the
+	 * default bank: `free` (slot 7) is a scale like any other. Then slot 7 is emptied for
+	 * the rest of the run, which is what the "not included" checks below were written for. */
+	{
+		static char t[SP1_PRST_TEXT_MAX];
+		struct sp1_prst p;
+		sp1_prst_rip(&p, -1);
+		p.marbles.scale = 6;
+		p.plaits.scale = 6;
+		for (int k = 0; k < 4; k++) {
+			p.marbles.dest[k] = SP1_DEST_NONE;   /* no V/Oct: the interlock (M4b) */
+		}
+		const int n = sp1_prst_write(&p, t, sizeof(t));
+		sp1_prst_parse(t, (size_t)n, &a, &rep);
+		CHECK(rep.format_ok && rep.bad == 0 && a.marbles.scale == 6 && a.plaits.scale == 6,
+		      "slot 7 (whole-tone) should load from a preset: bad %d", rep.bad);
+		struct sp1_scale_bank bank;
+		sp1_scales_defaults(&bank);
+		memset(&bank.s[6], 0, sizeof(bank.s[6]));
+		sp1_scales_install(&bank);
+	}
 
 	/* ---------- 1. the defaults: one source, and the rip still gives them ---------- */
 	printf("1. ROTC defaults\n");
@@ -276,6 +304,10 @@ int main(void)
 		{ "x1", "trig" },                   /* TRIG is not on the X ring */
 		{ "y", "banana" }, { "t_range", "x2" }, { "range", "0-10v" },
 		{ "deja_vu_t", "yes" }, { "t_model", "7" },
+		/* #30: the Tune By Ear root, 0..127 semitones, a plain decimal */
+		{ "quantizer_root", "nan" }, { "quantizer_root", "-1.0000" },
+		{ "quantizer_root", "127.0001" }, { "quantizer_root", "C#4" },
+		{ "quantizer_root", "1000" },
 	};
 	char buf[SP1_PRST_TEXT_MAX + 64];
 	for (size_t k = 0; k < sizeof(bad) / sizeof(bad[0]); k++) {
@@ -328,7 +360,7 @@ int main(void)
 	      "quantizer + V/Oct: scale %d, x2 %d, bad %d", a.plaits.scale, a.marbles.dest[1],
 	      rep.bad);
 	/* every value missing: all defaults, nothing called bad */
-	sp1_prst_parse("[wakes]\nformat = 1\n", 19, &a, &rep);
+	sp1_prst_parse("[wakes]\nformat = 2\n", 19, &a, &rep);
 	CHECK(rep.format_ok && rep.defaulted == sp1_prst_fields() && rep.bad == 0,
 	      "an empty slot: defaulted %d bad %d", rep.defaulted, rep.bad);
 	CHECK(diff(&a, &d, "empty") == 0, "an empty slot is not the ROTC default");
@@ -336,7 +368,7 @@ int main(void)
 	/* ---------- 4. the format version ---------- */
 	printf("4. format version\n");
 	static const char *const fmts[] = {
-		NULL, "2", "0", "1x", "", "01x", " ", "999999999", "-1",
+		NULL, "3", "0", "1x", "", "01x", " ", "999999999", "-1",
 	};
 	for (size_t k = 0; k < sizeof(fmts) / sizeof(fmts[0]); k++) {
 		m = with(text, "format", fmts[k], buf, sizeof(buf));
@@ -351,10 +383,36 @@ int main(void)
 	strcat(buf, "[plaits]\nformat = 1\n");
 	sp1_prst_parse(buf, strlen(buf), &a, &rep);
 	CHECK(!rep.format_ok, "a format line outside [wakes] counted");
-	/* "01" is a decimal 1: accepted */
-	m = with(text, "format", "01", buf, sizeof(buf));
+	/* "02" is a decimal 2: accepted */
+	m = with(text, "format", "02", buf, sizeof(buf));
 	sp1_prst_parse(buf, (size_t)m, &a, &rep);
-	CHECK(rep.format_ok && rep.defaulted == 0, "format 01 rejected");
+	CHECK(rep.format_ok && rep.defaulted == 0, "format 02 rejected");
+
+	/* ---- format 1 (v0.8.0 - v0.8.2): read, with the Tune By Ear root on C (#30) ----
+	 * A format-1 file is this patch without quantizer_root and with format = 1. Nothing in
+	 * it counts as defaulted: the root did not exist in that format. */
+	CHECK(sp1_prst_format() == 2, "this firmware writes format %d", sp1_prst_format());
+	m = with(text, "quantizer_root", NULL, buf, sizeof(buf));
+	{
+		static char v1[SP1_PRST_TEXT_MAX + 64];
+		const int m1 = with(buf, "format", "1", v1, sizeof(v1));
+		sp1_prst_parse(v1, (size_t)m1, &a, &rep);
+		struct sp1_prst want = b;
+		want.plaits.root = 0.0f;
+		CHECK(rep.format_ok && rep.format == 1 && rep.defaulted == 0 && rep.bad == 0,
+		      "format 1: format_ok %d defaulted %d bad %d", rep.format_ok, rep.defaulted,
+		      rep.bad);
+		CHECK(diff(&a, &want, "format 1") == 0, "format 1: not the patch with the root on C");
+		/* a format-1 file that somehow has the key: it is read (only fields were added) */
+		const int m2 = with(text, "format", "1", v1, sizeof(v1));
+		sp1_prst_parse(v1, (size_t)m2, &a, &rep);
+		CHECK(rep.format_ok && a.plaits.root == b.plaits.root, "format 1 + a root: %.4f",
+		      a.plaits.root);
+		/* the same file as format 2 has lost a field: that one IS defaulted */
+		sp1_prst_parse(buf, (size_t)m, &a, &rep);
+		CHECK(rep.format_ok && rep.defaulted == 1 && a.plaits.root == 0.0f,
+		      "format 2 without its root: defaulted %d", rep.defaulted);
+	}
 
 	/* ---------- 5. the text as people edit it ---------- */
 	printf("5. hand-edited text\n");
